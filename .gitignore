@@ -1,4 +1,5 @@
 *.pyc
 __pycache__/
 venv/
-analysis/
+analysis/sample_data/
+analysis/sample_output/
