@@ -1,6 +1,5 @@
 import argparse
 import os.path
-from argparse import Namespace
 
 from plantcv import plantcv as pcv
 
@@ -37,9 +36,10 @@ def options():
         "-D",
         "--debug",
         help="Writes out intermediate images: None, 'print' (to file) or 'plot' (to device)",
+        choices=[None, "print", "plot"],
         default=None
     )
-    args: Namespace = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
     if not args.outdir:
         args.outdir = os.path.dirname(args.image)
     return args
@@ -68,16 +68,18 @@ def get_mask():
     # Join the segmented saturation and blue-yellow images
     bs = pcv.logical_and(s_thresh, b_thresh)
     # Fill small objects
-    b_fill = pcv.fill(bs, fill)
+    bs_fill = pcv.fill(bs, fill)
+    # Fill holes in larger objects
+    bs_fill2 = pcv.fill_holes(bs_fill)
     # Apply Mask (for vis images, mask_color=white)
-    overlay = pcv.visualize.overlay_two_imgs(img, b_fill, alpha=0.5)
+    overlay = pcv.visualize.overlay_two_imgs(img, bs_fill2, alpha=0.5)
     # output file
     if args.mask in ["both", "masked"]:
         overlay_file = os.path.join(args.outdir, "masked_" + filename)
         pcv.print_image(overlay, overlay_file)
     if args.mask in ["both", "mask"]:
         mask_file = os.path.join(args.outdir, "mask_" + filename)
-        pcv.print_image(pcv.invert(b_fill), mask_file)
+        pcv.print_image(pcv.invert(bs_fill2), mask_file)
 
 
 # Extract black and white image of mask
