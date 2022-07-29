@@ -60,8 +60,8 @@ def options():
     parser.add_argument(
         "-D",
         "--debug",
-        help="Writes out intermediate images: None, 'print' (to file) or 'plot' (to device)",
-        choices=[None, "print", "plot"],
+        help="Writes out intermediate images: None, 'print' (to file) , 'plot' (to device), text (only print comments)",
+        choices=[None, "print", "plot", "text"],
         default=None
     )
     args: argparse.Namespace = parser.parse_args()
@@ -261,12 +261,20 @@ def main():
     elif args.action == "area":
         header = ['filename', 'plate', 'well', 'pixels', 'mm²']
         if Path(args.image).is_file():
-            p = [Path(args.image)]
+            p = {Path(args.image)}
         elif Path(args.image).is_dir():
-            p = Path(args.image).glob('**/*.jpg')
+            p = set(Path(args.image).glob('**/*.jpg'))
         else:
             raise FileNotFoundError
         out_path = Path(args.outdir, "area.csv")
+        if out_path.is_file():  # if the file exists then check for any already processed images
+            with open(out_path) as csv_file:
+                reader = csv.reader(csv_file)
+                next(reader)
+                files_done = {Path(row[0]) for row in reader}
+            p = p - files_done
+            if args.debug:
+                print('Some images already included in result file, skipping these:', [str(f) for f in files_done])
         with open(out_path, 'a+') as csv_file:
             writer = csv.writer(csv_file)
             if out_path.stat().st_size == 0:  # True if empty
