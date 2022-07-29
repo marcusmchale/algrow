@@ -7,6 +7,7 @@ import cv2 as cv
 from scipy.cluster import hierarchy
 from matplotlib import pyplot as plt
 from copy import copy
+from multiprocessing import Pool
 
 
 # Parse command-line arguments
@@ -63,6 +64,13 @@ def options():
         help="Writes out intermediate images: None, 'print' (to file) , 'plot' (to device), text (only print comments)",
         choices=[None, "print", "plot", "text"],
         default=None
+    )
+    parser.add_argument(
+        "-p",
+        "--processes",
+        help="Number of processes to launch (images to concurrently process)",
+        default=1,
+        type=int
     )
     args: argparse.Namespace = parser.parse_args()
     if not args.outdir:
@@ -224,7 +232,7 @@ def get_area(image):
                     pcv.print_image(circle_image, Path(args.outdir, basename + "circle" + circle_number + ".png"))
             circle_mask = cv.bitwise_and(mask, circle_image)
             pixels = cv.countNonZero(circle_mask)
-            result.append((p.number, circle_number, pixels))
+            result.append((str(image), p.number, circle_number, pixels))
     if args.debug:
         if args.debug == 'plot':
             pcv.plot_image(img_labeled)
@@ -275,16 +283,19 @@ def main():
             p = p - files_done
             if args.debug:
                 print('Some images already included in result file, skipping these:', [str(f) for f in files_done])
+
+        pool = Pool(processes=args.processes)
+
         with open(out_path, 'a+') as csv_file:
             writer = csv.writer(csv_file)
             if out_path.stat().st_size == 0:  # True if empty
                 writer.writerow(header)
-            for f in p:
-                if f.is_file():
-                    result = get_area(f)
-                    for r in result:
-                        writer.writerow([f, r[0], r[1], r[2], None if r[2] is None else r[2] * scale])
+            results = pool.map(get_area, p)
+            for result in results:
+                for r in result:
+                    writer.writerow([r[0], r[1], r[2], r[3], None if r[3] is None else r[3] * scale])
 
 
-main()
+if __name__ == '__main__':
+    main()
 
