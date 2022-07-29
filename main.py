@@ -119,13 +119,23 @@ def get_area(image):
         pcv.print_image(pcv.invert(mask), str(mask_file))
 
     # Find circles for numbering
-    b_blur = pcv.median_blur(b, 5)
-    #pcv.plot_image(b_thresh)
+    b_blur = pcv.median_blur(b, 20)  # raise this to  get rid of spurious circles
+    # pcv.plot_image(b_thresh)
     circles = cv.HoughCircles(b_blur, cv.HOUGH_GRADIENT, dp=1, minDist=170, param1=20, param2=30, minRadius=70, maxRadius=120)
     # 170 px is the diameter of a blue circle
     # todo consider adjusting this according to input scale
-    circles = np.squeeze(np.uint16(np.around(circles)))
+    try:
+        circles = np.squeeze(np.uint16(np.around(circles)))
+    except TypeError:
+        if args.debug:
+            print(filename + ': No circles found')
+        return [(None, None, None)]
+    if circles.shape[0] < 48:
+        if args.debug:
+            print(filename + ': Insufficient circles found, expect 48')
+        return [(None, None, None)]
     centres = np.delete(circles, 2, axis=1)
+
     # First clustering to find the plates
     dendrogram = hierarchy.linkage(centres)
 
@@ -135,7 +145,7 @@ def get_area(image):
         plt.axhline(y=cut_height, c='k')
         if args.debug == 'plot':
             plt.show()
-        else:
+        elif args.debug == 'print':
             plt.savefig(Path(args.outdir, basename + "dendrogram.png"))
 
     clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
@@ -143,7 +153,11 @@ def get_area(image):
     # todo consider asking for input of scale to allow more variable inputs
     # we will need for the later quant steps anyway
     unique, counts = np.array(np.unique(clusters, return_counts=True))
-    target_clusters = unique[[i for i, j in enumerate(counts.flat) if j == 6]]
+    target_clusters = unique[[i for i, j in enumerate(counts.flat) if j >= 6]]
+    if len(target_clusters) < 8:
+        import pdb; pdb.set_trace()
+    if args.debug:
+        print(filename + ': ' + str(len(target_clusters)) + ' plates found')
     target_circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
 
     img_labeled = copy(img)
@@ -155,7 +169,7 @@ def get_area(image):
     if args.debug:
         if args.debug == 'plot':
             pcv.plot_image(img_labeled)
-        else:
+        elif args.debug == 'print':
             pcv.print_image(img_labeled, Path(args.outdir, basename + "circles.png"))
 
     class Plate:
@@ -206,7 +220,7 @@ def get_area(image):
             if args.debug:
                 if args.debug == 'plot':
                     pcv.plot_image(circle_image)
-                else:
+                elif args.debug == 'print':
                     pcv.print_image(circle_image, Path(args.outdir, basename + "circle" + circle_number + ".png"))
             circle_mask = cv.bitwise_and(mask, circle_image)
             pixels = cv.countNonZero(circle_mask)
@@ -214,7 +228,7 @@ def get_area(image):
     if args.debug:
         if args.debug == 'plot':
             pcv.plot_image(img_labeled)
-        else:
+        elif args.debug == 'print':
             pcv.print_image(img_labeled, Path(args.outdir, basename + "circles_labeled.png"))
     return result
 
@@ -245,7 +259,7 @@ def main():
     if args.action == "channels":
         get_channels()
     elif args.action == "area":
-        header = ['filename','plate', 'well', 'pixels', 'mm²']
+        header = ['filename', 'plate', 'well', 'pixels', 'mm²']
         if Path(args.image).is_file():
             p = [Path(args.image)]
         elif Path(args.image).is_dir():
@@ -257,7 +271,7 @@ def main():
                 if f.is_file():
                     result = get_area(f)
                     for r in result:
-                        writer.writerow([f, r[0], r[1], r[2], r[2] * scale])
+                        writer.writerow([f, r[0], r[1], r[2], None if r[2] is None else r[2] * scale])
 
 
 main()
