@@ -264,9 +264,13 @@ def main():
             p = [Path(args.image)]
         elif Path(args.image).is_dir():
             p = Path(args.image).glob('**/*.jpg')
-        with open(Path(args.outdir, "area.csv"), 'w+') as csv_file:
+        else:
+            raise FileNotFoundError
+        out_path = Path(args.outdir, "area.csv")
+        with open(out_path, 'a+') as csv_file:
             writer = csv.writer(csv_file)
-            writer.writerow(header)
+            if out_path.stat().st_size == 0:  # True if empty
+                writer.writerow(header)
             for f in p:
                 if f.is_file():
                     result = get_area(f)
