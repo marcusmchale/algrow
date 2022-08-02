@@ -9,6 +9,8 @@ from matplotlib import pyplot as plt
 from copy import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+class ImageContentException(Exception):
+    pass
 
 # Parse command-line arguments
 def options():
@@ -140,14 +142,10 @@ def get_area(image):
     # todo consider adjusting this according to input scale
     try:
         circles = np.squeeze(np.uint16(np.around(circles)))
-    except TypeError:
-        if args.debug:
-            print(filename + ': No circles found')
-        return [(None, None, None)]
+    except TypeError as exc:
+        raise ImageContentException('No circles found')
     if circles.shape[0] < 48:
-        if args.debug:
-            print(filename + ': Insufficient circles found, expect 48')
-        return [(None, None, None)]
+        raise ImageContentException('Insufficient circles found, expect 48 and found:', str(circles.shape[0]))
     centres = np.delete(circles, 2, axis=1)
 
     # First clustering to find the plates
@@ -172,9 +170,8 @@ def get_area(image):
     unique, counts = np.array(np.unique(clusters, return_counts=True))
     target_clusters = unique[[i for i, j in enumerate(counts.flat) if j >= 6]]
     if len(target_clusters) < 8:
-        return [(None, None, None)]
-    if args.debug:
-        print(filename + ': ' + str(len(target_clusters)) + ' plates found')
+        raise ImageContentException('Insufficient plates found, expect 8 and found: ', str(len(target_clusters)))
+
     target_circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
 
     img_labeled = copy(img)
@@ -293,7 +290,6 @@ def main():
             if args.debug:
                 print('Some images already included in result file, skipping these:', [str(f) for f in files_done])
 
-        results = dict()
         with ProcessPoolExecutor(max_workers = args.processes) as executor:
 
             with open(out_path, 'a+') as csv_file:
