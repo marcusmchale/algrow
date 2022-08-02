@@ -7,7 +7,7 @@ import cv2 as cv
 from scipy.cluster import hierarchy
 from matplotlib import pyplot as plt
 from copy import copy
-from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
 # Parse command-line arguments
@@ -61,8 +61,14 @@ def options():
     parser.add_argument(
         "-D",
         "--debug",
-        help="Writes out intermediate images: None, 'print' (to file) , 'plot' (to device), text (only print comments)",
-        choices=[None, "print", "plot", "text"],
+        help=(
+            "Writes out intermediate images: "
+            "None, "
+            "'print' (to file) , "
+            "'plot' (to device), "
+            "'log' (print comments)"
+        ),
+        choices=[None, "print", "plot", "log"],
         default=None
     )
     parser.add_argument(
@@ -148,13 +154,16 @@ def get_area(image):
     dendrogram = hierarchy.linkage(centres)
 
     if args.debug:
-        fig = plt.figure()
-        dn = hierarchy.dendrogram(dendrogram)
-        plt.axhline(y=cut_height, c='k')
-        if args.debug == 'plot':
-            plt.show()
-        elif args.debug == 'print':
-            plt.savefig(Path(args.outdir, basename + "dendrogram.png"))
+        if args.debug == 'log':
+            pass
+        else:
+            fig = plt.figure()
+            dn = hierarchy.dendrogram(dendrogram)
+            plt.axhline(y=cut_height, c='k')
+            if args.debug == 'plot':
+                plt.show()
+            elif args.debug == 'print':
+                plt.savefig(Path(args.outdir, basename + "dendrogram.png"))
 
     clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
     # the cut height is dependent on the scale (pixels between centre of blue rings)
@@ -163,7 +172,7 @@ def get_area(image):
     unique, counts = np.array(np.unique(clusters, return_counts=True))
     target_clusters = unique[[i for i, j in enumerate(counts.flat) if j >= 6]]
     if len(target_clusters) < 8:
-        import pdb; pdb.set_trace()
+        return [(None, None, None)]
     if args.debug:
         print(filename + ': ' + str(len(target_clusters)) + ' plates found')
     target_circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
@@ -232,13 +241,13 @@ def get_area(image):
                     pcv.print_image(circle_image, Path(args.outdir, basename + "circle" + circle_number + ".png"))
             circle_mask = cv.bitwise_and(mask, circle_image)
             pixels = cv.countNonZero(circle_mask)
-            result.append((str(image), p.number, circle_number, pixels))
+            result.append((p.number, circle_number, pixels))
     if args.debug:
         if args.debug == 'plot':
             pcv.plot_image(img_labeled)
         elif args.debug == 'print':
             pcv.print_image(img_labeled, Path(args.outdir, basename + "circles_labeled.png"))
-    return result
+    return str(image), result
 
 
 
@@ -258,7 +267,7 @@ def main():
     args = options()
     pcv.params.debug = args.debug
 
-    # 1currently hard coded scale to, allow adjustment
+    # currently hard coded scale to, allow adjustment
     # 30 mm = 170 px
     # ~0.1765 mm = 1px
     # ~0.031 mm^2 / px
@@ -284,16 +293,26 @@ def main():
             if args.debug:
                 print('Some images already included in result file, skipping these:', [str(f) for f in files_done])
 
-        pool = Pool(processes=args.processes)
+        results = dict()
+        with ProcessPoolExecutor(max_workers = args.processes) as executor:
 
-        with open(out_path, 'a+') as csv_file:
-            writer = csv.writer(csv_file)
-            if out_path.stat().st_size == 0:  # True if empty
-                writer.writerow(header)
-            results = pool.map(get_area, p)
-            for result in results:
-                for r in result:
-                    writer.writerow([r[0], r[1], r[2], r[3], None if r[3] is None else r[3] * scale])
+            with open(out_path, 'a+') as csv_file:
+                writer = csv.writer(csv_file)
+                if out_path.stat().st_size == 0:  # True if empty
+                    writer.writerow(header)
+
+                future_to_file = {executor.submit(get_area, fp): fp for fp in p}
+                for future in as_completed(future_to_file):
+                    fp = future_to_file[future]
+                    try:
+                        result = future.result()
+                        for r in result[1]:
+                            writer.writerow([result[0], r[0], r[1], r[2], None if r[2] is None else r[2] * scale])
+                    except Exception as exc:
+                        print('%r generated an exception: %s' % (str(fp), exc))
+                    else:
+                        if args.debug:
+                            print('%r processed' % (str(fp)))
 
 
 if __name__ == '__main__':
