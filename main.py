@@ -9,8 +9,10 @@ from matplotlib import pyplot as plt
 from copy import copy
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+
 class ImageContentException(Exception):
     pass
+
 
 # Parse command-line arguments
 def options():
@@ -25,11 +27,10 @@ def options():
         default="area"
     )
     parser.add_argument(
-        "-m",
-        "--mask",
-        help="Write out image mask, overlay or both",
-        choices=[None, "mask", "overlay", "both"],
-        default=None
+        "-q",
+        "--overlay",
+        action='store_true',
+        help="Write out overlay for quality control"
     )
     parser.add_argument(
         "-s",
@@ -125,14 +126,6 @@ def get_area(image):
     vsb = pcv.threshold.binary(vsb, 0, 255, 'light')
     vsb_fill = pcv.fill(vsb, fill)
     mask = pcv.fill_holes(vsb_fill)
-    overlay = pcv.visualize.overlay_two_imgs(img, mask, alpha=0.5)
-    # output file
-    if args.mask in ["both", "masked"]:
-        overlay_file = Path(args.outdir, "masked_" + filename)
-        pcv.print_image(overlay, str(overlay_file))
-    if args.mask in ["both", "mask"]:
-        mask_file = Path(args.outdir, "mask_" + filename)
-        pcv.print_image(pcv.invert(mask), str(mask_file))
 
     # Find circles for numbering
     b_blur = pcv.median_blur(b, 20)  # raise this to  get rid of spurious circles
@@ -144,8 +137,9 @@ def get_area(image):
         circles = np.squeeze(np.uint16(np.around(circles)))
     except TypeError as exc:
         raise ImageContentException('No circles found')
+
     if circles.shape[0] < 48:
-        raise ImageContentException('Insufficient circles found, expect 48 and found:', str(circles.shape[0]))
+        raise ImageContentException(f'Insufficient circles found, expect 48 and found {str(circles.shape[0])}')
     centres = np.delete(circles, 2, axis=1)
 
     # First clustering to find the plates
@@ -231,11 +225,11 @@ def get_area(image):
             # count pixels that are in the mask inside the circle
             circle_image = np.zeros_like(mask)
             cv.circle(circle_image, (c[0],c[1]), c[2], (255,255,255), -1)
-            if args.debug:
-                if args.debug == 'plot':
-                    pcv.plot_image(circle_image)
-                elif args.debug == 'print':
-                    pcv.print_image(circle_image, Path(args.outdir, basename + "circle" + circle_number + ".png"))
+            #if args.debug:
+            #    if args.debug == 'plot':
+            #        pcv.plot_image(circle_image)
+            #    elif args.debug == 'print':
+            #        pcv.print_image(circle_image, Path(args.outdir, basename + "circle" + circle_number + ".png"))
             circle_mask = cv.bitwise_and(mask, circle_image)
             pixels = cv.countNonZero(circle_mask)
             result.append((p.number, circle_number, pixels))
@@ -244,11 +238,17 @@ def get_area(image):
             pcv.plot_image(img_labeled)
         elif args.debug == 'print':
             pcv.print_image(img_labeled, Path(args.outdir, basename + "circles_labeled.png"))
+    if args.overlay:  # output overlay for QC
+        overlay_path = Path(args.outdir, "overlay")
+        overlay_path.mkdir(exist_ok=True)
+        overlay_file = Path(overlay_path, filename)
+        overlay = pcv.visualize.overlay_two_imgs(img_labeled, mask, alpha=0.5)
+        pcv.print_image(overlay, str(overlay_file))
     return str(image), result
 
 
-
-# Extract black and white image of mask
+# Extract greyscale images from each channel
+# of use for adapting the levels in the get_area script to new images
 def get_channels():
     args = options()
     img, path, filename = pcv.readimage(args.image)
