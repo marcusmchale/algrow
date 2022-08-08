@@ -43,7 +43,7 @@ def options():
         "-v",
         "--value",
         help="Set threshold value for value channel in HSV",
-        default=10,
+        default=50,
         type=int
     )
     parser.add_argument(
@@ -116,7 +116,7 @@ def get_area(image):
     s_thresh = pcv.threshold.binary(s, saturation, 255, 'light')
     # Threshold the value image
     # this catches the low exposure bits that are often folded or dark lamina disks
-    v_thresh = pcv.threshold.binary(v, value, 10, 'dark')
+    v_thresh = pcv.threshold.binary(v, value, 255, 'dark')
     # and we still need to threshold the b image
     b_thresh = pcv.threshold.binary(b, blue_yellow, 255, 'light')
     # Join s and b with and statement
@@ -253,11 +253,11 @@ def get_channels():
     args = options()
     img, path, filename = pcv.readimage(args.image)
     filename = Path(args.image)
-    pcv.print_image(pcv.rgb2gray_hsv(img, 's'), args.outdir + "/" + filename + "_saturation.jpg")
-    pcv.print_image(pcv.rgb2gray_hsv(img, 'v'), args.outdir + "/" + filename + "_value.jpg")
-    pcv.print_image(pcv.rgb2gray_hsv(img, 'h'), args.outdir + "/" + filename + "_hue.jpg")
-    pcv.print_image(pcv.rgb2gray_lab(img, 'a'), args.outdir + "/" + filename + "_green_magenta.jpg")
-    pcv.print_image(pcv.rgb2gray_lab(img, 'b'), args.outdir + "/" + filename + "_blue_yellow.jpg")
+    pcv.print_image(pcv.rgb2gray_hsv(img, 's'), str(Path(args.outdir, str(filename) + "_saturation.jpg")))
+    pcv.print_image(pcv.rgb2gray_hsv(img, 'v'), str(Path(args.outdir, str(filename) + "_value.jpg")))
+    pcv.print_image(pcv.rgb2gray_hsv(img, 'h'), str(Path(args.outdir, str(filename) + "_hue.jpg")))
+    pcv.print_image(pcv.rgb2gray_lab(img, 'a'), str(Path(args.outdir, str(filename) + "_green_magenta.jpg")))
+    pcv.print_image(pcv.rgb2gray_lab(img, 'b'), str(Path(args.outdir, str(filename) + "_blue_yellow.jpg")))
 
 
 def main():
