@@ -130,7 +130,7 @@ def get_area(image):
     # Find circles for numbering
     b_blur = pcv.median_blur(b, 20)  # raise this to  get rid of spurious circles
     # pcv.plot_image(b_thresh)
-    circles = cv.HoughCircles(b_blur, cv.HOUGH_GRADIENT, dp=1, minDist=170, param1=20, param2=30, minRadius=70, maxRadius=120)
+    circles = cv.HoughCircles(b_blur, cv.HOUGH_GRADIENT, dp=1, minDist=170, param1=20, param2=30, minRadius=70, maxRadius=105)
     # 170 px is the diameter of a blue circle
     # todo consider adjusting this according to input scale
     try:
