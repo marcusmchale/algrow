@@ -5,14 +5,19 @@ from pathlib import Path
 import numpy as np
 import cv2 as cv2
 from scipy.cluster import hierarchy
-from matplotlib import pyplot, rcParams
+from matplotlib import pyplot
+from skimage.morphology import remove_small_holes, remove_small_objects
+from skimage.util import img_as_ubyte, img_as_bool
 from copy import copy
 
-#  rcParams['toolbar'] = 'None'
 
 
 class ImageContentException(Exception):
     pass
+
+
+def area_worker(filepath, args):
+    return ImageProcessor(filepath, args).get_area()
 
 
 class Plate:
@@ -35,13 +40,22 @@ class ImageProcessor:
         self.debug_image(self.rgb, f"Raw: {self.filepath}")
         if args.debug:
             assert self.rgb.dtype == 'uint8'
-        logging.debug(f"Convert image to LAB colour space, split and keep Blue-Yellow")
+        logging.debug(f"Convert RGB to Lab and split")
         l, a, b = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab))
+        self.a = a
+        self.debug_image(a, f"Green-Red channel (a in Lab)")
         self.b = b
-        self.debug_image(b, f"Blue-Yellow channel")
+        self.debug_image(b, f"Blue-Yellow channel (b in Lab)")
+        logging.debug("Convert RGB to HSV and split")
+        h, s, v = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2HSV))
+        self.s = s
+        self.debug_image(s, "Saturation (S in HSV)")
+        self.v = v
+        self.debug_image(v, "Value (V in HSV)")
 
     def debug_image(self, img, label: str, prefix="debug", extension=".jpg"):
         if self.args.debug:
+            img = img_as_ubyte(img)
             if self.args.debug == 'print':
                 prefix = "_".join([i for i in (prefix, label) if i])
                 filepath = self.filepath.with_stem(f'{prefix}_{self.filepath.stem}').with_suffix(extension)
@@ -51,6 +65,7 @@ class ImageProcessor:
                 width = int(img.shape[1] * rescale)
                 height = int(img.shape[0] * rescale)
                 dim = (width, height)
+                #small_img = img
                 small_img = cv2.resize(img, dim)
                 cv2.imshow(label, small_img)
                 cv2.waitKey()
@@ -65,67 +80,76 @@ class ImageProcessor:
             elif self.args.debug == 'plot':
                 plot.show()
 
-    def find_circles(self):
+    def find_circles(self, image, param2=30):
         args = self.args
-        logging.debug("Find the blue rings in image")
-        logging.debug("Blur blue-yellow greyscale image")
-        b_blur = cv2.medianBlur(self.b, args.kernel)
-        self.debug_image(b_blur, "Blue-Yellow median blur")
-        logging.debug("Find circles in blurred image")
+        logging.debug("Find the rings in image")
         circle_radius_px = int((args.scale * args.circle_diameter)/2)
-        circle_tolerance = 0.2
         circles = cv2.HoughCircles(
-            b_blur,
+            image,
             cv2.HOUGH_GRADIENT,
             dp=1,
             minDist=int(circle_radius_px*2),
             param1=20,
-            param2=30,
-            minRadius=int(circle_radius_px * (1-circle_tolerance)),
-            maxRadius=int(circle_radius_px * (1+circle_tolerance))
+            param2=param2,
+            minRadius=int(circle_radius_px * (1-args.circle_radius_tolerance)),
+            maxRadius=int(circle_radius_px * (1+args.circle_radius_tolerance))
         )
-        try:
-            circles = np.squeeze(np.uint16(np.around(circles)))
-        except TypeError:
-            raise ImageContentException('No circles found')
-        if circles.shape[0] < 48:
-            raise ImageContentException(f'Insufficient circles found, expect 48 and found {str(circles.shape[0])}')
         return circles
 
     def find_plates(self):
         args = self.args
-        circles = self.find_circles()
-        logging.debug("Find clusters of circles to identify plates")
-        logging.debug("Get centres of circles")
-        centres = np.delete(circles, 2, axis=1)
-        cut_height = int(args.scale * args.circle_diameter * (1 + args.cut_height_tolerance))
-        logging.debug("Create dendrogram of centre distances (linkage method)")
-        dendrogram = hierarchy.linkage(centres)
-        if args.debug:
-            logging.debug("Output dendrogram and treecut height for plate clustering")
-            logging.debug("Create empty figure")
-            fig = pyplot.figure()
-            logging.debug("Create dendrogram")
-            hierarchy.dendrogram(dendrogram)
-            logging.debug("Add cut-height line")
-            pyplot.axhline(y=cut_height, c='k')
-            self.debug_plot(pyplot, "dendrogram")
-        logging.debug("Cut the dendrogram and select clusters containing 6 centre points only")
-        clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
-        unique, counts = np.array(np.unique(clusters, return_counts=True))
-        target_clusters = unique[[i for i, j in enumerate(counts.flat) if j >= 6]]
-        if len(target_clusters) < 8:
-            raise ImageContentException(
-                f'Insufficient plates found, expect 8 and {str(len(target_clusters))} found:'
-            )
-        circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
-        plates = [
-            Plate(
-                cluster_id,
-                circles[[i for i, j in enumerate(clusters.flat) if j == cluster_id]],
-            ) for cluster_id in target_clusters
-        ]
-        return plates
+        logging.debug("Blur blue-yellow greyscale image")
+        b_blur = cv2.medianBlur(self.b, args.kernel)
+        self.debug_image(b_blur, "Blue-Yellow median blur")
+        logging.debug(
+            "Finding circles, increasing the value for param2 until we find all the plates"
+        )
+        for param2 in range(100, 1, -5):
+            circles = self.find_circles(b_blur, param2)
+            if circles is None:
+                logging.debug(f"No circles found with param2 = {param2}")
+                continue
+            circles = np.squeeze(np.uint16(np.around(circles)))
+            if circles.shape[0] < 48:
+                logging.debug(f'{str(circles.shape[0])} circles found with param2 = {param2}')
+                continue
+            logging.debug(f"found {str(circles.shape[0])} circles with param2 = {param2}, proceeding to clustering")
+            if args.debug:
+                circle_debug = copy(b_blur)
+                logging.debug(circles)
+                for c in circles:
+                    cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)
+                self.debug_image(circle_debug, f"Circles found with param2 = {param2}")
+            centres = np.delete(circles, 2, axis=1)
+            cut_height = int(args.scale * args.circle_diameter * (1 + args.cut_height_tolerance))
+            logging.debug("Create dendrogram of centre distances (linkage method)")
+            dendrogram = hierarchy.linkage(centres)
+            if args.debug:
+                logging.debug("Output dendrogram and treecut height for plate clustering")
+                logging.debug("Create empty figure")
+                fig = pyplot.figure()
+                logging.debug("Create dendrogram")
+                hierarchy.dendrogram(dendrogram)
+                logging.debug("Add cut-height line")
+                pyplot.axhline(y=cut_height, c='k')
+                self.debug_plot(pyplot, "dendrogram")
+            logging.debug("Cut the dendrogram and select clusters containing 6 centre points only")
+            clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
+            unique, counts = np.array(np.unique(clusters, return_counts=True))
+            target_clusters = unique[[i for i, j in enumerate(counts.flat) if j >= 6]]
+            logging.debug(f"Found {len(target_clusters)} clusters with param2 = {param2}")
+            if len(target_clusters) < 8:
+                continue
+            elif len(target_clusters) > 8:
+                raise ImageContentException("More than 8 clusters of 6 circles found")
+            circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
+            plates = [
+                Plate(
+                    cluster_id,
+                    circles[[i for i, j in enumerate(clusters.flat) if j == cluster_id]],
+                ) for cluster_id in target_clusters
+            ]
+            return plates
 
     @staticmethod
     def sort_plates(plates):
@@ -153,43 +177,67 @@ class ImageProcessor:
         return plates
 
     def get_plates(self):
-        return self.sort_plates(self.find_plates())
+        plates = self.find_plates()
+        if plates is None:
+            raise ImageContentException("The plate layout could not be detected")
+        return self.sort_plates(plates)
 
     def get_area(self):
         args = self.args
         logging.debug("Start thresholding to calculate area")
-        logging.debug("Convert RGB to HSV and extract the hue, saturation and value channels")
-        h, s, v = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2HSV))
-        self.debug_image(h, "Hue")
-        self.debug_image(s, "Saturation")
-        self.debug_image(v, "Value")
-        logging.debug("Threshold the saturation channel to select coloured objects")
-        ret, s_thresh = cv2.threshold(s, args.saturation, 255, cv2.THRESH_BINARY)
 
-        self.debug_image(s_thresh, f"Saturation threshold: {args.saturation}")
-        logging.debug("Threshold the value image to select low exposure pixels")
-        # These are often folded lamina disks within blue circles but includes e.g. marbles and pump outside)
-        ret, v_thresh = cv2.threshold(v, args.value, 255, cv2.THRESH_BINARY_INV)
-        self.debug_image(v_thresh, f"Value threshold: {args.saturation}")
-        logging.debug("Join the thresholded images with logical or to create a mask")
-        # i.e. keeping anything coloured or very dark
+        logging.debug("Threshold green-red channel (select blue rings)")
+        ret, a_thresh = cv2.threshold(self.a, args.green_red, 255, cv2.THRESH_BINARY)
+        self.debug_image(a_thresh, "Green-Red threshold")
 
-        vs = v_thresh | s_thresh  #cv2.bitwise_or(v_thresh, s_thresh)
-
-        logging.debug("Threshold blue-yellow channel that was previously extracted to find blue rings")
+        logging.debug("Threshold blue-yellow channel (select blue rings)")
         ret, b_thresh = cv2.threshold(self.b, args.blue_yellow, 255, cv2.THRESH_BINARY)
-        logging.debug("Mask the blue rings in the existing mask (logical and)")
-        vsb = cv2.bitwise_and(vs, b_thresh)
-        if len(np.shape(vsb)) != 2 or len(np.unique(vsb)) != 2:
-            raise ImageContentException("Image is not binary")
-            # todo might need to convert to grayscale again e.g. pcv.threshold.binary(vsb, 0, 255, 'light')
-        #  vsb_fill = pcv.fill(vsb, args.fill) #todo if want fill can use skimage.morphology remove_small_objects
-        #  mask = pcv.fill_holes(vsb_fill)
-        threshold_mask = vsb
+        self.debug_image(b_thresh, "Blue-Yellow threshold")
+
+        logging.debug("Join green-red and blue-yellow thresholds to select blue rings")
+        ab = cv2.bitwise_and(a_thresh, b_thresh)
+        self.debug_image(ab, "Green-Red and Blue-Yellow joined (ab)")
+        
+        logging.debug("Dilate selected areas to ensure complete coverage of rings")
+        kernel = np.ones((10, 10), np.uint8)
+        dilated_ab = cv2.dilate(ab, kernel=kernel)
+        self.debug_image(dilated_ab, "Dilated ab")
+
+        logging.debug("Invert dilated ab to create blue ring mask")
+        ring_mask = cv2.bitwise_not(dilated_ab)
+        self.debug_image(ring_mask, "Dilated ab inverted (Blue ring mask)")
+
+        logging.debug("Threshold the saturation channel (select all colour rich areas")
+        ret, s_thresh = cv2.threshold(self.s, args.saturation, 255, cv2.THRESH_BINARY)
+        self.debug_image(s_thresh, f"Saturation threshold: {args.saturation}")
+
+        logging.debug("Threshold the value channel to select low exposure pixels")
+        # These are often folded lamina disks within blue circles but includes e.g. marbles and pump outside)
+        ret, v_thresh = cv2.threshold(self.v, args.value, 255, cv2.THRESH_BINARY_INV)
+        self.debug_image(v_thresh, f"Value threshold: {args.saturation}")
+
+        logging.debug("Join the value or saturation thresholds to create colour mask")
+        # i.e. keeping anything coloured or very dark
+        colour_mask = cv2.bitwise_or(v_thresh, s_thresh)
+        self.debug_image(colour_mask, f"Value or Saturation joined (colour mask)")
+
+        logging.debug("Mask the blue rings in the colour mask (logical and)")
+        mask = cv2.bitwise_and(ring_mask, colour_mask)
+        self.debug_image(mask, "Colour mask and blue ring mask joined")
+
+        logging.debug("Remove small objects in the mask")
+        clean_mask = remove_small_objects(img_as_bool(mask), args.remove)
+        self.debug_image(clean_mask, "Cleaned mask (removed small objects)")
+
+        logging.debug("Remove small holes in the mask")
+        filled_mask = remove_small_holes(clean_mask, args.fill)
+        self.debug_image(clean_mask, "Filled mask (removed small holes)")
+
+        final_mask = img_as_ubyte(filled_mask)
 
         plates = self.get_plates()
         result = []
-        empty_mask = np.zeros_like(threshold_mask)
+        empty_mask = np.zeros_like(final_mask)
         overlay_mask = copy(empty_mask)
 
         for p in plates:
@@ -197,31 +245,36 @@ class ImageProcessor:
             for j, c in enumerate(p.circles):
                 circle_number = j+1+6*(p.plate_id-1)
                 logging.debug(f"Processing circle {circle_number}")
-                logging.debug("Draw circle mask")
                 circle_mask = copy(empty_mask)
+                print("here")
                 cv2.circle(circle_mask, (c[0], c[1]), c[2], (255, 255, 255), -1)
-                local_mask = circle_mask & threshold_mask
+                #  self.debug_image(circle_mask, f"Circle mask: {circle_number}")
+                local_mask = cv2.bitwise_and(circle_mask, final_mask)
+                #  self.debug_image(local_mask, "Local mask")
                 pixels = cv2.countNonZero(local_mask)
-                result.append((p.plate_id, circle_number, pixels, local_mask))
+                result.append((p.plate_id, circle_number, pixels))
                 if args.overlay:
-                    overlay_mask = overlay_mask | local_mask
+                    overlay_mask = cv2.bitwise_or(overlay_mask, local_mask)
+                    #  self.debug_image(overlay_mask, "Overlay mask")
 
         if args.overlay:
             logging.debug("Prepare annotated overlay for QC")
-            overlay = copy(self.rgb)
-            overlay = cv2.addWeighted(overlay, 0.5, overlay_mask, 0.5, 0.2, 0)
+            overlay_mask = cv2.cvtColor(overlay_mask, cv2.COLOR_GRAY2RGB)
+            overlay = cv2.addWeighted(self.rgb, 0.5, overlay_mask, 0.5, 0.2, 0)
+            self.debug_image(overlay, "Overlay (unlabeled)")
             for p in plates:
                 logging.debug(f"Annotate overlay with plate ID: {p.plate_id}")
                 cv2.putText(overlay, str(p.plate_id), p.centroid, 0, 5, (255, 0, 255), 5)
                 for j, c in enumerate(p.circles):
-                    circle_number = j + 1 + 6 * p.plate_id
+                    circle_number = j + 1 + 6 * (p.plate_id - 1)
                     # draw the outer circle
                     cv2.circle(overlay, (c[0], c[1]), c[2], (255, 0, 0), 5)
                     # draw the center of the circle
                     cv2.circle(overlay, (c[0], c[1]), 2, (0, 0, 255), 5)
                     cv2.putText(overlay, str(circle_number), c[0:2], 0, 3, (0, 255, 255), 5)
 
-            overlay_path = Path(args.outdir, "overlay", self.filepath.name)
+            self.debug_image(overlay, "Overlay (annotated)")
+            overlay_path = Path(args.out_dir, "overlay", self.filepath.name)
             overlay_path.parent.mkdir(exist_ok=True)
-            cv2.imwrite(overlay_path, overlay)
+            cv2.imwrite(str(overlay_path), overlay)
         return str(self.filepath), result

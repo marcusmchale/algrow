@@ -40,7 +40,7 @@ def options():
         "-s",
         "--saturation",
         help="Set threshold value for saturation channel in HSV",
-        default=100,
+        default=80,
         type=int
     )
     parser.add_argument(
@@ -51,17 +51,31 @@ def options():
         type=int
     )
     parser.add_argument(
+        "-a",
+        "--green_red",
+        help="Set threshold value for green-red channel (A in LAB)",
+        default=150,
+        type=int
+    )
+    parser.add_argument(
         "-b",
         "--blue_yellow",
-        help="Set threshold value for blue-yellow channel in LAB",
+        help="Set threshold value for blue-yellow channel (B in LAB)",
         default=130,
+        type=int
+    )
+    parser.add_argument(
+        "-r",
+        "--remove",
+        help="Set remove size (px)",
+        default=250,
         type=int
     )
     parser.add_argument(
         "-f",
         "--fill",
-        help="Set fill size",
-        default=100,
+        help="Set fill size (px)",
+        default=250,
         type=int
     )
     parser.add_argument(
@@ -75,27 +89,27 @@ def options():
         "-sc",
         "--scale",
         help="pixels/mm",
-        default=5.6,
+        default=5.625,  # 180px = 32mm
         type=float
     )
     parser.add_argument(
         "-cd",
         "--circle_diameter",
         help="Diameter of blue circles in mm",
-        default=33,
+        default=32,
         type=float
     )
     parser.add_argument(
         "-ct",
-        "--circle_radius_tolerance, requires tuning for circle detection",
-        help="",
-        default=0.2,
+        "--circle_radius_tolerance",
+        help="Circle radius tolerance, tune for circle detection",
+        default=0.05,
         type=float
     )
     parser.add_argument(
         "-ch",
         "--cut_height_tolerance",
-        help="Cut height tolerance, requires tuning for plate clustering",
+        help="Cut height tolerance, tune for plate clustering",
         default=0.3,
         type=float
     )

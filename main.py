@@ -6,11 +6,11 @@ from csv import reader, writer
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from options import options
-from image_processing import ImageProcessor
+from image_processing import area_worker
 
 
 def main():
-
+    logging.debug(f"Start with: {args}")
     if Path(args.image).is_file():
         images = {Path(args.image)}
     elif Path(args.image).is_dir():
@@ -38,9 +38,10 @@ def main():
         if area_out.stat().st_size == 0:  # True if empty
             csv_writer.writerow(header)
 
-        with ProcessPoolExecutor(max_workers = args.processes) as executor:
-
-            future_to_file = {executor.submit(ImageProcessor(image, args).get_area()): image for image in images}
+        with ProcessPoolExecutor(max_workers=args.processes) as executor:
+            future_to_file = {
+                executor.submit(area_worker, image, args): image for image in images
+            }
 
             for future in as_completed(future_to_file):
                 fp = future_to_file[future]
