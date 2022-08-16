@@ -65,7 +65,6 @@ class ImageProcessor:
                 width = int(img.shape[1] * rescale)
                 height = int(img.shape[0] * rescale)
                 dim = (width, height)
-                #small_img = img
                 small_img = cv2.resize(img, dim)
                 cv2.imshow(label, small_img)
                 cv2.waitKey()
@@ -104,7 +103,8 @@ class ImageProcessor:
         logging.debug(
             "Finding circles, increasing the value for param2 until we find all the plates"
         )
-        for param2 in range(100, 1, -5):
+        for param2 in range(50, 1, -5):
+            param2 = int(param2)
             circles = self.find_circles(b_blur, param2)
             if circles is None:
                 logging.debug(f"No circles found with param2 = {param2}")
@@ -116,7 +116,6 @@ class ImageProcessor:
             logging.debug(f"found {str(circles.shape[0])} circles with param2 = {param2}, proceeding to clustering")
             if args.debug:
                 circle_debug = copy(b_blur)
-                logging.debug(circles)
                 for c in circles:
                     cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)
                 self.debug_image(circle_debug, f"Circles found with param2 = {param2}")
@@ -142,7 +141,8 @@ class ImageProcessor:
                 continue
             elif len(target_clusters) > 8:
                 raise ImageContentException("More than 8 clusters of 6 circles found")
-            circles = circles[[i for i, j in enumerate(clusters.flat) if j in target_clusters]]
+            logging.debug("Collect circles from target clusters into plates")
+            logging.debug("")
             plates = [
                 Plate(
                     cluster_id,
@@ -182,30 +182,23 @@ class ImageProcessor:
             raise ImageContentException("The plate layout could not be detected")
         return self.sort_plates(plates)
 
-    def get_area(self):
+    def get_circle_mask(self, plates):
+        logging.debug("Draw the circle mask")
+        circle_mask = np.full_like(self.b, 255)
+        #  radius = int((args.scale * args.circle_diameter) / 2)  # todo see radius note below
+        for p in plates:
+            for j, c in enumerate(p.circles):
+                x = c[0]
+                y = c[1]
+                radius = c[2]  # todo consider the value of drawing a constant radius
+                thickness = 20  # todo consider how thick line to avoid edge
+                colour = (0, 0, 0)
+                cv2.circle(circle_mask, (x, y), radius, colour, thickness)
+        self.debug_image(circle_mask, "Circle mask")
+        return circle_mask
+
+    def get_image_mask(self):
         args = self.args
-        logging.debug("Start thresholding to calculate area")
-
-        logging.debug("Threshold green-red channel (select blue rings)")
-        ret, a_thresh = cv2.threshold(self.a, args.green_red, 255, cv2.THRESH_BINARY)
-        self.debug_image(a_thresh, "Green-Red threshold")
-
-        logging.debug("Threshold blue-yellow channel (select blue rings)")
-        ret, b_thresh = cv2.threshold(self.b, args.blue_yellow, 255, cv2.THRESH_BINARY)
-        self.debug_image(b_thresh, "Blue-Yellow threshold")
-
-        logging.debug("Join green-red and blue-yellow thresholds to select blue rings")
-        ab = cv2.bitwise_and(a_thresh, b_thresh)
-        self.debug_image(ab, "Green-Red and Blue-Yellow joined (ab)")
-        
-        logging.debug("Dilate selected areas to ensure complete coverage of rings")
-        kernel = np.ones((10, 10), np.uint8)
-        dilated_ab = cv2.dilate(ab, kernel=kernel)
-        self.debug_image(dilated_ab, "Dilated ab")
-
-        logging.debug("Invert dilated ab to create blue ring mask")
-        ring_mask = cv2.bitwise_not(dilated_ab)
-        self.debug_image(ring_mask, "Dilated ab inverted (Blue ring mask)")
 
         logging.debug("Threshold the saturation channel (select all colour rich areas")
         ret, s_thresh = cv2.threshold(self.s, args.saturation, 255, cv2.THRESH_BINARY)
@@ -214,15 +207,38 @@ class ImageProcessor:
         logging.debug("Threshold the value channel to select low exposure pixels")
         # These are often folded lamina disks within blue circles but includes e.g. marbles and pump outside)
         ret, v_thresh = cv2.threshold(self.v, args.value, 255, cv2.THRESH_BINARY_INV)
-        self.debug_image(v_thresh, f"Value threshold: {args.saturation}")
+        self.debug_image(v_thresh, f"Value threshold: {args.value}")
 
         logging.debug("Join the value or saturation thresholds to create colour mask")
         # i.e. keeping anything coloured or very dark
         colour_mask = cv2.bitwise_or(v_thresh, s_thresh)
         self.debug_image(colour_mask, f"Value or Saturation joined (colour mask)")
 
-        logging.debug("Mask the blue rings in the colour mask (logical and)")
-        mask = cv2.bitwise_and(ring_mask, colour_mask)
+        logging.debug("Threshold the green-red channel (a in Lab) to select green tissues")
+        ret, a_thresh = cv2.threshold(self.a, args.green_red, 255, cv2.THRESH_BINARY_INV)
+        self.debug_image(a_thresh, f"Green-Red (a in Lab) threshold: {args.green_red}")
+
+        logging.debug("Threshold the blue-yellow channel (b in Lab) to select green tissues")
+        ret, b_thresh = cv2.threshold(self.b, args.blue_yellow, 255, cv2.THRESH_BINARY_INV)
+        self.debug_image(b_thresh, f"Blue-Yellow (b in Lab) threshold: {args.blue_yellow}")
+
+        logging.debug("Join the a and b channels to create a green mask")
+        green_mask = cv2.bitwise_and(a_thresh, b_thresh)
+        self.debug_image(green_mask, f"a and b join (green mask)")
+
+        logging.debug("Join the colour mask and the green mask to create the image mask")
+        image_mask = cv2.bitwise_and(colour_mask, green_mask)
+        self.debug_image(image_mask, f"Colour and green joined (image mask)")
+
+        return image_mask
+
+    def get_mask(self, plates):
+        args = self.args
+        circle_mask = self.get_circle_mask(plates)
+        image_mask = self.get_image_mask()
+
+        logging.debug("Mask the area identified as circles in the green mask")
+        mask = cv2.bitwise_and(circle_mask, image_mask)
         self.debug_image(mask, "Colour mask and blue ring mask joined")
 
         logging.debug("Remove small objects in the mask")
@@ -233,11 +249,16 @@ class ImageProcessor:
         filled_mask = remove_small_holes(clean_mask, args.fill)
         self.debug_image(clean_mask, "Filled mask (removed small holes)")
 
-        final_mask = img_as_ubyte(filled_mask)
+        return img_as_ubyte(filled_mask)
+
+    def get_area(self):
+        args = self.args
 
         plates = self.get_plates()
+        mask = self.get_mask(plates)
+        
         result = []
-        empty_mask = np.zeros_like(final_mask)
+        empty_mask = np.zeros_like(mask)
         overlay_mask = copy(empty_mask)
 
         for p in plates:
@@ -246,10 +267,9 @@ class ImageProcessor:
                 circle_number = j+1+6*(p.plate_id-1)
                 logging.debug(f"Processing circle {circle_number}")
                 circle_mask = copy(empty_mask)
-                print("here")
                 cv2.circle(circle_mask, (c[0], c[1]), c[2], (255, 255, 255), -1)
                 #  self.debug_image(circle_mask, f"Circle mask: {circle_number}")
-                local_mask = cv2.bitwise_and(circle_mask, final_mask)
+                local_mask = cv2.bitwise_and(circle_mask, mask)
                 #  self.debug_image(local_mask, "Local mask")
                 pixels = cv2.countNonZero(local_mask)
                 result.append((p.plate_id, circle_number, pixels))

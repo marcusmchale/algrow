@@ -40,7 +40,7 @@ def options():
         "-s",
         "--saturation",
         help="Set threshold value for saturation channel in HSV",
-        default=80,
+        default=150,
         type=int
     )
     parser.add_argument(
@@ -54,28 +54,28 @@ def options():
         "-a",
         "--green_red",
         help="Set threshold value for green-red channel (A in LAB)",
-        default=150,
+        default=130,
         type=int
     )
     parser.add_argument(
         "-b",
         "--blue_yellow",
         help="Set threshold value for blue-yellow channel (B in LAB)",
-        default=130,
+        default=140,
         type=int
     )
     parser.add_argument(
         "-r",
         "--remove",
         help="Set remove size (px)",
-        default=250,
+        default=100,
         type=int
     )
     parser.add_argument(
         "-f",
         "--fill",
         help="Set fill size (px)",
-        default=250,
+        default=100,
         type=int
     )
     parser.add_argument(
