@@ -11,7 +11,6 @@ from skimage.util import img_as_ubyte, img_as_bool
 from copy import copy
 
 
-
 class ImageContentException(Exception):
     pass
 

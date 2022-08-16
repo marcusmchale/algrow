@@ -40,7 +40,7 @@ def options():
         "-s",
         "--saturation",
         help="Set threshold value for saturation channel in HSV",
-        default=150,
+        default=120,
         type=int
     )
     parser.add_argument(
