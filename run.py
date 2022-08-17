@@ -1,7 +1,6 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
-from discgrow.discgrow import main
+from src.discgrow import main
 
 if __name__ == '__main__':
     main()
