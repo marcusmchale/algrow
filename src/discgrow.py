@@ -64,7 +64,9 @@ def main():
                 try:
                     result = future.result()
                     for r in result[1]:
-                        csv_writer.writerow([result[0], r[0], r[1], r[2], None if r[2] is None else r[2] / args.scale])
+                        csv_writer.writerow(
+                            [result[0], r[0], r[1], r[2], None if r[2] is None else (r[2]) / (args.scale ** 2)]
+                        )
                 except Exception as exc:
                     logger.info(f'{str(fp)} generated an exception: {exc}')
                 else:
