@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/Platform.iml" filepath="$PROJECT_DIR$/.idea/Platform.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../discgrow/.idea/discgrow.iml" filepath="$PROJECT_DIR$/../discgrow/.idea/discgrow.iml" />
     </modules>
   </component>
 </project>

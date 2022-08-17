@@ -1,7 +1,5 @@
 from argparse import ArgumentParser
 from pathlib import Path
-from enum import Enum
-
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from argparse import Namespace
@@ -27,13 +25,22 @@ def options():
     )
     parser.add_argument(
         "-D",
-        "--debug",
+        "--image_debug",
         help=(
-            "Writes out intermediate images: "
+            "Writes out intermediate images for debugging/tuning: "
             "'print' to file or "
             "'plot' to device (requires matplotlib) "
         ),
         choices=["plot", "print"],
+        default=None
+    )
+    parser.add_argument(
+        "-l",
+        "--loglevel",
+        help=(
+            "Set log-level: info or debug"
+        ),
+        choices=["info", "debug"],
         default=None
     )
     parser.add_argument(
