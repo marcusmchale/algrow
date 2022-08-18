@@ -3,6 +3,63 @@
 
 - Automated multiplexed area quantification for growth rate determination of macroalgal lamina discs
 
+## The short story 
+
+Discgrow provides image analysis for measuring growth of macroalgal lamina discs. 
+It is currently optimised for the experimental apparatus in the 
+[Plant Systems Biology Laboratory](https://sulpice-lab.com/)
+of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
+at the [National University of Ireland, Galway](https://www.nuigalway.ie/). 
+However, with minor modifications to clustering and segmentation logic
+it can be easily adapted to other experimental contexts.
+
+Features:
+
+    - Multiprocessing (-p num_cores)
+    - Search for optimal accumulator threshold (param2 in HoughCircles) for circle detection 
+        - can be fixed to a constant to improve performance (option -ph)
+    - Quality-control overlays (option -q)
+    - Debugging pipeline to adapt thresholds (-D)
+
+## Get started
+### Distribution
+
+  - Download 
+    - get the latest [dist](https://github.com/marcusmchale/discgrow/dist)
+  - Install
+    - run pip install discgrow.whl
+  - Run
+    - basic
+      - discgrow.py -i sample_images/ 
+    - multi-threading (-p num_cores) with overlay output (-q) and progress information (-l info)
+      - discgrow.py -i sample_images/ -p 4 -q -l info
+    - image debugging (-D plot, requires matplotlib) for a single image and additional debugging details (-l debug)
+      - discgrow.py -i sample_images/a.jpg -D plot -l debug 
+
+### Run from source
+
+  - Download
+    - git clone https://github.com/marcusmchale/discgrow
+  - Set up virtual environment (recommended)
+    - python3 -m venv venv
+    - source ./venv/bin/activate
+  - Run
+    - discgrow.py -i sample_images
+
+### Build
+
+  - Download
+    - git clone https://github.com/marcusmchale/discgrow
+  - Set up virtual environment (recommended)
+    - python3 -m venv venv
+    - source ./venv/bin/activate
+  - Build
+    - python3 build
+
+
+
+## The long story...
+
 In our experiments, lamina discs of macroalgae are placed into 6 well plates under nylon mesh and
 surrounded by a blue holding ring. These plates are arranged into cultivation tanks
 where seawater is circulated and images are captured by RaspberryPi computers and cameras positioned over each tank.
@@ -44,8 +101,8 @@ Typical image processing time is ~3s per image (48 leaf discs per image)
 and multiple images can be concurrently assessed (multiprocessing).
 This also requires less resources than the alternative pre-processing steps (to be quantified) 
 and can be performed on the Raspberry Pi directly (to be verified and timed).
-Many atypical images are readily detected during circle and plate detection, a
-nd the availability of data for each image (rather than an aggregate images) 
+Many atypical images are readily detected during circle and plate detection, 
+and the availability of data for each image (rather than an aggregate images) 
 improves detection of other anomalies and provides opportunity to account for outliers.  
 
 Steps:
@@ -66,10 +123,5 @@ Steps:
         j. fill small holes (skimage.morphology)
     5. Calculate the area of the image mask within each annotated circle and write to file
 
-Features:
 
-    - Multiprocessing (option -p )
-    - Searches for optimal accumulator threshold (param2) for circle detection.
-    - Quality-control overlays (option -q)
-    - Debugging pipeline to adapt thresholds (-D)
 

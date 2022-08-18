@@ -100,7 +100,8 @@ class ImageProcessor:
         self.logger.debug(
             "Finding circles, increasing the value for param2 until we find all the plates"
         )
-        for param2 in range(50, 1, -5):
+        ph_list = [args.param2] if args.param2 else range(100, 1, -5)
+        for param2 in ph_list:
             param2 = int(param2)
             circles = self.find_circles(b_blur, param2)
             if circles is None:

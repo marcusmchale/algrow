@@ -114,6 +114,13 @@ def options():
         type=float
     )
     parser.add_argument(
+        "-ph",
+        "--param2",
+        help="Accumulator threshold for HoughCircles, if not defined then performs a search for optimum value",
+        default=None,
+        type=int
+    )
+    parser.add_argument(
         "-ch",
         "--cut_height_tolerance",
         help="Cut height tolerance, tune for plate clustering",

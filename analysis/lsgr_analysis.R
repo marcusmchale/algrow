@@ -13,7 +13,6 @@ sample_details <- read.table(
   droplevels() %>%
   dplyr::rename(well = number)
 
-
 size <- read.table(
   "area.csv",
   sep=",",
