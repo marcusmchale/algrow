@@ -10,5 +10,5 @@ setup(
     author='marcus',
     author_email='marcus.mchale@nuigalway.ie',
     description='Automated multiplexed area quantification for growth rate determination of macroalgal leaf discs',
-    install_requires=["numpy", "opencv-python", "scipy", "scikit-image", "matplotlib", "setuptools"]
+    install_requires=["numpy", "opencv-python", "scipy", "scikit-image", "matplotlib", "pandas", "setuptools"]
 )

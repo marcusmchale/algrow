@@ -5,6 +5,7 @@ from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .options import options
 from .image_processing import area_worker
+from .config import area_header
 
 
 def main():
@@ -47,12 +48,10 @@ def main():
             f'Some images already included in result file, skipping these: {",".join([str(f) for f in files_done])}'
         )
 
-    header = ['filename', 'plate', 'well', 'pixels', 'mm²']
-
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)
         if area_out.stat().st_size == 0:  # True if output file is empty
-            csv_writer.writerow(header)
+            csv_writer.writerow(area_header)
 
         with ProcessPoolExecutor(max_workers=args.processes) as executor:
             future_to_file = {
