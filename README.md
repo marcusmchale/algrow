@@ -29,12 +29,18 @@ Features:
   - Install
     - run pip install discgrow.whl
   - Run
-    - basic
-      - discgrow.py -i sample_images/ 
-    - multi-threading (-p num_cores) with overlay output (-q) and progress information (-l info)
-      - discgrow.py -i sample_images/ -p 4 -q -l info
-    - image debugging (-D plot, requires matplotlib) for a single image and additional debugging details (-l debug)
-      - discgrow.py -i sample_images/a.jpg -D plot -l debug 
+    - Disc area determination
+      - basic
+        - discgrow.py -i sample_images/
+      - multi-threading (-p num_cores) with overlay output (-q) and progress information (-l info)
+        - discgrow.py -i sample_images/ -p 4 -q -l info
+      - image debugging (-D plot, requires matplotlib) for a single image and additional debugging details (-l debug)
+        - discgrow.py -i sample_images/a.jpg -D plot -l debug
+    - Growth rate analysis
+      - discgrow.py -id sample_data/id.csv -o sample_data/
+    - Both together
+      - 
+    
 
 ### Run from source
 
@@ -45,6 +51,7 @@ Features:
     - source ./venv/bin/activate
   - Run
     - discgrow.py -i sample_images
+
 
 ### Build
 
