@@ -8,8 +8,22 @@ if TYPE_CHECKING:
 # Parse command-line arguments
 def options():
     parser = ArgumentParser(description="Imaging processing")
-    parser.add_argument("-i", "--image", help="Input image file or directory", required=True)
-    parser.add_argument("-o", "--out_dir", help="Output directory for image files.", default=None)
+    parser.add_argument("-i", "--image", help="Input image file or directory", default=None)
+    parser.add_argument(
+        "-id",
+        "--sample_id",
+        help="Input csv file with sample identities (tank, well,strain)",
+        default=None
+    )
+    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=3)
+    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=6)
+    parser.add_argument("-o", "--out_dir", help="Output directory", default=None)
+    parser.add_argument(
+        "-ao",
+        "--area_file",
+        help="Disc area filename for analysis (must be in the output directory which defaults to image location)",
+        default="area.csv"
+    )
     parser.add_argument(
         "-q",
         "--overlay",
