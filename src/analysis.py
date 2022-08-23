@@ -112,11 +112,13 @@ class AreaResult:
             plt.savefig(Path(outdir, "RGR.png"))
             plt.close(fig)
         if strain_plots:
+            strain_plot_dir = Path(outdir, "strain_plots")
+            strain_plot_dir.mkdir(parents=True, exist_ok=True)
             for strain in set(self.df.strain):
                 fig, ax = plt.subplots()
                 self.draw_plot(ax, fit=True, strains=[strain])
                 plt.tight_layout()
-                plt.savefig(Path(outdir, f"{strain}.png"))
+                plt.savefig(Path(strain_plot_dir, f"{strain}.png"))
                 plt.close(fig)
 
 
