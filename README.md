@@ -20,6 +20,9 @@ Features:
         - can be fixed to a constant to improve performance (option -ph)
     - Quality-control overlays (option -q)
     - Debugging pipeline to adapt thresholds (-D)
+    - Plots of replicates per "strain"
+    - Regression model of log transformed values to determine daily relative daily growth rate (RGR)
+    - RGR summary table and boxplot
 
 ## Get started
 ### Distribution
