@@ -39,7 +39,7 @@ Features:
     - Growth rate analysis
       - discgrow.py -id sample_data/id.csv -o sample_data/
     - Both together
-      - 
+      - discgrow.py -s ./images -p 4 -id ./id.csv
     
 
 ### Run from source
