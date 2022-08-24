@@ -31,19 +31,11 @@ Features:
     - get the latest [dist](https://github.com/marcusmchale/discgrow/dist)
   - Install
     - run pip install discgrow.whl
-  - Run examples:
-    - Disc area determination
-      - basic
-        - discgrow.py -i sample_images/
-      - multi-threading (-p num_cores) with overlay output (-q) and progress information (-l info)
-        - discgrow.py -i sample_images/ -p 4 -q -l info
-      - image debugging (-D plot, requires matplotlib) for a single image and additional debugging details (-l debug)
-        - discgrow.py -i sample_images/2022-05-22_12h00m_pi1.jpg -D plot -l debug
-    - Growth rate analysis
-      - discgrow.py -id sample_data/id.csv -o sample_data/
-    - Both area determination and RGR analysis
-      - discgrow.py -p 4 -q -i sample_images/ -id sample_images/id.csv -l info > sample_images/log.txt
-    
+  - Run
+    - cd path/to/discgrow/sample_images
+    - mkdir raw
+    - tar -xvzf sample_images.tgz -C raw
+    - discgrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
 
 ### Run from source
 

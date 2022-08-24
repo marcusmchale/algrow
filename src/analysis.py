@@ -45,7 +45,12 @@ class AreaResult:
     def _fit(self, group):
         self.logger.debug("Fit group")
         group = group[group.log_area != -np.inf]
-        return np.polyfit(group.elapsed_m, group.log_area, deg=1, cov=False)
+        polynomial, svd = np.polynomial.Polynomial.fit(group.elapsed_m, group.log_area, deg=1, full=True)
+        coef = polynomial.convert().coef
+        intercept = coef[0]
+        slope = coef[1]
+        rss = svd[0][0]
+        return intercept, slope, rss
 
     def fit_all(self, fit_start, fit_end):
         self.logger.debug(f"Perform fit on log transformed values from day {fit_start} to day {fit_end}")
@@ -58,9 +63,9 @@ class AreaResult:
         with np.errstate(divide='ignore'):
             df["log_area"] = np.log(df["mm²"])  # 0 values are -Inf which are then ignored in the fit
         df["fit"] = df.groupby(["tank", "well"]).apply(self._fit)
-        df[["slope", "intercept"]] = df.fit.to_list()
+        df[["intercept", "slope", "RSS"]] = df.fit.to_list()
         df["RGR"] = round(df["slope"] * 1440 * 100, 2)
-        self.df = self.df.join(df[["slope", "intercept", "RGR", "elapsed_m"]])
+        self.df = self.df.join(df[["slope", "intercept", "RGR", "RSS", "elapsed_m"]])
 
     def _get_df_mask(self, tanks: list = None, wells: list = None, strains: list = None):
         self.logger.debug("get mask")
@@ -77,7 +82,7 @@ class AreaResult:
             self,
             ax,
             strains=None,
-            fit=False
+            plot_fit=None
     ):
         self.logger.debug("draw plot")
         mask = self._get_df_mask(strains=strains)
@@ -90,33 +95,55 @@ class AreaResult:
                 s=1,
                 label=f"Tank {name[0]}, Well {name[1]}. RGR: {group.RGR.dropna().unique()}"
             )
-            if fit:
-                ax.plot(
-                    group.index.get_level_values("time"),
-                    np.exp(group.slope * group.elapsed_m + group.intercept)
-                )
+            if plot_fit:
+                if name in plot_fit:
+                    ax.plot(
+                        group.index.get_level_values("time"),
+                        np.exp(group.slope * group.elapsed_m + group.intercept)
+                    )
         ax.legend(loc='upper left')
         ax.tick_params(axis='x', labelrotation=45)
         return ax
 
+    def summarise(self):
+        summary = self.df[["strain", "RGR", "RSS"]].droplevel("time").drop_duplicates().dropna()
+        # identify atypical models from RSS
+        q75, q25 = np.percentile(summary.RSS, [75, 25])
+        iqr = q75 - q25
+        median = summary.RSS.median()
+        summary["ModelFitOutlier"] = summary.RSS > median + (1.5 * iqr)
+        return summary
+
     def write_results(self, outdir, rgr_plot=True, strain_plots=False):
         self.logger.debug("write out results")
-        summary = self.df[["strain", "RGR"]].droplevel("time").drop_duplicates().dropna()
+        summary = self.summarise()
         rgr_out = Path(outdir, "RGR.csv")
         rgr_out.parent.mkdir(parents=True, exist_ok=True)
         summary.to_csv(rgr_out)
+        mean_rgr = summary[~summary.ModelFitOutlier].groupby("strain").mean()
+        mean_rgr_out = Path(outdir, "RGR_mean.csv")
+        mean_rgr["RGR"].to_csv(mean_rgr_out)
         if rgr_plot:
             fig, ax = plt.subplots()
-            summary.boxplot(by="strain", rot=90)
+            summary.boxplot("RGR", by="strain", rot=90)
             plt.tight_layout()
             plt.savefig(Path(outdir, "RGR.png"))
+            plt.close(fig)
+            # similar plot with model fit outliers removed
+            fig, ax = plt.subplots()
+            sub_summary = summary[~summary.ModelFitOutlier]
+            sub_summary.boxplot("RGR", by="strain", rot=90)
+            plt.title("Grouped by strain (low quality RGR models removed)")
+            plt.tight_layout()
+            plt.savefig(Path(outdir, "RGR_less_outliers.png"))
             plt.close(fig)
         if strain_plots:
             strain_plot_dir = Path(outdir, "strain_plots")
             strain_plot_dir.mkdir(parents=True, exist_ok=True)
             for strain in set(self.df.strain):
+                to_plot_fit = summary[(summary.strain == strain) & ~summary.ModelFitOutlier].index.to_list()
                 fig, ax = plt.subplots()
-                self.draw_plot(ax, fit=True, strains=[strain])
+                self.draw_plot(ax, plot_fit=to_plot_fit, strains=[strain])
                 plt.tight_layout()
                 plt.savefig(Path(strain_plot_dir, f"{strain}.png"))
                 plt.close(fig)

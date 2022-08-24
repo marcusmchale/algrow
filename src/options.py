@@ -15,8 +15,8 @@ def options():
         help="Input csv file with sample identities (tank, well,strain)",
         default=None
     )
-    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=3)
-    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=6)
+    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
+    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument("-o", "--out_dir", help="Output directory", default=None)
     parser.add_argument(
         "-ao",
