@@ -112,8 +112,10 @@ class Layout:
                 circles = self.find_n_circles(param2)
             except InsufficientCircleDetection:
                 continue
-
-            clusters, target_clusters = self.find_n_clusters(circles)
+            try:
+                clusters, target_clusters = self.find_n_clusters(circles)
+            except InsufficientClusterDetection:
+                continue
 
             self.logger.debug("Collect circles from target clusters into plates")
             plates = [
