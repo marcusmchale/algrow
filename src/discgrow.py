@@ -4,7 +4,7 @@ from pathlib import Path
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .options import options
-from .image_processing import area_worker
+from .thresholding import area_worker
 from .analysis import AreaResult
 from .config import area_header
 

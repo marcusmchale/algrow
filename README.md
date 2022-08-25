@@ -22,7 +22,8 @@ Features:
     - Debugging pipeline to adapt thresholds (-D)
     - Plots of replicates per "strain"
     - Regression model of log transformed values to determine daily relative daily growth rate (RGR)
-    - RGR summary table and boxplot
+    - RGR per disc and per strain with boxplots and summmary table per strain
+        - With and without filtering for outliers (residual sum of squares (RSS) from disc growth RGR model > 1.5 * IQR) 
 
 ## Get started
 ### Distribution
@@ -56,7 +57,7 @@ Features:
     - python3 -m venv venv
     - source ./venv/bin/activate
   - Build
-    - python3 build
+    - python3 -m build
 
 
 
@@ -88,20 +89,28 @@ A number of pre-processing steps were employed to handle the scale of data from 
     - In some cases raw images were discarded on the assumption that the hourly images were sufficient. But these were sometimes inappropriately masked and so image analysis was no longer feasible.
 
 The DiscGrow application was developed to;
-  - provide independent processing of each image
-    - support for limited movement of subjects between images
-    - remove the limit that batch processing imposed on the frequency and duration of measurements
+  - independently process each image
+    - Relying on relative positions of blue rings surrounding each disk rather than absolute positions 
+    - allows movement of plates/tanks/cameras between images,
+    - and removes the limit that batch processing imposes on the frequency and duration of measurements.
   - remove/reduce operator input into thresholding
-    - pre-defined defaults for segmentation thresholds with an image debugging pipeline to assess any modifications
+    - by providing pre-defined defaults for segmentation thresholds.
+    - An image debugging pipeline is also provided identify optimum values under changed conditions.
   - provide quality control measures
-    - overlay images are produced with the final image mask, defined circles and plate/circle identifiers. 
-      - These can be produced from a subset of images to verify the suitability of existing thresholds
+    - including overlay images with the final image mask, defined circles and plate/circle identifiers. 
+      - These can be used to verify the quality of the applied segmentation 
+      - and inspect lamina discs that are highlighted by low quality regression models.
   - automate annotation
-    - The existing annotation pipeline is designed to handle our specific plate layout but can be readily adapted to other configurations.
+    - for the existing plates, plate layout and ID determination. 
+    - Minor modifications to clustering and layout will allow adaptation to other disc arrangements.
+  - standardise and improve analysis
+    - using all of the available data.
+    - We now fit linear regression models on log transformed area values over time,
+    - to extract RGR as the slope of an OLS fit linear model.
+    - RSS of these models can help to identify poorly fitting models, an indication of experimental issues.
 
-Typical image processing time is ~3s per image (48 leaf discs per image) 
-and multiple images can be concurrently assessed (multiprocessing).
-This also requires less resources than the alternative pre-processing steps (to be quantified) 
+Multiple images can be concurrently assessed (multiprocessing).
+This application requires less resources than the alternative pre-processing steps (to be quantified) 
 and can be performed on the Raspberry Pi directly (to be verified and timed).
 Many atypical images are readily detected during circle and plate detection, 
 and the availability of data for each image (rather than an aggregate images) 
@@ -126,4 +135,8 @@ Steps:
     5. Calculate the area of the image mask within each annotated circle and write to file
 
 
-
+# Todo
+  - Consider rolling shutter in raspberry Pi cameras.
+    - Could average images as done before
+      - maybe just lower the "ISO" and raise "shutter speed" settings?
+  - 
