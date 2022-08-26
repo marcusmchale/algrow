@@ -141,6 +141,54 @@ def options():
         default=0.3,
         type=float
     )
+    parser.add_argument(
+        "-crf",
+        "--circles_rows_first",
+        help="In circle ID layout, within plate, go by rows first (set false to go by columns first)",
+        default=False
+    )
+    parser.add_argument(
+        "-clr",
+        "--circles_left_right",
+        help="In circle ID layout, within plate, IDs increment left to right (set false to go right to left)",
+        default=True
+    )
+    parser.add_argument(
+        "-ctb",
+        "--circles_top_bottom",
+        help="In circle ID layout, within plate, IDs increment top to bottom (set false to go bottom to top)",
+        default=False
+    )
+    parser.add_argument(
+        "-prf",
+        "--plates_rows_first",
+        help="In plate ID layout, go by rows first (set false to go by columns first)",
+        default=True
+    )
+    parser.add_argument(
+        "-plr",
+        "--plates_left_right",
+        help="In plate ID layout, IDs increment left to right (set false to go right to left)",
+        default=True
+    )
+    parser.add_argument(
+        "-ptb",
+        "--plates_top_bottom",
+        help="In plate ID layout, IDs increment top to bottom (set false to go bottom to top)",
+        default=False
+    )
+    parser.add_argument(
+        "-npp",
+        "--n_per_plate",
+        help="In plate clustering, the number of circles per plate",
+        default=6
+    )
+    parser.add_argument(
+        "-npi",
+        "--n_plates",
+        help="In plate layout, the number of plates per image",
+        default=8
+    )
     args: Namespace = parser.parse_args()
     if not args.out_dir:
         if Path(args.image).is_file():

@@ -23,7 +23,8 @@ Features:
     - Plots of replicates per "strain"
     - Regression model of log transformed values to determine daily relative daily growth rate (RGR)
     - RGR per disc and per strain with boxplots and summmary table per strain
-        - With and without filtering for outliers (residual sum of squares (RSS) from disc growth RGR model > 1.5 * IQR) 
+        - With and without filtering for outliers (residual sum of squares (RSS) from disc growth RGR model > 1.5 * IQR)
+    - Layout is determined by circles clustered into plates, ID incrementation is fully customisable
 
 ## Get started
 ### Distribution
@@ -142,13 +143,6 @@ Steps:
 # Todo
 
   - Layout tuning:
-
-      - Need to add plate circle number and number of plates to options() to support tuning to other layouts/materials
-        - Consider ways to define plate layout, other than by customising the sort_plates function.
-        - e.g. generic options:
-          - Directionality: LRTB, LRBT, RLTB, RLBT
-      - for forward (always top left to bottom right for plates and then within plates)
-        - and reverse (ours) 
   - Threshold tuning
     - Debugging/Setup workflow to generate a configuration file
       - thresholding configuration 

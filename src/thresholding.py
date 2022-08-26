@@ -108,7 +108,8 @@ class ImageProcessor:
 
     def get_area(self):
         args = self.args
-        plates = Layout(args, self.b, self.image_debugger).get_plates_sorted()
+        plates = Layout(args, self.b, self.image_debugger).get_plates_sorted(n_plates=8, n_per_plate=6)
+
         mask = self.get_mask(plates)
         result = []
         empty_mask = np.zeros_like(mask)
