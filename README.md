@@ -133,7 +133,7 @@ Steps:
 
     1. Blue rings are identified by Hough Circle transform in median blur of b channel of Lab colourspace (OpenCV)
     2. Clusters of circles are identified to define plates and remove artifact circles (Scipy.cluster.hierarchy)
-    3. Orientation and arrangement of plates is determined to define well identities
+    3. Orientation and arrangement of plates is determined to define well identities (Scipy.cluster.hierarchy)
     4. An image mask is generated from segmentation in both HSV and Lab colour spaces with additional noise removal.
         a. Saturation (S) threshold to select high values, colour rich regions
         b. Value (V) threshold to identify dark regions that occur from folding of lamina tissues
@@ -145,16 +145,10 @@ Steps:
         h. Apply a circle mask around the perimeter of each well (from 2)
         i. remove small objects (skimage.morphology)
         j. fill small holes (skimage.morphology)
-    5. Calculate the area of the image mask within each annotated circle and write to file
-
-# Tuning for other settings:
-  - Layout
-    - Circle radius, dendrogram cut height currently tunable, need to add plate number and number per plate. 
-    
+    5. The area of the image mask is determined within each annotated circle and written to a csv file.
 
 # Todo
 
-  - Layout tuning:
   - Threshold tuning
     - Debugging/Setup workflow to generate a configuration file
       - thresholding configuration 
