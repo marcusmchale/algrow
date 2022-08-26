@@ -1,9 +1,18 @@
 import logging
+import pdb
+
 import numpy as np
+from pandas import DataFrame
 import cv2 as cv2
 from scipy.cluster import hierarchy
-from matplotlib import pyplot
+from matplotlib import pyplot as plt
 from copy import copy
+from enum import IntEnum
+from typing import TYPE_CHECKING
+from typing import List
+
+
+
 
 
 class ImageContentException(Exception):
@@ -33,13 +42,9 @@ class Layout:
     def __init__(self, args, image, debugger):
         self.logger = logging.getLogger(__name__)
         self.args = args
-        self.image = image
+        self.image = cv2.medianBlur(image, self.args.kernel)
         self.debugger = debugger
-
-    def blur(self):
-        self.logger.debug("Blur image")
-        self.image = cv2.medianBlur(self.image, self.args.kernel)
-        self.debugger.debug_image(self.image, "Median blur")
+        self.debugger.render_image(self.image, "Median blur")
 
     def find_circles(self, image, param2=30):
         self.logger.debug("Find circles")
@@ -70,7 +75,7 @@ class Layout:
             circle_debug = copy(self.image)
             for c in circles:
                 cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)
-            self.debugger.debug_image(circle_debug, f"Circles found with param2 = {param2}")
+            self.debugger.render_image(circle_debug, f"Circles found with param2 = {param2}")
         self.logger.debug(
             f"{str(circles.shape[0])} circles found with param2 = {param2}")
         return circles
@@ -82,14 +87,13 @@ class Layout:
         self.logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if args.image_debug:
-            self.logger.debug("Output dendrogram and treecut height for plate clustering")
-            self.logger.debug("Create empty figure")
-            fig = pyplot.figure()
+            self.logger.debug("Output dendrogram and treecut height for circle clustering")
+            fig, ax = plt.subplots()
             self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
             self.logger.debug("Add cut-height line")
-            pyplot.axhline(y=cut_height, c='k')
-            self.debugger.debug_plot(pyplot, "dendrogram")
+            plt.axhline(y=cut_height, c='k')
+            self.debugger.render_plot("Dendrogram")
         self.logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
         clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
         unique, counts = np.array(np.unique(clusters, return_counts=True))
@@ -127,20 +131,24 @@ class Layout:
             return plates
 
     @staticmethod
-    def sort_plates(plates):
+    def sort_lrbt(plates):
         plates.sort(key=lambda x: (not x.vertical, x.centroid[0]))
         for i, p in enumerate(plates):
-            p.plate_id = i + 1
+            p.plate_id = i + 1  # give plate an ID based on sequence position
             if p.vertical:
                 # first split the plate into left and right
+                # then order bottom to top for each subgroup
+                # then concatenate
                 p.circles = p.circles[p.circles[:, 0].argsort()][::-1]
                 right = p.circles[0:3]
                 right = right[right[:, 1].argsort()][::-1]
                 left = p.circles[3:6]
                 left = left[left[:, 1].argsort()][::-1]
                 p.circles = np.concatenate((left, right))
-            else:
-                # first split the plate into left, middle and right
+            else:  # plate is horizontal
+                # split the plate into left, middle and right,
+                # then order bottom to top for each subgroup
+                # then concatenate
                 p.circles = p.circles[p.circles[:, 0].argsort()][::-1]
                 right = p.circles[0:2]
                 right = right[right[:, 1].argsort()][::-1]
@@ -151,7 +159,38 @@ class Layout:
                 p.circles = np.concatenate((left, middle, right))
         return plates
 
-    def get_plates(self):
+    def get_axis_clusters(self, plates: List[Plate], rows: bool, cut_height=100):
+        axis_name = 'y' if rows else 'x'
+        other_axis_name = 'x' if rows else 'y'
+        # todo consider getting cut height from plate specification,
+        df = DataFrame({axis_name: [p.centroid[int(rows)] for p in plates]})
+        dendrogram = hierarchy.linkage(df)
+        if self.args.image_debug:
+            self.logger.debug(f"Plot dendrogram for plate {axis_name} axis plate clustering")
+            fig, ax = plt.subplots()
+            self.logger.debug("Create dendrogram")
+            hierarchy.dendrogram(dendrogram)
+            self.logger.debug("Add cut-height line")
+            plt.axhline(y=cut_height, c='k')
+            self.debugger.render_plot("Dendrogram for row index clustering")
+        df["cluster"] = hierarchy.cut_tree(dendrogram, height=cut_height)
+        df["plate"] = plates
+        df[other_axis_name] = [p.centroid[int(not rows)] for p in plates]
+        return df
+
+    def sort_plates(self, plates, rows=True, left_right=True, top_bottom=False):
+        # default is just what our lab was already doing, a better default would be top_bottom = True
+        clusters = self.get_axis_clusters(plates, rows).sort_values(
+            'y' if rows else 'x', ascending=top_bottom if rows else left_right
+        ).groupby("cluster", sort=False).apply(
+            lambda x: x.sort_values('x' if rows else 'y', ascending=left_right if rows else top_bottom)
+        )
+        plates = clusters.plate.values
+        for i, p in enumerate(plates):
+            p.id = i+1
+        return plates.tolist()
+
+    def get_plates_sorted(self):
         plates = self.find_plates()
         if plates is None:
             raise ImageContentException("The plate layout could not be detected")

@@ -15,15 +15,7 @@ def options():
         help="Input csv file with sample identities (tank, well,strain)",
         default=None
     )
-    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
-    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument("-o", "--out_dir", help="Output directory", default=None)
-    parser.add_argument(
-        "-ao",
-        "--area_file",
-        help="Disc area filename for analysis (must be in the output directory which defaults to image location)",
-        default="area.csv"
-    )
     parser.add_argument(
         "-q",
         "--overlay",
@@ -56,6 +48,14 @@ def options():
         ),
         choices=["info", "debug"],
         default=None
+    )
+    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
+    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
+    parser.add_argument(
+        "-ao",
+        "--area_file",
+        help="Disc area filename for analysis (must be in the output directory)",
+        default="area.csv"
     )
     parser.add_argument(
         "-s",

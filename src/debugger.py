@@ -1,14 +1,16 @@
 import cv2 as cv2
 from pathlib import Path
 from skimage.util import img_as_ubyte
+from matplotlib import pyplot as plt
 
 
 class Debugger:
     def __init__(self, args, filepath):
         self.args = args
         self.filepath = filepath
+        self.plot = None
 
-    def debug_image(self, img, label: str, prefix="debug", extension=".jpg"):
+    def render_image(self, img, label: str, prefix="debug", extension=".jpg"):
         if self.args.image_debug:
             img = img_as_ubyte(img)
             if self.args.image_debug == 'print':
@@ -25,11 +27,12 @@ class Debugger:
                 cv2.waitKey()
                 cv2.destroyWindow(label)
 
-    def debug_plot(self, plot, label: str, prefix="debug", extension=".jpg"):
+    def render_plot(self, label: str, prefix="debug", extension=".jpg"):
         if self.args.image_debug:
             if self.args.image_debug == 'print':
                 prefix = "_".join([i for i in (prefix, label) if i])
                 filepath = self.filepath.with_stem(f'{prefix}_{self.filepath.stem}').with_suffix(extension)
-                plot.savefig(Path(self.args.out_dir, filepath))
+                plt.savefig(Path(self.args.out_dir, filepath))
             elif self.args.image_debug == 'plot':
-                plot.show()
+                plt.title(label)
+                plt.show()

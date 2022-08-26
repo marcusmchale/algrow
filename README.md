@@ -102,7 +102,7 @@ The DiscGrow application was developed to;
       - and inspect lamina discs that are highlighted by low quality regression models.
   - automate annotation
     - for the existing plates, plate layout and ID determination. 
-    - Minor modifications to clustering and layout will allow adaptation to other disc arrangements.
+    - Customising the "sort_plates" function in the Layout class would support adaptation to other conformations. 
   - standardise and improve analysis
     - using all of the available data.
     - We now fit linear regression models on log transformed area values over time,
@@ -134,9 +134,32 @@ Steps:
         j. fill small holes (skimage.morphology)
     5. Calculate the area of the image mask within each annotated circle and write to file
 
+# Tuning for other settings:
+  - Layout
+    - Circle radius, dendrogram cut height currently tunable, need to add plate number and number per plate. 
+    
 
 # Todo
-  - Consider rolling shutter in raspberry Pi cameras.
-    - Could average images as done before
-      - maybe just lower the "ISO" and raise "shutter speed" settings?
-  - 
+
+  - Layout tuning:
+
+      - Need to add plate circle number and number of plates to options() to support tuning to other layouts/materials
+        - Consider ways to define plate layout, other than by customising the sort_plates function.
+        - e.g. generic options:
+          - Directionality: LRTB, LRBT, RLTB, RLBT
+      - for forward (always top left to bottom right for plates and then within plates)
+        - and reverse (ours) 
+  - Threshold tuning
+    - Debugging/Setup workflow to generate a configuration file
+      - thresholding configuration 
+        - target/not-target
+        - alive/diseased/dead 
+      - Handling low exposure elements (currently being included, make this optional)
+      - 
+
+  - Service node and server design, each pi as a node and a central server to gather and present reports.
+    - Capture images directly and use raw data rather than jpg
+      - Consider rolling shutter in raspberry Pi cameras, is it really an issue?
+        - Could average multiple images as done before
+  - Fit to dynamic region, find area that best fits log-linear growth rather than using the whole period
+  
