@@ -130,69 +130,66 @@ class Layout:
             ]
             return plates
 
-    @staticmethod
-    def sort_lrbt(plates):
-        plates.sort(key=lambda x: (not x.vertical, x.centroid[0]))
-        for i, p in enumerate(plates):
-            p.plate_id = i + 1  # give plate an ID based on sequence position
-            if p.vertical:
-                # first split the plate into left and right
-                # then order bottom to top for each subgroup
-                # then concatenate
-                p.circles = p.circles[p.circles[:, 0].argsort()][::-1]
-                right = p.circles[0:3]
-                right = right[right[:, 1].argsort()][::-1]
-                left = p.circles[3:6]
-                left = left[left[:, 1].argsort()][::-1]
-                p.circles = np.concatenate((left, right))
-            else:  # plate is horizontal
-                # split the plate into left, middle and right,
-                # then order bottom to top for each subgroup
-                # then concatenate
-                p.circles = p.circles[p.circles[:, 0].argsort()][::-1]
-                right = p.circles[0:2]
-                right = right[right[:, 1].argsort()][::-1]
-                middle = p.circles[2:4]
-                middle = middle[middle[:, 1].argsort()][::-1]
-                left = p.circles[4:6]
-                left = left[left[:, 1].argsort()][::-1]
-                p.circles = np.concatenate((left, middle, right))
-        return plates
-
-    def get_axis_clusters(self, plates: List[Plate], rows: bool, cut_height=100):
-        axis_name = 'y' if rows else 'x'
-        other_axis_name = 'x' if rows else 'y'
-        # todo consider getting cut height from plate specification,
-        df = DataFrame({axis_name: [p.centroid[int(rows)] for p in plates]})
-        dendrogram = hierarchy.linkage(df)
+    def get_axis_clusters(self, axis_values, rows_first: bool, cut_height):
+        dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         if self.args.image_debug:
-            self.logger.debug(f"Plot dendrogram for plate {axis_name} axis plate clustering")
+            self.logger.debug(f"Plot dendrogram for plate {'y' if rows_first else 'x'} axis plate clustering")
             fig, ax = plt.subplots()
             self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
             self.logger.debug("Add cut-height line")
             plt.axhline(y=cut_height, c='k')
             self.debugger.render_plot("Dendrogram for row index clustering")
-        df["cluster"] = hierarchy.cut_tree(dendrogram, height=cut_height)
-        df["plate"] = plates
-        df[other_axis_name] = [p.centroid[int(not rows)] for p in plates]
-        return df
+        return hierarchy.cut_tree(dendrogram, height=cut_height)
 
-    def sort_plates(self, plates, rows=True, left_right=True, top_bottom=False):
-        # default is just what our lab was already doing, a better default would be top_bottom = True
-        clusters = self.get_axis_clusters(plates, rows).sort_values(
-            'y' if rows else 'x', ascending=top_bottom if rows else left_right
+    def sort_circles(self, plate, rows_first=False, left_right=True, top_bottom=False):
+        self.logger.debug(f"sort circles for plate {plate.id}")
+        cut_height = int(self.args.scale * self.args.circle_diameter * 0.5)
+        axis_values = np.array([c[int(rows_first)] for c in plate.circles])
+        clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=cut_height)
+        clusters = DataFrame(
+            {
+                "cluster": clusters.flatten(),
+                "circle": plate.circles.tolist(),
+                "primary_axis": [c[int(rows_first)] for c in plate.circles],
+                "secondary_axis": [c[int(not rows_first)] for c in plate.circles]
+            }
+        )
+        clusters = clusters.sort_values(
+            "primary_axis", ascending=top_bottom if rows_first else left_right
         ).groupby("cluster", sort=False).apply(
-            lambda x: x.sort_values('x' if rows else 'y', ascending=left_right if rows else top_bottom)
+            lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
+        )
+        plate.circles = clusters.circle.tolist()
+
+    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=False):
+        # default is just what our lab was already doing, a better default would be top_bottom = True
+        self.logger.debug("Sort plates")
+        axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
+        # todo consider getting cut height from plate specification
+        clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=100)
+        clusters = DataFrame(
+            {
+                "cluster": clusters.flatten(),
+                "plate": plates,
+                "primary_axis": [p.centroid[int(rows_first)] for p in plates],
+                "secondary_axis": [p.centroid[int(not rows_first)] for p in plates]
+            }
+        )
+        clusters = clusters.sort_values(
+            "primary_axis", ascending=top_bottom if rows_first else left_right
+        ).groupby("cluster", sort=False).apply(
+            lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
         )
         plates = clusters.plate.values
         for i, p in enumerate(plates):
             p.id = i+1
+            self.sort_circles(p)  # todo, pass arguments from options for customising layout
         return plates.tolist()
 
     def get_plates_sorted(self):
         plates = self.find_plates()
         if plates is None:
             raise ImageContentException("The plate layout could not be detected")
-        return self.sort_plates(plates)
+        return self.sort_plates(plates)  # todo, pass arguments from options for customising layout
 
