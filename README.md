@@ -15,16 +15,28 @@ it can be easily adapted to other experimental contexts.
 
 Features:
 
-    - Multiprocessing (-p num_cores)
-    - Search for optimal accumulator threshold (param2 in HoughCircles) for circle detection 
-        - can be fixed to a constant to improve performance (option -ph)
-    - Quality-control overlays (option -q)
-    - Debugging pipeline to adapt thresholds (-D)
-    - Plots of replicates per "strain"
-    - Regression model of log transformed values to determine daily relative daily growth rate (RGR)
-    - RGR per disc and per strain with boxplots and summmary table per strain
-        - With and without filtering for outliers (residual sum of squares (RSS) from disc growth RGR model > 1.5 * IQR)
-    - Layout is determined by circles clustered into plates, ID incrementation is fully customisable
+    - Segmentation
+        - Multiprocessing (-p num_cores)
+        - Search for optimal accumulator threshold (param2 in HoughCircles) for circle detection 
+          - can be fixed to a constant to improve performance (option -ph)
+        - Quality-control overlays (option -q)
+        - Debugging pipeline to adapt thresholds (-D)
+    - Annotation
+      - Layout is determined by circles clustered into plates
+          - assumes as pseudo-grid like arrangement
+              - i.e. sequential rows or columns of plates, with each plate aggregating multiple circles
+          - Number of plates and circles per plate can be defined (options -npi and -cpp)
+          - ID incrementation is fully customisable by command line arguments (-crf, -clr, -ctb, -prf, -plr, -ptb)
+    - Analysis
+      - Requires:
+        - ID file (csv) containing the "tank", "well" and "strain" supports automated analysis.
+        - regex patterns defined in config file to pull out "tank" number and date/time from image filenames.
+      - Regression model of log transformed values to determine daily relative daily growth rate (RGR)
+      - Data exported as csv files, including raw values, RGR and per strain summaries
+          - Summaries provided with and without filtering for outliers 
+            - Outliers identified by residual sum of squares (RSS) from disc growth RGR model (> 1.5 * IQR)
+      - Plots exported as png images (area estimates over time for each disc, model fits and boxplots of RGR)
+
 
 ## Get started
 ### Distribution

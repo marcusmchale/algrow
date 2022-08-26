@@ -138,7 +138,7 @@ def options():
         "-ch",
         "--cut_height_tolerance",
         help="Cut height tolerance, tune for plate clustering",
-        default=0.3,
+        default=0.35,
         type=float
     )
     parser.add_argument(
@@ -178,8 +178,8 @@ def options():
         default=False
     )
     parser.add_argument(
-        "-npp",
-        "--n_per_plate",
+        "-cpp",
+        "--c_per_plate",
         help="In plate clustering, the number of circles per plate",
         default=6
     )

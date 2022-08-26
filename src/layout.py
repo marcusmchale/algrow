@@ -1,18 +1,10 @@
 import logging
-import pdb
-
 import numpy as np
 from pandas import DataFrame
 import cv2 as cv2
 from scipy.cluster import hierarchy
 from matplotlib import pyplot as plt
 from copy import copy
-from enum import IntEnum
-from typing import TYPE_CHECKING
-from typing import List
-
-
-
 
 
 class ImageContentException(Exception):
@@ -191,7 +183,7 @@ class Layout:
         return plates.tolist()
 
     def get_plates_sorted(self, n_plates, n_per_plate):
-        plates = self.find_plates(self.args.n_plates,  self.args.n_per_plate)
+        plates = self.find_plates(self.args.n_plates,  self.args.c_per_plate)
         if plates is None:
             raise ImageContentException("The plate layout could not be detected")
         return self.sort_plates(
