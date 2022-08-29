@@ -1,21 +1,25 @@
-from argparse import ArgumentParser
+from configargparse import ArgumentParser
 from pathlib import Path
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from argparse import Namespace
+import logging
 
 
 # Parse command-line arguments
 def options():
-    parser = ArgumentParser(description="Imaging processing")
+    logger = logging.getLogger(__name__)
+    parser = ArgumentParser(
+        default_config_files=["../conf.d/*.conf"],
+    )
     parser.add_argument("-i", "--image", help="Input image file or directory", default=None)
     parser.add_argument(
         "-id",
         "--sample_id",
-        help="Input csv file with sample identities (tank, well,strain)",
+        help="Input csv file with sample identities (block, unit, group)",
         default=None
     )
-    parser.add_argument("-o", "--out_dir", help="Output directory", default=None)
+    parser.add_argument("-o", "--out_dir", help="Output directory", default=".")
+    parser.add_argument("-tr", "--time_regex", help="Regex pattern to identify date time string from filename")
+    parser.add_argument("-tf", "--time_format", help="String format pattern to read datetime object from regex match")
+    parser.add_argument("-br", "--block_regex", help="Regex pattern to identify block string from filename")
     parser.add_argument(
         "-q",
         "--overlay",
@@ -55,6 +59,7 @@ def options():
         "-ao",
         "--area_file",
         help="Disc area filename for analysis (must be in the output directory)",
+        type=str,
         default="area.csv"
     )
     parser.add_argument(
@@ -109,21 +114,21 @@ def options():
     parser.add_argument(
         "-sc",
         "--scale",
-        help="pixels/mm",
+        help="pixels/unit distance for area calculation (if unit distance is mm then area will be reported in mm²)",
         default=5.625,  # 180px = 32mm
         type=float
     )
     parser.add_argument(
         "-cd",
         "--circle_diameter",
-        help="Diameter of blue circles in mm",
-        default=32,
+        help="Diameter of surrounding circles in pixels",
+        default=180,
         type=float
     )
     parser.add_argument(
         "-ct",
-        "--circle_radius_tolerance",
-        help="Circle radius tolerance, tune for circle detection",
+        "--circle_diameter_tolerance",
+        help="Circle diameter tolerance, tune for circle detection",
         default=0.05,
         type=float
     )
@@ -142,44 +147,8 @@ def options():
         type=float
     )
     parser.add_argument(
-        "-crf",
-        "--circles_rows_first",
-        help="In circle ID layout, within plate, go by rows first (set false to go by columns first)",
-        default=False
-    )
-    parser.add_argument(
-        "-clr",
-        "--circles_left_right",
-        help="In circle ID layout, within plate, IDs increment left to right (set false to go right to left)",
-        default=True
-    )
-    parser.add_argument(
-        "-ctb",
-        "--circles_top_bottom",
-        help="In circle ID layout, within plate, IDs increment top to bottom (set false to go bottom to top)",
-        default=False
-    )
-    parser.add_argument(
-        "-prf",
-        "--plates_rows_first",
-        help="In plate ID layout, go by rows first (set false to go by columns first)",
-        default=True
-    )
-    parser.add_argument(
-        "-plr",
-        "--plates_left_right",
-        help="In plate ID layout, IDs increment left to right (set false to go right to left)",
-        default=True
-    )
-    parser.add_argument(
-        "-ptb",
-        "--plates_top_bottom",
-        help="In plate ID layout, IDs increment top to bottom (set false to go bottom to top)",
-        default=False
-    )
-    parser.add_argument(
         "-cpp",
-        "--c_per_plate",
+        "--circles_per_plate",
         help="In plate clustering, the number of circles per plate",
         default=6
     )
@@ -189,7 +158,43 @@ def options():
         help="In plate layout, the number of plates per image",
         default=8
     )
-    args: Namespace = parser.parse_args()
+    parser.add_argument(
+        "-ccf",
+        "--circles_cols_first",
+        help="In circle ID layout, increment by columns first",
+        action='store_true'
+    )
+    parser.add_argument(
+        "-clr",
+        "--circles_right_left",
+        help="In circle ID layout, increment right to left",
+        action='store_true',
+    )
+    parser.add_argument(
+        "-cbt",
+        "--circles_bottom_top",
+        help="In circle ID layout, increment from bottom to top)",
+        action='store_true'
+    )
+    parser.add_argument(
+        "-pcf",
+        "--plates_cols_first",
+        help="In plate ID layout, increment by columns first",
+        action='store_true',
+    )
+    parser.add_argument(
+        "-prl",
+        "--plates_right_left",
+        help="In plate ID layout, increment from right to left",
+        action='store_true',
+    )
+    parser.add_argument(
+        "-pbt",
+        "--plates_bottom_top",
+        help="In plate ID layout, increment from bottom to top",
+        action='store_true'
+    )
+    args = parser.parse_args()
     if not args.out_dir:
         if Path(args.image).is_file():
             args.out_dir = Path(args.image).parents[0]
@@ -197,4 +202,5 @@ def options():
             args.out_dir = Path(args.image)
     if args.kernel % 2 == 0:
         args.kernel = args.kernel + 1
+    logger.info(parser.format_values())
     return args

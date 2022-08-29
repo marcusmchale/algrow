@@ -5,12 +5,30 @@ from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects
 from skimage.util import img_as_ubyte, img_as_bool
 from copy import copy
+from re import search
+from datetime import datetime
 from .layout import Layout
 from .debugger import Debugger
 
-
 def area_worker(filepath, args):
-    return ImageProcessor(filepath, args).get_area()
+    result = ImageProcessor(filepath, args).get_area()
+    filename = result["filename"]
+    block_match = search(args.block_regex, str(filename))
+    if block_match:
+        block = block_match.group(1)
+    else:
+        block = None
+    time_match = search(args.time_regex, str(filename))
+    if time_match:
+        time = datetime(*[int(time_match[i]) for i in range(1,6)]).isoformat(sep= " ")
+    else:
+        time = None
+    for record in result["units"]:
+        plate = record[0]
+        unit = record[1]
+        pixels =record[2]
+        area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
+        yield [filename, block, plate, unit, time, pixels, area]
 
 
 class ImageProcessor:
@@ -23,7 +41,6 @@ class ImageProcessor:
 
         self.image_debugger = Debugger(args, self.filepath)
         self.image_debugger.render_image(self.rgb, f"Raw: {self.filepath}")
-        assert self.rgb.dtype == 'uint8'
         self.logger.debug(f"Convert RGB to Lab and split")
         l, a, b = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab))
         self.a = a
@@ -108,22 +125,24 @@ class ImageProcessor:
 
     def get_area(self):
         args = self.args
-        plates = Layout(args, self.b, self.image_debugger).get_plates_sorted(n_plates=8, n_per_plate=6)
-
+        plates = Layout(args, self.b, self.image_debugger).get_plates_sorted()
         mask = self.get_mask(plates)
-        result = []
+        result = {
+            "filename": self.filepath,
+            "units": []
+        }
         empty_mask = np.zeros_like(mask)
         overlay_mask = copy(empty_mask)
         for p in plates:
             self.logger.debug(f"Processing plate {p.id}")
             for j, c in enumerate(p.circles):
-                circle_number = j+1+6*(p.id-1)
-                self.logger.debug(f"Processing circle {circle_number}")
+                unit = j+1+6*(p.id-1)
+                self.logger.debug(f"Processing circle {unit}")
                 circle_mask = copy(empty_mask)
                 cv2.circle(circle_mask, (c[0], c[1]), c[2], (255, 255, 255), -1)
                 local_mask = cv2.bitwise_and(circle_mask, mask)
                 pixels = cv2.countNonZero(local_mask)
-                result.append((p.id, circle_number, pixels))
+                result["units"].append((p.id, unit, pixels))
                 if args.overlay:
                     overlay_mask = cv2.bitwise_or(overlay_mask, local_mask)
         if args.overlay:
@@ -135,15 +154,15 @@ class ImageProcessor:
                 self.logger.debug(f"Annotate overlay with plate ID: {p.id}")
                 cv2.putText(overlay, str(p.id), p.centroid, 0, 5, (255, 0, 255), 5)
                 for j, c in enumerate(p.circles):
-                    circle_number = j + 1 + 6 * (p.id - 1)
+                    unit = j + 1 + 6 * (p.id - 1)
                     # draw the outer circle
                     cv2.circle(overlay, (c[0], c[1]), c[2], (255, 0, 0), 5)
                     # draw the center of the circle
                     cv2.circle(overlay, (c[0], c[1]), 2, (0, 0, 255), 5)
-                    cv2.putText(overlay, str(circle_number), c[0:2], 0, 3, (0, 255, 255), 5)
+                    cv2.putText(overlay, str(unit), c[0:2], 0, 3, (0, 255, 255), 5)
 
             self.image_debugger.render_image(overlay, "Overlay (annotated)")
             overlay_path = Path(args.out_dir, "overlay", self.filepath.name)
             overlay_path.parent.mkdir(exist_ok=True)
             cv2.imwrite(str(overlay_path), overlay)
-        return str(self.filepath), result
+        return result

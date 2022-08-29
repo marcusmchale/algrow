@@ -28,7 +28,12 @@ class Plate:
 
 
 class Layout:
-    def __init__(self, args, image, debugger):
+    def __init__(
+            self,
+            args,
+            image,
+            debugger
+    ):
         self.logger = logging.getLogger(__name__)
         self.args = args
         self.image = cv2.medianBlur(image, self.args.kernel)
@@ -37,7 +42,7 @@ class Layout:
 
     def find_circles(self, image, param2):
         self.logger.debug("Find circles")
-        circle_radius_px = int((self.args.scale * self.args.circle_diameter)/2)
+        circle_radius_px = int(self.args.circle_diameter/2)
         circles = cv2.HoughCircles(
             image,
             cv2.HOUGH_GRADIENT,
@@ -45,8 +50,8 @@ class Layout:
             minDist=int(circle_radius_px*2),
             param1=20,
             param2=param2,
-            minRadius=int(circle_radius_px * (1-self.args.circle_radius_tolerance)),
-            maxRadius=int(circle_radius_px * (1+self.args.circle_radius_tolerance))
+            minRadius=int(circle_radius_px * (1-self.args.circle_diameter_tolerance)),
+            maxRadius=int(circle_radius_px * (1+self.args.circle_diameter_tolerance))
         )
         return circles
 
@@ -72,7 +77,7 @@ class Layout:
     def find_n_clusters(self, circles, cluster_size, n):
         args = self.args
         centres = np.delete(circles, 2, axis=1)
-        cut_height = int(args.scale * args.circle_diameter * (1 + args.cut_height_tolerance))
+        cut_height = int(args.circle_diameter * (1 + args.cut_height_tolerance))
         self.logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if args.image_debug:
@@ -131,9 +136,9 @@ class Layout:
             self.debugger.render_plot("Dendrogram for row index clustering")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
-    def sort_circles(self, plate, rows_first, left_right, top_bottom):
+    def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True):
         self.logger.debug(f"sort circles for plate {plate.id}")
-        cut_height = int(self.args.scale * self.args.circle_diameter * 0.5)
+        cut_height = int(self.args.circle_diameter * 0.5)
         axis_values = np.array([c[int(rows_first)] for c in plate.circles])
         clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=cut_height)
         clusters = DataFrame(
@@ -151,7 +156,7 @@ class Layout:
         )
         plate.circles = clusters.circle.tolist()
 
-    def sort_plates(self, plates, rows_first, left_right, top_bottom):
+    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True):
         # default is currently just what our lab is used to using, a better default would be top_bottom = True
         self.logger.debug("Sort plates")
         axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
@@ -175,21 +180,21 @@ class Layout:
             p.id = i+1
             self.sort_circles(
                 p,
-                rows_first=self.args.circles_rows_first,
-                left_right=self.args.circles_left_right,
-                top_bottom=self.args.circles_top_bottom
+                rows_first=not self.args.circles_cols_first,
+                left_right=not self.args.circles_right_left,
+                top_bottom=not self.args.circles_bottom_top
             )
 
         return plates.tolist()
 
-    def get_plates_sorted(self, n_plates, n_per_plate):
-        plates = self.find_plates(self.args.n_plates,  self.args.c_per_plate)
+    def get_plates_sorted(self):
+        plates = self.find_plates(self.args.n_plates,  self.args.circles_per_plate)
         if plates is None:
             raise ImageContentException("The plate layout could not be detected")
         return self.sort_plates(
             plates,
-            rows_first=self.args.plates_rows_first,
-            left_right=self.args.plates_left_right,
-            top_bottom=self.args.plates_top_bottom
+            rows_first=not self.args.plates_cols_first,
+            left_right=not self.args.plates_right_left,
+            top_bottom=not self.args.plates_bottom_top
         )
 

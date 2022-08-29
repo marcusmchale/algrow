@@ -148,18 +148,20 @@ Steps:
     5. The area of the image mask is determined within each annotated circle and written to a csv file.
 
 # Todo
-
   - Threshold tuning
-    - Debugging/Setup workflow to generate a configuration file
-      - thresholding configuration 
+    - Develop a debugging/setup workflow that can generate a configuration file
+      - thresholding configuration:
         - target/not-target
         - alive/diseased/dead 
       - Handling low exposure elements (currently being included, make this optional)
-      - 
-
-  - Service node and server design, each pi as a node and a central server to gather and present reports.
-    - Capture images directly and use raw data rather than jpg
-      - Consider rolling shutter in raspberry Pi cameras, is it really an issue?
-        - Could average multiple images as done before
-  - Fit to dynamic region, find area that best fits log-linear growth rather than using the whole period
+    - Consider tuning/customisation of circle identification to support other coloured rings
+  - Data management
+    - Service node and server design, each pi as a node and a central server to gather and present reports.
+      - Capture images directly and use raw data rather than jpg
+        - Consider rolling shutter in raspberry Pi cameras, is it really an issue?
+          - Could average multiple images as done before
+  - Analysis
+    - Fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
+    - Consider blocking in analysis:
+      - "block" and/or "plate"
   

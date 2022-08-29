@@ -4,16 +4,16 @@ from pandas import read_csv, to_datetime, merge  # todo consider replacing the e
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from .config import area_header, datetime_regex, tank_regex
 
 
-class AreaResult:
-    def __init__(self, area_csv, id_csv):
+class AreaAnalyser:
+    def __init__(self, area_csv, id_csv, args):
+        self.args = args
         self.logger = logging.getLogger(__name__)
-        columns = ["tank", "well", "time", "mm²", "strain"]
+        columns = ["block", "unit", "time", "area", "group"]
         self.df = merge(
-            self._load_area(area_csv), self._load_id(id_csv), on=["tank", "well"]
-        )[columns].set_index(["tank", "well", "time"]).sort_index()
+            self._load_area(area_csv), self._load_id(id_csv), on=["block", "unit"]
+        )[columns].set_index(["block", "unit", "time"]).sort_index()
 
     def _load_area(self,area_csv):
         self.logger.debug(f"Load area data from file: {area_csv}")
@@ -21,13 +21,13 @@ class AreaResult:
             area_df = read_csv(
                 area_csv,
                 sep=",",
-                names=area_header,
+                names=self.args.area_header,
                 header=0,
-                usecols=["filename", "well", "mm²"],
-                dtype={"filename": str, "well": int, 'mm²': np.float64}
+                usecols=["filename", "unit", "area"],
+                dtype={"filename": str, "unit": int, 'area': np.float64}
             )
-            area_df["time"] = to_datetime(area_df["filename"].str.extract(datetime_regex))
-            area_df["tank"] = area_df["filename"].str.extract(tank_regex).astype(int)
+            area_df["time"] = to_datetime(area_df["filename"].str.extract(self.args.datetime_regex))
+            area_df["block"] = area_df["filename"].str.extract(self.args.block_regex).astype(int)
         return area_df
 
     def _load_id(self, id_csv):
@@ -36,9 +36,9 @@ class AreaResult:
             id_df = read_csv(
                 id_csv,
                 sep=",",
-                names=["tank", "well", "strain"],
+                names=["block", "unit", "group"],
                 header=0,
-                dtype={"tank": int, "well": int, 'mm²': np.float64}
+                dtype={"block": int, "unit": int, 'area': np.float64}
             )
         return id_df
 
@@ -61,39 +61,39 @@ class AreaResult:
         df = df[(df.elapsed_D >= fit_start) & (df.elapsed_D <= fit_end)]
         df["elapsed_m"] = (df.index.get_level_values("time") - start).astype('timedelta64[m]')
         with np.errstate(divide='ignore'):
-            df["log_area"] = np.log(df["mm²"])  # 0 values are -Inf which are then ignored in the fit
-        df["fit"] = df.groupby(["tank", "well"]).apply(self._fit)
+            df["log_area"] = np.log(df["area"])  # 0 values are -Inf which are then ignored in the fit
+        df["fit"] = df.groupby(["block", "unit"]).apply(self._fit)
         df[["intercept", "slope", "RSS"]] = df.fit.to_list()
         df["RGR"] = round(df["slope"] * 1440 * 100, 2)
         self.df = self.df.join(df[["slope", "intercept", "RGR", "RSS", "elapsed_m"]])
 
-    def _get_df_mask(self, tanks: list = None, wells: list = None, strains: list = None):
+    def _get_df_mask(self, blocks: list = None, units: list = None, groups: list = None):
         self.logger.debug("get mask")
         mask = np.full(self.df.shape[0], True)
-        if tanks and any(tanks):
-            mask = mask & np.isin(self.df.tank, tanks)
-        if tanks and any(wells):
-            mask = mask & np.isin(self.df.well, wells)
-        if strains and any(strains):
-            mask = mask & np.isin(self.df.strain, strains)
+        if blocks and any(blocks):
+            mask = mask & np.isin(self.df.block, blocks)
+        if blocks and any(units):
+            mask = mask & np.isin(self.df.unit, units)
+        if groups and any(groups):
+            mask = mask & np.isin(self.df.group, groups)
         return mask
 
     def draw_plot(
             self,
             ax,
-            strains=None,
+            groups=None,
             plot_fit=None
     ):
         self.logger.debug("draw plot")
-        mask = self._get_df_mask(strains=strains)
+        mask = self._get_df_mask(groups=groups)
         df = self.df[mask]
-        df = df.groupby(["tank", "well"])
+        df = df.groupby(["block", "unit"])
         for i, (name, group) in enumerate(df):
             ax.scatter(
                 group.index.get_level_values("time"),
-                group["mm²"],
+                group["area"],
                 s=1,
-                label=f"Tank {name[0]}, Well {name[1]}. RGR: {group.RGR.dropna().unique()}"
+                label=f"Block {name[0]}, Unit {name[1]}. RGR: {group.RGR.dropna().unique()}"
             )
             if plot_fit:
                 if name in plot_fit:
@@ -106,7 +106,7 @@ class AreaResult:
         return ax
 
     def summarise(self):
-        summary = self.df[["strain", "RGR", "RSS"]].droplevel("time").drop_duplicates().dropna()
+        summary = self.df[["group", "RGR", "RSS"]].droplevel("time").drop_duplicates().dropna()
         # identify atypical models from RSS
         q75, q25 = np.percentile(summary.RSS, [75, 25])
         iqr = q75 - q25
@@ -114,38 +114,38 @@ class AreaResult:
         summary["ModelFitOutlier"] = summary.RSS > median + (1.5 * iqr)
         return summary
 
-    def write_results(self, outdir, rgr_plot=True, strain_plots=False):
+    def write_results(self, outdir, rgr_plot=True, group_plots=False):
         self.logger.debug("write out results")
         summary = self.summarise()
         rgr_out = Path(outdir, "RGR.csv")
         rgr_out.parent.mkdir(parents=True, exist_ok=True)
         summary.to_csv(rgr_out)
-        mean_rgr = summary[~summary.ModelFitOutlier].groupby("strain").mean()
+        mean_rgr = summary[~summary.ModelFitOutlier].groupby("group").mean()
         mean_rgr_out = Path(outdir, "RGR_mean.csv")
         mean_rgr["RGR"].to_csv(mean_rgr_out)
         if rgr_plot:
             fig, ax = plt.subplots()
-            summary.boxplot("RGR", by="strain", rot=90)
+            summary.boxplot("RGR", by="group", rot=90)
             plt.tight_layout()
             plt.savefig(Path(outdir, "RGR.png"))
             plt.close(fig)
             # similar plot with model fit outliers removed
             fig, ax = plt.subplots()
             sub_summary = summary[~summary.ModelFitOutlier]
-            sub_summary.boxplot("RGR", by="strain", rot=90)
-            plt.title("Grouped by strain (low quality RGR models removed)")
+            sub_summary.boxplot("RGR", by="group", rot=90)
+            plt.title("Grouped (low quality RGR models removed)")
             plt.tight_layout()
             plt.savefig(Path(outdir, "RGR_less_outliers.png"))
             plt.close(fig)
-        if strain_plots:
-            strain_plot_dir = Path(outdir, "strain_plots")
-            strain_plot_dir.mkdir(parents=True, exist_ok=True)
-            for strain in set(self.df.strain):
-                to_plot_fit = summary[(summary.strain == strain) & ~summary.ModelFitOutlier].index.to_list()
+        if group_plots:
+            group_plot_dir = Path(outdir, "group_plots")
+            group_plot_dir.mkdir(parents=True, exist_ok=True)
+            for group in set(self.df.group):
+                to_plot_fit = summary[(summary.group == group) & ~summary.ModelFitOutlier].index.to_list()
                 fig, ax = plt.subplots()
-                self.draw_plot(ax, plot_fit=to_plot_fit, strains=[strain])
+                self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group])
                 plt.tight_layout()
-                plt.savefig(Path(strain_plot_dir, f"{strain}.png"))
+                plt.savefig(Path(group_plot_dir, f"{group}.png"))
                 plt.close(fig)
 
 

@@ -5,8 +5,7 @@ from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .options import options
 from .thresholding import area_worker
-from .analysis import AreaResult
-from .config import area_header
+from .analysis import AreaAnalyser
 
 
 def main():
@@ -51,6 +50,7 @@ def main():
             )
 
         with open(area_out, 'a+') as csv_file:
+            area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
             csv_writer = writer(csv_file)
             if area_out.stat().st_size == 0:  # True if output file is empty
                 csv_writer.writerow(area_header)
@@ -59,15 +59,12 @@ def main():
                     future_to_file = {
                         executor.submit(area_worker, image, args): image for image in images
                     }
-
                     for future in as_completed(future_to_file):
                         fp = future_to_file[future]
                         try:
                             result = future.result()
-                            for r in result[1]:
-                                csv_writer.writerow(
-                                    [result[0], r[0], r[1], r[2], None if r[2] is None else (r[2]) / (args.scale ** 2)]
-                                )
+                            for record in result:
+                                csv_writer.writerow(record)
                         except Exception as exc:
                             logger.info(f'{str(fp)} generated an exception: {exc}')
                         else:
@@ -76,16 +73,14 @@ def main():
                 for image in images:
                     try:
                         result = area_worker(image, args)
-                        for r in result[1]:
-                            csv_writer.writerow(
-                                [result[0], r[0], r[1], r[2], None if r[2] is None else (r[2]) / (args.scale ** 2)]
-                            )
+                        for record in result:
+                            csv_writer.writerow(record)
                     except Exception as exc:
                         logger.info(f'{str(image)} generated an exception: {exc}')
                     else:
                         logger.info(f'{str(image)}: processed')
     if args.sample_id:
-        result = AreaResult(area_out, args.sample_id)
-        result.fit_all(args.fit_start, args.fit_end)
-        result.write_results(args.out_dir, strain_plots=True)
+        area_analyser = AreaAnalyser(area_out, args.sample_id, args)
+        area_analyser.fit_all(args.fit_start, args.fit_end)
+        area_analyser.write_results(args.out_dir, group_plots=True)
 
