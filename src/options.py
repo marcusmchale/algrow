@@ -6,8 +6,10 @@ import logging
 # Parse command-line arguments
 def options():
     logger = logging.getLogger(__name__)
+    config_dir = Path(Path(__file__).parent.parent, "conf.d")
+    config_files = config_dir.glob("*.conf")
     parser = ArgumentParser(
-        default_config_files=["../conf.d/*.conf"],
+        default_config_files=config_files,
     )
     parser.add_argument("-i", "--image", help="Input image file or directory", default=None)
     parser.add_argument(
@@ -61,34 +63,6 @@ def options():
         help="Disc area filename for analysis (must be in the output directory)",
         type=str,
         default="area.csv"
-    )
-    parser.add_argument(
-        "-s",
-        "--saturation",
-        help="Set threshold value for saturation channel in HSV",
-        default=120,
-        type=int
-    )
-    parser.add_argument(
-        "-v",
-        "--value",
-        help="Set threshold value for value channel in HSV",
-        default=50,
-        type=int
-    )
-    parser.add_argument(
-        "-a",
-        "--green_red",
-        help="Set threshold value for green-red channel (A in LAB)",
-        default=130,
-        type=int
-    )
-    parser.add_argument(
-        "-b",
-        "--blue_yellow",
-        help="Set threshold value for blue-yellow channel (B in LAB)",
-        default=140,
-        type=int
     )
     parser.add_argument(
         "-r",

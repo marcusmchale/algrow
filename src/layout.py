@@ -15,7 +15,7 @@ class InsufficientCircleDetection(Exception):
     pass
 
 
-class InsufficientClusterDetection(Exception):
+class InsufficientPlateDetection(Exception):
     pass
 
 
@@ -36,7 +36,7 @@ class Layout:
     ):
         self.logger = logging.getLogger(__name__)
         self.args = args
-        self.image = cv2.medianBlur(image, self.args.kernel)
+        self.image = cv2.medianBlur(image, self.args.kernel)  # todo consider using scikit for this
         self.debugger = debugger
         self.debugger.render_image(self.image, "Median blur")
 
@@ -52,7 +52,7 @@ class Layout:
             param2=param2,
             minRadius=int(circle_radius_px * (1-self.args.circle_diameter_tolerance)),
             maxRadius=int(circle_radius_px * (1+self.args.circle_diameter_tolerance))
-        )
+        )  # todo consider using scikit for this
         return circles
 
     def find_n_circles(self, param2, n):
@@ -68,7 +68,7 @@ class Layout:
         if self.args.image_debug:
             circle_debug = copy(self.image)
             for c in circles:
-                cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)
+                cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)  # todo consider using scikit for this
             self.debugger.render_image(circle_debug, f"Circles found with param2 = {param2}")
         self.logger.debug(
             f"{str(circles.shape[0])} circles found with param2 = {param2}")
@@ -92,11 +92,11 @@ class Layout:
         clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
         unique, counts = np.array(np.unique(clusters, return_counts=True))
         target_clusters = unique[[i for i, j in enumerate(counts.flat) if j == cluster_size]]
-        self.logger.debug(f"Found {len(target_clusters)} clusters")
+        self.logger.debug(f"Found {len(target_clusters)} plates")
         if len(target_clusters) < n:
-            raise InsufficientClusterDetection
+            raise InsufficientPlateDetection(f"Only {len(target_clusters)} plates found")
         elif len(target_clusters) > n:
-            raise ImageContentException(f"More than {n} clusters found")
+            raise ImageContentException(f"More than {n} plates found")
         return clusters, target_clusters
 
     def find_plates(self, n_plates, n_per_plate):
@@ -112,7 +112,7 @@ class Layout:
                 continue
             try:
                 clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates)
-            except InsufficientClusterDetection:
+            except InsufficientPlateDetection:
                 continue
 
             self.logger.debug("Collect circles from target clusters into plates")
@@ -127,13 +127,13 @@ class Layout:
     def get_axis_clusters(self, axis_values, rows_first: bool, cut_height):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         if self.args.image_debug:
-            self.logger.debug(f"Plot dendrogram for plate {'y' if rows_first else 'x'} axis plate clustering")
+            self.logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate clustering")
             fig, ax = plt.subplots()
             self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
             self.logger.debug("Add cut-height line")
             plt.axhline(y=cut_height, c='k')
-            self.debugger.render_plot("Dendrogram for row index clustering")
+            self.debugger.render_plot(f"Dendrogram for {'rows' if rows_first else 'cols'} clustering")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
     def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True):

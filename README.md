@@ -88,7 +88,7 @@ The manual annotation process is time-consuming and dependent on the coordinate 
 of the lamina disc being consistent throughout the image stack.
 Manual procedures for segmentation and area determination in ImageJ are also time-consuming and
 limited to simple approaches which can fail to identify or accurately segment atypical images.
-The existing strategy also suffered from a typical issue with manual curation,
+The interactive strategy also suffers from a typical issue with manual curation,
 the introduction of operator error and biases to area quantification.
 
 Another key issue with the manual curation pipeline using ImageJ is the requirement to load all images in a stack into memory concurrently.
@@ -119,7 +119,7 @@ The DiscGrow application was developed to;
   - standardise and improve analysis
     - using all of the available data.
     - We now fit linear regression models on log transformed area values over time,
-    - to extract RGR as the slope of an OLS fit linear model.
+    - to extract RGR as the slope of linear model.
     - RSS of these models can help to identify poorly fitting models, an indication of experimental issues.
 
 Multiple images can be concurrently assessed (multiprocessing).
@@ -131,10 +131,11 @@ improves detection of other anomalies and provides opportunity to account for ou
 
 Steps:
 
-    1. Blue rings are identified by Hough Circle transform in median blur of b channel of Lab colourspace (OpenCV)
+    1. Circles are identified by Hough Circle transform in median blur of b channel of Lab colourspace (OpenCV)
     2. Clusters of circles are identified to define plates and remove artifact circles (Scipy.cluster.hierarchy)
-    3. Orientation and arrangement of plates is determined to define well identities (Scipy.cluster.hierarchy)
-    4. An image mask is generated from segmentation in both HSV and Lab colour spaces with additional noise removal.
+    3. Orientation and arrangement of circles and plates are determined to define well identities (Scipy.cluster.hierarchy)
+    4. SLIC segmentation in Lab colourspace to label "green" regions (scikimage.morphology)
+    5. Noise removal.
         a. Saturation (S) threshold to select high values, colour rich regions
         b. Value (V) threshold to identify dark regions that occur from folding of lamina tissues
         c. Join S AND V to create a colour mask
@@ -146,22 +147,38 @@ Steps:
         i. remove small objects (skimage.morphology)
         j. fill small holes (skimage.morphology)
     5. The area of the image mask is determined within each annotated circle and written to a csv file.
+    6. RGR analysis is performed (, figures and reports are generated.
 
 # Todo
-  - Threshold tuning
-    - Develop a debugging/setup workflow that can generate a configuration file
-      - thresholding configuration:
-        - target/not-target
-        - alive/diseased/dead 
-      - Handling low exposure elements (currently being included, make this optional)
-    - Consider tuning/customisation of circle identification to support other coloured rings
+  - Layout 
+    - support using in any grayscale image in circle detection
+      - currently just using the "b" channel
+  - Workflow changes to image segmentation, split into identification of:
+          - target/not-target
+          - alive/diseased/dead 
+    - each process should be described in configuration file or similar.
+    - Have a configuration file for each thresholding process to identify:
+    - Provide options for handling low exposure elements (currently being included as target)
+    - Use these to build the masks for quantitation
+    
   - Data management
     - Service node and server design, each pi as a node and a central server to gather and present reports.
       - Capture images directly and use raw data rather than jpg
         - Consider rolling shutter in raspberry Pi cameras, is it really an issue?
           - Could average multiple images as done before
+          
   - Analysis
-    - Fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
-    - Consider blocking in analysis:
-      - "block" and/or "plate"
-  
+    - Options to consider:
+      - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
+      - blocking (mixed effects models):
+        - "block" and/or "plate"  
+
+# Comparisons with other tools/frameworks 
+## plantcv2
+  - Command line application does not require coding in Python
+  - Multiplexing does not rely on simple grid layout (we support a nested structure in rows or columns)
+  - Relative rather than absolute positioning 
+    - Allows movement of camera or subjects
+    - Disadvantage is we require markers being distinguishable in the image (e.g. blue circles)
+
+    

@@ -1,14 +1,18 @@
 import logging
 import numpy as np
-import cv2 as cv2
+import cv2
 from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects
-from skimage.util import img_as_ubyte, img_as_bool
+from skimage.util import img_as_ubyte
+from skimage.measure import regionprops
+from skimage.segmentation import slic
+from skimage.color import label2rgb
 from copy import copy
 from re import search
 from datetime import datetime
 from .layout import Layout
 from .debugger import Debugger
+
 
 def area_worker(filepath, args):
     result = ImageProcessor(filepath, args).get_area()
@@ -20,13 +24,13 @@ def area_worker(filepath, args):
         block = None
     time_match = search(args.time_regex, str(filename))
     if time_match:
-        time = datetime(*[int(time_match[i]) for i in range(1,6)]).isoformat(sep= " ")
+        time = datetime(*[int(time_match[i]) for i in range(1, 6)]).isoformat(sep=" ")
     else:
         time = None
     for record in result["units"]:
         plate = record[0]
         unit = record[1]
-        pixels =record[2]
+        pixels = record[2]
         area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
         yield [filename, block, plate, unit, time, pixels, area]
 
@@ -42,7 +46,8 @@ class ImageProcessor:
         self.image_debugger = Debugger(args, self.filepath)
         self.image_debugger.render_image(self.rgb, f"Raw: {self.filepath}")
         self.logger.debug(f"Convert RGB to Lab and split")
-        l, a, b = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab))
+        self.lab = cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab)
+        l, a, b = cv2.split(self.lab)
         self.a = a
         self.image_debugger.render_image(a, f"Green-Red channel (a in Lab)")
         self.b = b
@@ -56,72 +61,51 @@ class ImageProcessor:
 
     def get_circle_mask(self, plates):
         self.logger.debug("Draw the circle mask")
-        circle_mask = np.full_like(self.b, 255)
+        circle_mask = np.zeros_like(self.b)
         #  radius = int((args.scale * args.circle_diameter) / 2)  # todo see radius note below
         for p in plates:
             for j, c in enumerate(p.circles):
                 x = c[0]
                 y = c[1]
                 radius = c[2]  # todo consider the option of drawing a constant radius
-                thickness = 20  # todo consider how thick line should be, good to have boundary of detection?
-                colour = (0, 0, 0)
-                cv2.circle(circle_mask, (x, y), radius, colour, thickness)
+                colour = 255
+                cv2.circle(circle_mask, (x, y), radius, colour, -1)
         self.image_debugger.render_image(circle_mask, "Circle mask")
+        # todo instead of drawing a mask here, build the image labels so can use to intercept with ID rather than drawing twice
+        # something like https://stackoverflow.com/questions/34902477/drawing-circles-on-image-with-matplotlib-and-numpy
         return circle_mask
 
-    def get_image_mask(self):
-        args = self.args
-
-        self.logger.debug("Threshold the saturation channel (select all colour rich areas")
-        ret, s_thresh = cv2.threshold(self.s, args.saturation, 255, cv2.THRESH_BINARY)
-        self.image_debugger.render_image(s_thresh, f"Saturation threshold: {args.saturation}")
-
-        self.logger.debug("Threshold the value channel to select low exposure pixels")
-        # These are often folded lamina disks within blue circles but includes e.g. marbles and pump outside)
-        ret, v_thresh = cv2.threshold(self.v, args.value, 255, cv2.THRESH_BINARY_INV)
-        self.image_debugger.render_image(v_thresh, f"Value threshold: {args.value}")
-
-        self.logger.debug("Join the value or saturation thresholds to create colour mask")
-        # i.e. keeping anything coloured or very dark
-        colour_mask = cv2.bitwise_or(v_thresh, s_thresh)
-        self.image_debugger.render_image(colour_mask, f"Value or Saturation joined (colour mask)")
-
-        self.logger.debug("Threshold the green-red channel (a in Lab) to select green tissues")
-        ret, a_thresh = cv2.threshold(self.a, args.green_red, 255, cv2.THRESH_BINARY_INV)
-        self.image_debugger.render_image(a_thresh, f"Green-Red (a in Lab) threshold: {args.green_red}")
-
-        self.logger.debug("Threshold the blue-yellow channel (b in Lab) to select green tissues")
-        ret, b_thresh = cv2.threshold(self.b, args.blue_yellow, 255, cv2.THRESH_BINARY_INV)
-        self.image_debugger.render_image(b_thresh, f"Blue-Yellow (b in Lab) threshold: {args.blue_yellow}")
-
-        self.logger.debug("Join the a and b channels to create a green mask")
-        green_mask = cv2.bitwise_and(a_thresh, b_thresh)
-        self.image_debugger.render_image(green_mask, f"a and b join (green mask)")
-
-        self.logger.debug("Join the colour mask and the green mask to create the image mask")
-        image_mask = cv2.bitwise_and(colour_mask, green_mask)
-        self.image_debugger.render_image(image_mask, f"Colour and green joined (image mask)")
-
-        return image_mask
+    def get_green_mask(self, circle_mask, n_segments):
+        mask = circle_mask.astype('bool')
+        segments = slic(self.rgb, convert2lab=True, mask=mask, n_segments=n_segments, enforce_connectivity=False)
+        if self.args.image_debug:  # testing here so don't bother creating the labeled image
+            self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
+        # look for region with highest "green" value, i.e. high intensity in "a" channel of LAB
+        regions = regionprops(segments, intensity_image=self.a)
+        green_label = regions[np.argmin([r.mean_intensity for r in regions])].label
+        # create mask from this region
+        green_mask = segments == green_label
+        self.image_debugger.render_image(green_mask, "Green mask (SLIC)")
+        return green_mask
 
     def get_mask(self, plates):
         args = self.args
         circle_mask = self.get_circle_mask(plates)
-        image_mask = self.get_image_mask()
-
-        self.logger.debug("Mask the area identified as circles in the green mask")
-        mask = cv2.bitwise_and(circle_mask, image_mask)
-        self.image_debugger.render_image(mask, "Colour mask and blue ring mask joined")
+        green_mask = self.get_green_mask(circle_mask, n_segments=5)
+        #  todo consider passing n_segments back up to user as option for more complex images
+        #  still we rely on selecting the "most green" for plant like tissues"
+        #  but maybe can remove "dead/diseased" tissues with more segments
 
         self.logger.debug("Remove small objects in the mask")
-        clean_mask = remove_small_objects(img_as_bool(mask), args.remove)
+        clean_mask = remove_small_objects(green_mask, args.remove)
         self.image_debugger.render_image(clean_mask, "Cleaned mask (removed small objects)")
 
         self.logger.debug("Remove small holes in the mask")
         filled_mask = remove_small_holes(clean_mask, args.fill)
         self.image_debugger.render_image(clean_mask, "Filled mask (removed small holes)")
 
-        return img_as_ubyte(filled_mask)
+        return img_as_ubyte(filled_mask)  # todo why does this pass back ubyte?
+        # name suggests it should be returning a boolean mask
 
     def get_area(self):
         args = self.args
@@ -139,7 +123,7 @@ class ImageProcessor:
                 unit = j+1+6*(p.id-1)
                 self.logger.debug(f"Processing circle {unit}")
                 circle_mask = copy(empty_mask)
-                cv2.circle(circle_mask, (c[0], c[1]), c[2], (255, 255, 255), -1)
+                cv2.circle(circle_mask, (c[0], c[1]), c[2], 255, -1)
                 local_mask = cv2.bitwise_and(circle_mask, mask)
                 pixels = cv2.countNonZero(local_mask)
                 result["units"].append((p.id, unit, pixels))
@@ -165,4 +149,4 @@ class ImageProcessor:
             overlay_path = Path(args.out_dir, "overlay", self.filepath.name)
             overlay_path.parent.mkdir(exist_ok=True)
             cv2.imwrite(str(overlay_path), overlay)
-        return result
+        return result  # todo consider replacing cv with skimage here too
