@@ -134,44 +134,30 @@ Steps:
     1. Circles are identified by Hough Circle transform in median blur of b channel of Lab colourspace (OpenCV)
     2. Clusters of circles are identified to define plates and remove artifact circles (Scipy.cluster.hierarchy)
     3. Orientation and arrangement of circles and plates are determined to define well identities (Scipy.cluster.hierarchy)
-    4. SLIC segmentation in Lab colourspace to label "green" regions (scikimage.morphology)
-    5. Noise removal.
-        a. Saturation (S) threshold to select high values, colour rich regions
-        b. Value (V) threshold to identify dark regions that occur from folding of lamina tissues
-        c. Join S AND V to create a colour mask
-        d. Green-Red (a)  threshold to select green lamina
-        e. Blue-Yellow (b) threshold to select green lamina
-        f. Join a AND b to create green mask
-        g. Join colour AND green to create the image mask
-        h. Apply a circle mask around the perimeter of each well (from 2)
-        i. remove small objects (skimage.morphology)
-        j. fill small holes (skimage.morphology)
+    4. SLIC segmentation in Lab colourspace to label "green" regions (skimage.segmentation)
+    5. Remove small objects and fill small holes (skimage.morphology)
     5. The area of the image mask is determined within each annotated circle and written to a csv file.
-    6. RGR analysis is performed (, figures and reports are generated.
+    6. RGR analysis is performed, figures and reports are generated.
 
 # Todo
   - Layout 
-    - support using in any grayscale image in circle detection
+    - support selecting any grayscale image in circle detection
       - currently just using the "b" channel
-  - Workflow changes to image segmentation, split into identification of:
-          - target/not-target
-          - alive/diseased/dead 
-    - each process should be described in configuration file or similar.
-    - Have a configuration file for each thresholding process to identify:
-    - Provide options for handling low exposure elements (currently being included as target)
-    - Use these to build the masks for quantitation
-    
-  - Data management
+      - Consider other strategies, doing segmentation later, 
+        - can this be leveraged to select or even generate the appropriate grayscale?
+  - Segmentation
+    - Replace opencv with skimage, should be able to do all this in the one library
+    - Generate labeled mask circles on first iteration through plates
+      - use this to speed up counting pixels
+  - Data management (probably unnecessary)
     - Service node and server design, each pi as a node and a central server to gather and present reports.
       - Capture images directly and use raw data rather than jpg
         - Consider rolling shutter in raspberry Pi cameras, is it really an issue?
           - Could average multiple images as done before
-          
-  - Analysis
-    - Options to consider:
-      - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
-      - blocking (mixed effects models):
-        - "block" and/or "plate"  
+  - Analysis (to consider but maybe overkill)
+    - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
+    - blocking (mixed effects models):
+      - "block" and/or "plate"  
 
 # Comparisons with other tools/frameworks 
 ## plantcv2
