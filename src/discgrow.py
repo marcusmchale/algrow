@@ -4,8 +4,9 @@ from pathlib import Path
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .options import options
-from .thresholding import area_worker
+from .image_processing import area_worker
 from .analysis import AreaAnalyser
+from .picker import Picker
 
 
 def main():
@@ -39,6 +40,13 @@ def main():
             raise FileNotFoundError
 
         logger.debug("Check file exists and if it already includes data from listed images")
+
+        # get colour from a random image
+        for first_image in images:
+            picker = Picker(first_image, args)
+            mean_colour_target = picker.get_mean_colour("Target")
+            break
+
         if area_out.is_file():  # if the file exists then check for any already processed images
             with open(area_out) as csv_file:
                 csv_reader = reader(csv_file)
@@ -57,7 +65,7 @@ def main():
             if args.processes > 1:
                 with ProcessPoolExecutor(max_workers=args.processes) as executor:
                     future_to_file = {
-                        executor.submit(area_worker, image, args): image for image in images
+                        executor.submit(area_worker, image, args, mean_colour_target): image for image in images
                     }
                     for future in as_completed(future_to_file):
                         fp = future_to_file[future]
@@ -72,7 +80,7 @@ def main():
             else:
                 for image in images:
                     try:
-                        result = area_worker(image, args)
+                        result = area_worker(image, args, mean_colour_target)
                         for record in result:
                             csv_writer.writerow(record)
                     except Exception as exc:

@@ -1,4 +1,4 @@
-import cv2 as cv2
+import cv2
 from pathlib import Path
 from skimage.util import img_as_ubyte
 from matplotlib import pyplot as plt
@@ -14,9 +14,8 @@ class Debugger:
         if self.args.image_debug:
             img = img_as_ubyte(img)
             if self.args.image_debug == 'print':
-                prefix = "_".join([i for i in (prefix, label) if i])
                 filepath = self.filepath.with_stem(f'{prefix}_{self.filepath.stem}').with_suffix(extension)
-                cv2.imwrite(Path(self.args.out_dir, filepath), img)
+                cv2.imwrite(str(Path(self.args.out_dir, filepath.stem).with_suffix(extension)), img)
             elif self.args.image_debug == 'plot':
                 rescale = 0.2
                 width = int(img.shape[1] * rescale)
@@ -30,9 +29,8 @@ class Debugger:
     def render_plot(self, label: str, prefix="debug", extension=".jpg"):
         if self.args.image_debug:
             if self.args.image_debug == 'print':
-                prefix = "_".join([i for i in (prefix, label) if i])
                 filepath = self.filepath.with_stem(f'{prefix}_{self.filepath.stem}').with_suffix(extension)
-                plt.savefig(Path(self.args.out_dir, filepath))
+                plt.savefig(str(Path(self.args.out_dir, filepath.stem).with_suffix(extension)))
             elif self.args.image_debug == 'plot':
                 plt.title(label)
                 plt.show()

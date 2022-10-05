@@ -12,10 +12,13 @@ from re import search
 from datetime import datetime
 from .layout import Layout
 from .debugger import Debugger
+from colour import delta_E
 
+#from colormath.color_objects import LabColor
+#from colormath.color_diff import delta_e_cie2000 as delta_e
 
-def area_worker(filepath, args):
-    result = ImageProcessor(filepath, args).get_area()
+def area_worker(filepath, args, mean_colour_target):
+    result = ImageProcessor(filepath, args, mean_colour_target).get_area()
     filename = result["filename"]
     block_match = search(args.block_regex, str(filename))
     if block_match:
@@ -36,7 +39,7 @@ def area_worker(filepath, args):
 
 
 class ImageProcessor:
-    def __init__(self, filepath, args):
+    def __init__(self, filepath, args, mean_colour_target):
         self.logger = logging.getLogger(__name__)
         self.args = args
         self.filepath = Path(filepath)
@@ -48,6 +51,8 @@ class ImageProcessor:
         self.logger.debug(f"Convert RGB to Lab and split")
         self.lab = cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab)
         l, a, b = cv2.split(self.lab)
+        self.l = l
+        self.image_debugger.render_image(l, f"Lightness channel (l in Lab)")
         self.a = a
         self.image_debugger.render_image(a, f"Green-Red channel (a in Lab)")
         self.b = b
@@ -58,6 +63,7 @@ class ImageProcessor:
         self.image_debugger.render_image(s, "Saturation (S in HSV)")
         self.v = v
         self.image_debugger.render_image(v, "Value (V in HSV)")
+        self.mean_colour_target = mean_colour_target
 
     def get_circle_mask(self, plates):
         self.logger.debug("Draw the circle mask")
@@ -75,29 +81,35 @@ class ImageProcessor:
         # something like https://stackoverflow.com/questions/34902477/drawing-circles-on-image-with-matplotlib-and-numpy
         return circle_mask
 
-    def get_green_mask(self, circle_mask, n_segments):
+    def get_target_mask(self, circle_mask, n_segments):
         mask = circle_mask.astype('bool')
         segments = slic(self.rgb, convert2lab=True, mask=mask, n_segments=n_segments, enforce_connectivity=False)
         if self.args.image_debug:  # testing here so don't bother creating the labeled image
+            self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
             self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
-        # look for region with highest "green" value, i.e. high intensity in "a" channel of LAB
-        regions = regionprops(segments, intensity_image=self.a)
-        green_label = regions[np.argmin([r.mean_intensity for r in regions])].label
+        # find the colour closest to the selected target colour to extract
+        colour_deltas = []
+        regions_l = regionprops(segments, intensity_image=self.l)
+        regions_a = regionprops(segments, intensity_image=self.a)
+        regions_b = regionprops(segments, intensity_image=self.b)
+        for i in range(n_segments):
+            mean_lab = np.array([regions_l[i].mean_intensity, regions_a[i].mean_intensity, regions_b[i].mean_intensity])
+            colour_deltas.append(delta_E(mean_lab, np.array(self.mean_colour_target)))
+        val, idx = min((val, idx) for (idx, val) in enumerate(colour_deltas))
+        target_label = regions_l[idx].label
         # create mask from this region
-        green_mask = segments == green_label
-        self.image_debugger.render_image(green_mask, "Green mask (SLIC)")
-        return green_mask
+        target_mask = segments == target_label
+        self.image_debugger.render_image(target_mask, "Target mask (SLIC)")
+        return target_mask
 
     def get_mask(self, plates):
         args = self.args
         circle_mask = self.get_circle_mask(plates)
-        green_mask = self.get_green_mask(circle_mask, n_segments=5)
+        target_mask = self.get_target_mask(circle_mask, n_segments=5)
         #  todo consider passing n_segments back up to user as option for more complex images
-        #  still we rely on selecting the "most green" for plant like tissues"
-        #  but maybe can remove "dead/diseased" tissues with more segments
 
         self.logger.debug("Remove small objects in the mask")
-        clean_mask = remove_small_objects(green_mask, args.remove)
+        clean_mask = remove_small_objects(target_mask, args.remove)
         self.image_debugger.render_image(clean_mask, "Cleaned mask (removed small objects)")
 
         self.logger.debug("Remove small holes in the mask")
@@ -130,6 +142,7 @@ class ImageProcessor:
                 if args.overlay:
                     overlay_mask = cv2.bitwise_or(overlay_mask, local_mask)
         if args.overlay:
+
             self.logger.debug("Prepare annotated overlay for QC")
             overlay_mask = cv2.cvtColor(overlay_mask, cv2.COLOR_GRAY2RGB)
             overlay = cv2.addWeighted(self.rgb, 0.5, overlay_mask, 0.5, 0.2, 0)
