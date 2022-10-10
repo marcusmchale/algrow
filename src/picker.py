@@ -47,6 +47,7 @@ class Picker:
         colour_image[:, :, :] = (mean_colour["target_L"], mean_colour["target_a"], mean_colour["target_b"])
         self.image_debugger.render_image(colour_image, f"Picked colour")
         self.logger.info(f"Mean colour: {mean_colour}")
+        print(f"Mean colour: {mean_colour}")
         return mean_colour
 
 
