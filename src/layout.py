@@ -151,7 +151,7 @@ class Layout:
         )
         clusters = clusters.sort_values(
             "primary_axis", ascending=top_bottom if rows_first else left_right
-        ).groupby("cluster", sort=False).apply(
+        ).groupby("cluster", sort=False, group_keys=True).apply(
             lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
         )
         plate.circles = clusters.circle.tolist()
@@ -172,7 +172,7 @@ class Layout:
         )
         clusters = clusters.sort_values(
             "primary_axis", ascending=top_bottom if rows_first else left_right
-        ).groupby("cluster", sort=False).apply(
+        ).groupby("cluster", sort=False, group_keys=True).apply(
             lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
         )
         plates = clusters.plate.values

@@ -55,6 +55,24 @@ def options():
         choices=["info", "debug"],
         default=None
     )
+    parser.add_argument(
+        "-tL", "--target_L",
+        help="typical 'L' (lightness) value for target in Lab colourspace",
+        type=float,
+        default=None
+    )
+    parser.add_argument(
+        "-ta", "--target_a",
+        help="typical 'a' (green-magenta) value for target in Lab colourspace",
+        type=float,
+        default=None
+    )
+    parser.add_argument(
+        "-tb", "--target_b",
+        help="typical 'b' (blue-yellow) value for target in Lab colourspace",
+        type=float,
+        default=None
+    )
     parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
     parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument(
@@ -63,6 +81,13 @@ def options():
         help="Disc area filename for analysis (must be in the output directory)",
         type=str,
         default="area.csv"
+    )
+    parser.add_argument(
+        "-cc",
+        "--circle_channel",
+        help="The channel from Lab colour-space to use for circle detection",
+        choices=["a", "b"],
+        default="b",
     )
     parser.add_argument(
         "-r",

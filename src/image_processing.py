@@ -14,11 +14,9 @@ from .layout import Layout
 from .debugger import Debugger
 from colour import delta_E
 
-#from colormath.color_objects import LabColor
-#from colormath.color_diff import delta_e_cie2000 as delta_e
 
-def area_worker(filepath, args, mean_colour_target):
-    result = ImageProcessor(filepath, args, mean_colour_target).get_area()
+def area_worker(filepath, args):
+    result = ImageProcessor(filepath, args).get_area()
     filename = result["filename"]
     block_match = search(args.block_regex, str(filename))
     if block_match:
@@ -30,16 +28,20 @@ def area_worker(filepath, args, mean_colour_target):
         time = datetime(*[int(time_match[i]) for i in range(1, 6)]).isoformat(sep=" ")
     else:
         time = None
-    for record in result["units"]:
-        plate = record[0]
-        unit = record[1]
-        pixels = record[2]
-        area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
-        yield [filename, block, plate, unit, time, pixels, area]
+
+    def format_result(raw_result):
+        for record in raw_result["units"]:
+            plate = record[0]
+            unit = record[1]
+            pixels = record[2]
+            area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
+            yield [filename, block, plate, unit, time, pixels, area]
+
+    return list(format_result(result))
 
 
 class ImageProcessor:
-    def __init__(self, filepath, args, mean_colour_target):
+    def __init__(self, filepath, args):
         self.logger = logging.getLogger(__name__)
         self.args = args
         self.filepath = Path(filepath)
@@ -63,7 +65,6 @@ class ImageProcessor:
         self.image_debugger.render_image(s, "Saturation (S in HSV)")
         self.v = v
         self.image_debugger.render_image(v, "Value (V in HSV)")
-        self.mean_colour_target = mean_colour_target
 
     def get_circle_mask(self, plates):
         self.logger.debug("Draw the circle mask")
@@ -84,17 +85,19 @@ class ImageProcessor:
     def get_target_mask(self, circle_mask, n_segments):
         mask = circle_mask.astype('bool')
         segments = slic(self.rgb, convert2lab=True, mask=mask, n_segments=n_segments, enforce_connectivity=False)
-        if self.args.image_debug:  # testing here so don't bother creating the labeled image
+        if self.args.image_debug:
             self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
             self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
-        # find the colour closest to the selected target colour to extract
+        # find the colour closest to the selected target colour (from picker) to extract
         colour_deltas = []
         regions_l = regionprops(segments, intensity_image=self.l)
         regions_a = regionprops(segments, intensity_image=self.a)
         regions_b = regionprops(segments, intensity_image=self.b)
         for i in range(n_segments):
             mean_lab = np.array([regions_l[i].mean_intensity, regions_a[i].mean_intensity, regions_b[i].mean_intensity])
-            colour_deltas.append(delta_E(mean_lab, np.array(self.mean_colour_target)))
+            colour_deltas.append(
+                delta_E(mean_lab, np.array([self.args.target_L, self.args.target_a, self.args.target_b]))
+            )
         val, idx = min((val, idx) for (idx, val) in enumerate(colour_deltas))
         target_label = regions_l[idx].label
         # create mask from this region
@@ -121,7 +124,12 @@ class ImageProcessor:
 
     def get_area(self):
         args = self.args
-        plates = Layout(args, self.b, self.image_debugger).get_plates_sorted()
+        if args.circle_channel == 'a':
+            channel = self.a
+        else:
+            channel = self.b
+
+        plates = Layout(args, channel, self.image_debugger).get_plates_sorted()
         mask = self.get_mask(plates)
         result = {
             "filename": self.filepath,

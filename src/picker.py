@@ -20,8 +20,8 @@ class Picker:
         self.b = b
         self.image_debugger.render_image(b, f"Blue-Yellow channel (b in Lab)")
 
-    def pick_regions(self, label):
-        window_string = f"Select representative {label} regions. Press space/enter for each selection and Esc to finish"
+    def pick_regions(self):
+        window_string = f"Select representative regions. Press space/enter for each selection and Esc to finish"
         rects = cv2.selectROIs(
             window_string,
             self.rgb,
@@ -39,12 +39,14 @@ class Picker:
         self.image_debugger.render_image(mask, f"Region mask")
         return mask
 
-    def get_mean_colour(self, label):
-        mask = self.pick_regions(label)
+    def get_mean_colour(self):
+        mask = self.pick_regions()
         mean_colour = cv2.mean(self.lab, mask)[0:3]
+        mean_colour = dict(zip(["target_L", "target_a", "target_b"], [round(i) for i in mean_colour]))
         colour_image = np.zeros_like(self.lab)
-        colour_image[:,:,:] = mean_colour
+        colour_image[:, :, :] = (mean_colour["target_L"], mean_colour["target_a"], mean_colour["target_b"])
         self.image_debugger.render_image(colour_image, f"Picked colour")
+        self.logger.info(f"Mean colour: {mean_colour}")
         return mean_colour
 
 

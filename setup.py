@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='discgrow',
-    version='0.1.2',
+    version='0.1.3',
     packages=['src'],
     scripts=['discgrow.py'],
     url='https://github.com/marcusmchale/discgrow',

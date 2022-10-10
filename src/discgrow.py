@@ -31,6 +31,9 @@ def main():
 
     area_out = Path(args.out_dir, args.area_file)
 
+
+
+
     if args.image:
         if Path(args.image).is_file():
             images = {Path(args.image)}
@@ -41,11 +44,14 @@ def main():
 
         logger.debug("Check file exists and if it already includes data from listed images")
 
-        # get colour from a random image
-        for first_image in images:
-            picker = Picker(first_image, args)
-            mean_colour_target = picker.get_mean_colour("Target")
-            break
+        if not all([args.target_L, args.target_a, args.target_b]):
+            logger.debug("Pick a colour")
+            # get colour from a random image
+            for first_image in images:
+                picker = Picker(first_image, args)
+                mean_colour_target = picker.get_mean_colour()
+                vars(args).update(mean_colour_target)
+                break
 
         if area_out.is_file():  # if the file exists then check for any already processed images
             with open(area_out) as csv_file:
@@ -65,7 +71,7 @@ def main():
             if args.processes > 1:
                 with ProcessPoolExecutor(max_workers=args.processes) as executor:
                     future_to_file = {
-                        executor.submit(area_worker, image, args, mean_colour_target): image for image in images
+                        executor.submit(area_worker, image, args): image for image in images
                     }
                     for future in as_completed(future_to_file):
                         fp = future_to_file[future]
@@ -80,7 +86,7 @@ def main():
             else:
                 for image in images:
                     try:
-                        result = area_worker(image, args, mean_colour_target)
+                        result = area_worker(image, args)
                         for record in result:
                             csv_writer.writerow(record)
                     except Exception as exc:
@@ -88,7 +94,7 @@ def main():
                     else:
                         logger.info(f'{str(image)}: processed')
     if args.sample_id:
-        area_analyser = AreaAnalyser(area_out, args.sample_id, args)
+        area_analyser = AreaAnalyser(area_out, args.sample_id, args, area_header)
         area_analyser.fit_all(args.fit_start, args.fit_end)
         area_analyser.write_results(args.out_dir, group_plots=True)
 
