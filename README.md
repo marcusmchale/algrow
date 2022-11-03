@@ -24,10 +24,12 @@ Features:
       - Number of plates and circles per plate can be defined (options -npi and -cpp)
       - ID incrementation direction is customisable (-crf, -clr, -ctb, -prf, -plr, -ptb)
 - Segmentation
-  - SLIC algorithm
-    - R. Achanta, A. Shaji, K. Smith, A. Lucchi, P. Fua and S. Süsstrunk, "SLIC Superpixels Compared to State-of-the-Art Superpixel Methods," in IEEE Transactions on Pattern Analysis and Machine Intelligence, vol. 34, no. 11, pp. 2274-2282, Nov. 2012, doi: 10.1109/TPAMI.2012.120.
+  - SLIC algorithm 
+    - Radhakrishna Achanta, Appu Shaji, Kevin Smith, Aurelien Lucchi, Pascal Fua, and Sabine Süsstrunk, SLIC Superpixels Compared to State-of-the-art Superpixel Methods, TPAMI, May 2012. DOI:10.1109/TPAMI.2012.120
+    - https://www.epfl.ch/labs/ivrl/research/slic-superpixels/#SLICO
+    - Irving, Benjamin. “maskSLIC: regional superpixel generation with application to local pathology characterisation in medical images.”, 2016, arXiv:1606.09518
   - optional interactive selection of representative regions for target colour selection
-    - run only if the colour (Lab colour-space) is not defined (-tL, -ta, -tb)
+    - run only if the colour (a & b in Lab colour-space) is not defined (-ta, -tb)
   - Area is reported for closest cluster to the defined target 
 - Analysis
   - Linear regression of log transformed values determines daily relative daily growth rate (RGR)

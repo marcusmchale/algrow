@@ -1,7 +1,6 @@
-from .discgrow import main
+from .discgrow import discgrow
+
 
 if __name__ == '__main__':
-    main()
-
-
+    discgrow()
 

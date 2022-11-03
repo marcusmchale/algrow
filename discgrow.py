@@ -1,6 +1,13 @@
 #!/usr/bin/env python
+import logging.config
+from src.logging import LOGGING_CONFIG
+from src.discgrow import discgrow
 
-from src.discgrow import main
+
+logging.config.dictConfig(LOGGING_CONFIG)
+
 
 if __name__ == '__main__':
-    main()
+    logger = logging.getLogger(__name__)
+    logger.debug("Debug mode")
+    discgrow()

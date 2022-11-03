@@ -1,55 +1,86 @@
 import logging
 from pathlib import Path
-import cv2
+from skimage.color import rgb2lab, lab2rgb
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+import matplotlib.pyplot as plt
 import numpy as np
 from .debugger import Debugger
 
+logger = logging.getLogger(__name__)
+
 
 class Picker:
-    def __init__(self, image_path, args):
-        self.logger = logging.getLogger(__name__)
-        self.args = args
-        self.image_debugger = Debugger(args, Path(image_path))
-        self.logger.debug("Load selected image for colour picking")
-        self.rgb = cv2.imread(str(image_path))
-        self.image_debugger.render_image(self.rgb, str(image_path))
-        self.lab = cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab)
-        l, a, b = cv2.split(self.lab)
-        self.a = a
-        self.image_debugger.render_image(a, f"Green-Red channel (a in Lab)")
-        self.b = b
-        self.image_debugger.render_image(b, f"Blue-Yellow channel (b in Lab)")
+    def __init__(self, image_path):
+        self.image_debugger = Debugger(image_path)
+        logger.debug("Load selected image for colour picking")
+        self.rgb = plt.imread(str(image_path)).copy()
+        self.lab = rgb2lab(self.rgb / 255)
+        self.selection_array = np.zeros_like(self.rgb[:, :, 1], dtype="bool")
+        xv, yv = np.meshgrid(np.arange(self.selection_array.shape[1]), np.arange(self.selection_array.shape[0]))
+        self.pixel_coords = np.vstack( (xv.flatten(), yv.flatten())).T
+
+
+    @property
+    def a(self):
+        return self.lab[:, :, 1]
+
+    @property
+    def b(self):
+        return self.lab[:, :, 2]
 
     def pick_regions(self):
-        window_string = f"Select representative regions. Press space/enter for each selection and Esc to finish"
-        rects = cv2.selectROIs(
-            window_string,
-            self.rgb,
-            fromCenter=False,
-            showCrosshair=False
-        )
-        cv2.destroyWindow(window_string)
-        if len(rects) == 0:
-            raise ValueError("No areas selected")
-        mask = np.zeros(self.a.shape, np.uint8)
-        for r in rects:
-            # r is [Top_Left_X, Top_Left_Y, Width, Height]
-            # mask[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = self.rgb[r[1]:r[1]+r[3], r[0]:r[0]+r[2]]
-            mask[r[1]:r[1]+r[3], r[0]:r[0]+r[2]] = 255
-        self.image_debugger.render_image(mask, f"Region mask")
-        return mask
+        fig, ax = plt.subplots()
+        ax.set_title("Select representative regions (draw circles around some)")
+        ax.imshow(self.rgb)
+        selector = SelectFromImage(ax, self.pixel_coords, self.selection_array)
+        plt.show()
+        if np.sum(self.selection_array) == 0:
+            raise ValueError("No area selected")
+        fig, ax = plt.subplots()
+        ax.imshow(self.selection_array)
+        plt.show()
+        overlay = self.rgb.copy()
+        overlay[:, :, 1][self.selection_array] = 0
+        fig, ax = plt.subplots()
+        ax.imshow(overlay)
+        plt.show()
+        return self.selection_array
 
     def get_mean_colour(self):
         mask = self.pick_regions()
-        mean_colour = cv2.mean(self.lab, mask)[0:3]
-        mean_colour = dict(zip(["target_L", "target_a", "target_b"], [round(i) for i in mean_colour]))
-        colour_image = np.zeros_like(self.lab)
-        colour_image[:, :, :] = (mean_colour["target_L"], mean_colour["target_a"], mean_colour["target_b"])
-        self.image_debugger.render_image(colour_image, f"Picked colour")
-        self.logger.info(f"Mean colour: {mean_colour}")
-        print(f"Mean colour: {mean_colour}")
-        return mean_colour
+        mean_colour = self.lab[mask].mean(0)
+        picked_colour_array = np.full((10, 10, 3), lab2rgb(mean_colour) * 255, dtype="uint8")
+        fig, ax = plt.subplots()
+        ax.imshow(picked_colour_array)
+        plt.show()
+        mean_colour_dict = {
+            "target_l": mean_colour[0],
+            "target_a": mean_colour[1],
+            "target_b": mean_colour[2]
+        }
+        logger.info(mean_colour_dict)
+        return mean_colour_dict
 
+
+class SelectFromImage:
+    def __init__(self, ax, pixel_coords, selection_array):
+        self.pixel_coords = pixel_coords
+        self.selection_array = selection_array
+        self.lasso = LassoSelector(ax, onselect=self.onselect)
+
+    def update_array(self, indices):
+        lin = np.arange(self.selection_array.size)
+        flat_array = self.selection_array.reshape(-1) # this is a view so updates the selection_array
+        flat_array[lin[indices]] = True
+
+    def onselect(self, verts):
+        path = Path(verts)
+        ind = np.nonzero(path.contains_points(self.pixel_coords, radius=1))
+        self.update_array(ind)
+
+    def disconnect(self):
+        self.lasso.disconnect_events()
 
 
 

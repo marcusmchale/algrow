@@ -1,11 +1,16 @@
 import logging
 import numpy as np
 from pandas import DataFrame
-import cv2 as cv2
 from scipy.cluster import hierarchy
+from skimage import filters, draw
+from skimage.feature import canny
+from skimage.transform import hough_circle, hough_circle_peaks
 from matplotlib import pyplot as plt
-from copy import copy
+from skimage.morphology import binary_dilation
+from .options import options
 
+logger = logging.getLogger(__name__)
+args = options()
 
 class ImageContentException(Exception):
     pass
@@ -30,69 +35,72 @@ class Plate:
 class Layout:
     def __init__(
             self,
-            args,
             image,
             debugger
     ):
-        self.logger = logging.getLogger(__name__)
-        self.args = args
-        self.image = cv2.medianBlur(image, self.args.kernel)  # todo consider using scikit for this
+        self.image = filters.median(image, np.full((3, 3), args.kernel, dtype=int))
         self.debugger = debugger
         self.debugger.render_image(self.image, "Median blur")
 
-    def find_circles(self, image, param2):
-        self.logger.debug("Find circles")
-        circle_radius_px = int(self.args.circle_diameter/2)
-        circles = cv2.HoughCircles(
-            image,
-            cv2.HOUGH_GRADIENT,
-            dp=1,
-            minDist=int(circle_radius_px*2),
-            param1=20,
-            param2=param2,
-            minRadius=int(circle_radius_px * (1-self.args.circle_diameter_tolerance)),
-            maxRadius=int(circle_radius_px * (1+self.args.circle_diameter_tolerance))
-        )  # todo consider using scikit for this
-        return circles
+    @staticmethod
+    def hough_circles(image, hough_radii):
+        logger.debug("Find circles")
+        edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
+        return hough_circle(edges, hough_radii)
 
-    def find_n_circles(self, param2, n):
-        param2 = int(param2)
-        circles = self.find_circles(self.image, param2)
-        if circles is None:
-            self.logger.debug(f"0 circles found with param2 = {param2}")
-            raise InsufficientCircleDetection
-        circles = np.squeeze(np.uint16(np.around(circles)))
+    def find_n_circles(self, n):
+        logger.debug(f"find {n} circles")
+        circle_radius_px = int(args.circle_diameter / 2)
+        hough_radii = np.arange(circle_radius_px - 10, circle_radius_px + 10, 2)
+        hough_result = self.hough_circles(self.image, hough_radii)
+        _accum, cx, cy, rad = hough_circle_peaks(
+            hough_result,
+            hough_radii,
+            min_xdistance=int(args.circle_diameter),
+            min_ydistance=int(args.circle_diameter),
+            num_peaks=n
+        )
+        circles = np.dstack((cx, cy, rad)).squeeze()
         if circles.shape[0] < n:
-            self.logger.debug(f'{str(circles.shape[0])} circles found with param2 = {param2}')
+            logger.debug(f'{str(circles.shape[0])} circles found ')
             raise InsufficientCircleDetection
-        if self.args.image_debug:
-            circle_debug = copy(self.image)
-            for c in circles:
-                cv2.circle(circle_debug, (c[0], c[1]), c[2], (255, 0, 0), 5)  # todo consider using scikit for this
-            self.debugger.render_image(circle_debug, f"Circles found with param2 = {param2}")
-        self.logger.debug(
-            f"{str(circles.shape[0])} circles found with param2 = {param2}")
+        if args.image_debug:
+            circle_debug = np.zeros_like(self.image, dtype="bool")
+            logger.debug("draw circles")
+            for circle in circles:
+                x = circle[0]
+                y = circle[1]
+                radius = circle[2]
+                yy, xx = draw.circle_perimeter(y, x, radius, shape=circle_debug.shape)
+                circle_debug[yy, xx] = 255
+            circle_debug = binary_dilation(circle_debug, np.full((10, 10), 1, dtype="bool"))  # very slow
+            # todo find faster way to draw thick lines
+            overlay = np.copy(self.image)
+            overlay[circle_debug] = 255
+            self.debugger.render_image(overlay, f"Circles found")
+
+        logger.debug(
+            f"{str(circles.shape[0])} circles found")
         return circles
 
     def find_n_clusters(self, circles, cluster_size, n):
-        args = self.args
         centres = np.delete(circles, 2, axis=1)
         cut_height = int(args.circle_diameter * (1 + args.cut_height_tolerance))
-        self.logger.debug("Create dendrogram of centre distances (linkage method)")
+        logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if args.image_debug:
-            self.logger.debug("Output dendrogram and treecut height for circle clustering")
+            logger.debug("Output dendrogram and treecut height for circle clustering")
             fig, ax = plt.subplots()
-            self.logger.debug("Create dendrogram")
+            logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
-            self.logger.debug("Add cut-height line")
+            logger.debug("Add cut-height line")
             plt.axhline(y=cut_height, c='k')
             self.debugger.render_plot("Dendrogram")
-        self.logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
+        logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
         clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
         unique, counts = np.array(np.unique(clusters, return_counts=True))
         target_clusters = unique[[i for i, j in enumerate(counts.flat) if j == cluster_size]]
-        self.logger.debug(f"Found {len(target_clusters)} plates")
+        logger.debug(f"Found {len(target_clusters)} plates")
         if len(target_clusters) < n:
             raise InsufficientPlateDetection(f"Only {len(target_clusters)} plates found")
         elif len(target_clusters) > n:
@@ -100,14 +108,9 @@ class Layout:
         return clusters, target_clusters
 
     def find_plates(self, n_plates, n_per_plate):
-        args = self.args
-        self.logger.debug(
-            "Find circles, raising param2 until we find enough"
-        )
-        param2_list = [args.param2] if args.param2 else range(50, 1, -5)
-        for param2 in param2_list:
+        for i in range(5):  # try 5 times to find enough circles to make plates
             try:
-                circles = self.find_n_circles(param2, n_per_plate * n_plates)
+                circles = self.find_n_circles(n_per_plate * n_plates)
             except InsufficientCircleDetection:
                 continue
             try:
@@ -115,7 +118,7 @@ class Layout:
             except InsufficientPlateDetection:
                 continue
 
-            self.logger.debug("Collect circles from target clusters into plates")
+            logger.debug("Collect circles from target clusters into plates")
             plates = [
                 Plate(
                     cluster_id,
@@ -126,19 +129,19 @@ class Layout:
 
     def get_axis_clusters(self, axis_values, rows_first: bool, cut_height):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
-        if self.args.image_debug:
-            self.logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate clustering")
+        if args.image_debug:
+            logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate clustering")
             fig, ax = plt.subplots()
-            self.logger.debug("Create dendrogram")
+            logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
-            self.logger.debug("Add cut-height line")
+            logger.debug("Add cut-height line")
             plt.axhline(y=cut_height, c='k')
             self.debugger.render_plot(f"Dendrogram for {'rows' if rows_first else 'cols'} clustering")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
     def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True):
-        self.logger.debug(f"sort circles for plate {plate.id}")
-        cut_height = int(self.args.circle_diameter * 0.5)
+        logger.debug(f"sort circles for plate {plate.id}")
+        cut_height = int(args.circle_diameter * 0.5)
         axis_values = np.array([c[int(rows_first)] for c in plate.circles])
         clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=cut_height)
         clusters = DataFrame(
@@ -158,7 +161,7 @@ class Layout:
 
     def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True):
         # default is currently just what our lab is used to using, a better default would be top_bottom = True
-        self.logger.debug("Sort plates")
+        logger.debug("Sort plates")
         axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
         # todo consider getting cut height from some plate specification, half the width of plate would do (in px)
         clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=100)
@@ -180,21 +183,21 @@ class Layout:
             p.id = i+1
             self.sort_circles(
                 p,
-                rows_first=not self.args.circles_cols_first,
-                left_right=not self.args.circles_right_left,
-                top_bottom=not self.args.circles_bottom_top
+                rows_first=not args.circles_cols_first,
+                left_right=not args.circles_right_left,
+                top_bottom=not args.circles_bottom_top
             )
 
         return plates.tolist()
 
     def get_plates_sorted(self):
-        plates = self.find_plates(self.args.n_plates,  self.args.circles_per_plate)
+        plates = self.find_plates(args.n_plates,  args.circles_per_plate)
         if plates is None:
             raise ImageContentException("The plate layout could not be detected")
         return self.sort_plates(
             plates,
-            rows_first=not self.args.plates_cols_first,
-            left_right=not self.args.plates_right_left,
-            top_bottom=not self.args.plates_bottom_top
+            rows_first=not args.plates_cols_first,
+            left_right=not args.plates_right_left,
+            top_bottom=not args.plates_bottom_top
         )
 

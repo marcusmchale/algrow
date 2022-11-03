@@ -5,10 +5,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
 class AreaAnalyser:
-    def __init__(self, area_csv, id_csv, args, area_header):
-        self.args = args
+    def __init__(self, area_csv, id_csv, area_header):
         self.area_header = area_header
         self.logger = logging.getLogger(__name__)
         columns = ["Block", "Unit", "Time", "Area", "Group"]
@@ -27,8 +27,8 @@ class AreaAnalyser:
                 usecols=["ImageFile", "Unit", "Area"],
                 dtype={"ImageFile": str, "Unit": int, 'Area': np.float64}
             )
-            area_df["Time"] = to_datetime(area_df["ImageFile"].str.extract(self.args.time_regex))
-            area_df["Block"] = area_df["ImageFile"].str.extract(self.args.block_regex).astype(int)
+            area_df["Time"] = to_datetime(area_df["ImageFile"].str.extract(args.time_regex))
+            area_df["Block"] = area_df["ImageFile"].str.extract(args.block_regex).astype(int)
         return area_df
 
     def _load_id(self, id_csv):
@@ -46,6 +46,8 @@ class AreaAnalyser:
     def _fit(self, group):
         self.logger.debug("Fit group")
         group = group[group.log_area != -np.inf]
+        if group.elapsed_m.unique().size == 1:
+            return np.nan, np.nan, np.nan
         polynomial, svd = np.polynomial.Polynomial.fit(group.elapsed_m, group.log_area, deg=1, full=True)
         coef = polynomial.convert().coef
         intercept = coef[0]
@@ -108,16 +110,20 @@ class AreaAnalyser:
 
     def summarise(self):
         summary = self.df[["Group", "RGR", "RSS"]].droplevel("Time").drop_duplicates().dropna()
-        # identify atypical models from RSS
-        q75, q25 = np.percentile(summary.RSS, [75, 25])
-        iqr = q75 - q25
-        median = summary.RSS.median()
-        summary["ModelFitOutlier"] = summary.RSS > median + (1.5 * iqr)
+        if summary.size != 0:
+            # identify atypical models from RSS
+            q75, q25 = np.percentile(summary.RSS, [75, 25])
+            iqr = q75 - q25
+            median = summary.RSS.median()
+            summary["ModelFitOutlier"] = summary.RSS > median + (1.5 * iqr)
         return summary
 
     def write_results(self, outdir, rgr_plot=True, group_plots=False):
-        self.logger.debug("write out results")
+        self.logger.debug("Write out results")
         summary = self.summarise()
+        if summary.size == 0:
+            self.logger.debug("No results to write")
+            return
         rgr_out = Path(outdir, "RGR.csv")
         rgr_out.parent.mkdir(parents=True, exist_ok=True)
         summary.to_csv(rgr_out)

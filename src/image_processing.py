@@ -1,18 +1,20 @@
 import logging
 import numpy as np
-import cv2
 from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects
-from skimage.util import img_as_ubyte
-from skimage.measure import regionprops
 from skimage.segmentation import slic
-from skimage.color import label2rgb
-from copy import copy
+from skimage.color import label2rgb, rgb2lab, gray2rgb, delta_e
+from skimage import draw
+from skimage.future import graph
+from skimage.io import imread, imsave
 from re import search
 from datetime import datetime
+from PIL import Image, ImageDraw
 from .layout import Layout
 from .debugger import Debugger
-from colour import delta_E
+from .options import options
+
+logger = logging.getLogger(__name__)
 
 
 def area_worker(filepath, args):
@@ -42,132 +44,138 @@ def area_worker(filepath, args):
 
 class ImageProcessor:
     def __init__(self, filepath, args):
-        self.logger = logging.getLogger(__name__)
-        self.args = args
         self.filepath = Path(filepath)
-        self.logger.debug(f"Load image as RGB: {self.filepath}")
-        self.rgb = cv2.imread(str(self.filepath))
-
-        self.image_debugger = Debugger(args, self.filepath)
+        self.args = args
+        logger.debug(f"Load image as RGB: {self.filepath}")
+        self.rgb = imread(str(self.filepath))
+        self.image_debugger = Debugger(self.filepath)
         self.image_debugger.render_image(self.rgb, f"Raw: {self.filepath}")
-        self.logger.debug(f"Convert RGB to Lab and split")
-        self.lab = cv2.cvtColor(self.rgb, cv2.COLOR_RGB2Lab)
-        l, a, b = cv2.split(self.lab)
-        self.l = l
-        self.image_debugger.render_image(l, f"Lightness channel (l in Lab)")
-        self.a = a
-        self.image_debugger.render_image(a, f"Green-Red channel (a in Lab)")
-        self.b = b
-        self.image_debugger.render_image(b, f"Blue-Yellow channel (b in Lab)")
-        self.logger.debug("Convert RGB to HSV and split")
-        h, s, v = cv2.split(cv2.cvtColor(self.rgb, cv2.COLOR_RGB2HSV))
-        self.s = s
-        self.image_debugger.render_image(s, "Saturation (S in HSV)")
-        self.v = v
-        self.image_debugger.render_image(v, "Value (V in HSV)")
+        logger.debug(f"Convert RGB to Lab")
+        self.lab = rgb2lab(self.rgb)
+        self.image_debugger.render_image(self.lab[:, :, 0], f"Lightness channel (l in Lab)")
+        self.image_debugger.render_image(self.lab[:, :, 1], f"Green-Red channel (a in Lab)")
+        self.image_debugger.render_image(self.lab[:, :, 2], f"Blue-Yellow channel (b in Lab)")
+        self.empty_mask = np.zeros_like(self.rgb[:, :, 0]).astype("bool")
 
-    def get_circle_mask(self, plates):
-        self.logger.debug("Draw the circle mask")
-        circle_mask = np.zeros_like(self.b)
+    @property
+    def a(self):
+        return self.lab[:, :, 1]
+
+    @property
+    def b(self):
+        return self.lab[:, :, 2]
+
+    def get_circle_mask(self, circle):
         #  radius = int((args.scale * args.circle_diameter) / 2)  # todo see radius note below
-        for p in plates:
-            for j, c in enumerate(p.circles):
-                x = c[0]
-                y = c[1]
-                radius = c[2]  # todo consider the option of drawing a constant radius
-                colour = 255
-                cv2.circle(circle_mask, (x, y), radius, colour, -1)
-        self.image_debugger.render_image(circle_mask, "Circle mask")
-        # todo instead of drawing a mask here, build the image labels so can use to intercept with ID rather than drawing twice
-        # something like https://stackoverflow.com/questions/34902477/drawing-circles-on-image-with-matplotlib-and-numpy
-        return circle_mask
+        x = circle[0]
+        y = circle[1]
+        radius = circle[2]  # todo consider the option of drawing a constant radius
+        circle_mask = self.empty_mask.copy()
+        yy, xx = draw.disk((y, x), radius, shape=circle_mask.shape)
+        circle_mask[yy, xx] = True
+        # self.image_debugger.render_image(circle_mask, "Circle mask")
+        return circle_mask.astype('bool')
 
-    def get_target_mask(self, circle_mask, n_segments):
-        mask = circle_mask.astype('bool')
-        segments = slic(self.rgb, convert2lab=True, mask=mask, n_segments=n_segments, enforce_connectivity=False)
+    def get_circles_mask(self, circles):
+        logger.debug("get the circles mask")
+        circles_mask = np.zeros_like(self.b).astype("bool")
+        for circle in circles:
+            circles_mask = circles_mask | self.get_circle_mask(circle)
+        self.image_debugger.render_image(circles_mask, "Circles mask")
+        return circles_mask
+
+    def get_target_mask(self, circles, max_delta_e):
+        circles_mask = self.get_circles_mask(circles)
+        logger.debug(f"cluster the region of interest into segments")
+        segments = slic(
+            self.rgb,
+            # broken behaviour when using existing transformation and convert2lab=false
+            # just allowing slic to do own conversion
+            # todo work out what this conversion is doing differently
+            mask=circles_mask,
+            n_segments=50,
+            compactness=10,
+            #slic_zero=True,
+            convert2lab=True,
+            enforce_connectivity=False
+        )
         if self.args.image_debug:
             self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
             self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
         # find the colour closest to the selected target colour (from picker) to extract
+        logger.debug(f"Find segments with colour within {max_delta_e} of target")
         colour_deltas = []
-        regions_l = regionprops(segments, intensity_image=self.l)
-        regions_a = regionprops(segments, intensity_image=self.a)
-        regions_b = regionprops(segments, intensity_image=self.b)
-        for i in range(n_segments):
-            mean_lab = np.array([regions_l[i].mean_intensity, regions_a[i].mean_intensity, regions_b[i].mean_intensity])
-            colour_deltas.append(
-                delta_E(mean_lab, np.array([self.args.target_L, self.args.target_a, self.args.target_b]))
-            )
-        val, idx = min((val, idx) for (idx, val) in enumerate(colour_deltas))
-        target_label = regions_l[idx].label
+        target_colour = np.array([self.args.target_l, self.args.target_a, self.args.target_b])
+        for i in range(len(np.unique(segments))):
+            #segment_a = self.a[segments == i]
+            #segment_b = self.b[segments == i]
+            #colour_deltas.append(segment_a - self.args.target_a)
+            #colour_deltas.append(np.sqrt(np.add(np.square(segment_a - self.args.target_a), np.square(segment_b - self.args.target_b))).mean())
+            segment = self.lab[segments == i]
+            colour_deltas.append(delta_e.deltaE_cie76(target_colour, segment).mean())
+        target_regions = [idx for (idx, val) in enumerate(colour_deltas) if val < max_delta_e]
         # create mask from this region
-        target_mask = segments == target_label
-        self.image_debugger.render_image(target_mask, "Target mask (SLIC)")
+        target_mask = np.isin(segments, target_regions)
+        logger.debug("Remove small objects in the mask")
+        clean_mask = remove_small_objects(target_mask, self.args.remove)
+        self.image_debugger.render_image(clean_mask, "Cleaned mask (removed small objects)")
+        logger.debug("Remove small holes in the mask")
+        filled_mask = remove_small_holes(clean_mask, self.args.fill)
+        self.image_debugger.render_image(filled_mask, "Filled mask (removed small holes)")
         return target_mask
 
-    def get_mask(self, plates):
-        args = self.args
-        circle_mask = self.get_circle_mask(plates)
-        target_mask = self.get_target_mask(circle_mask, n_segments=5)
-        #  todo consider passing n_segments back up to user as option for more complex images
-
-        self.logger.debug("Remove small objects in the mask")
-        clean_mask = remove_small_objects(target_mask, args.remove)
-        self.image_debugger.render_image(clean_mask, "Cleaned mask (removed small objects)")
-
-        self.logger.debug("Remove small holes in the mask")
-        filled_mask = remove_small_holes(clean_mask, args.fill)
-        self.image_debugger.render_image(clean_mask, "Filled mask (removed small holes)")
-
-        return img_as_ubyte(filled_mask)  # todo why does this pass back ubyte?
-        # name suggests it should be returning a boolean mask
-
     def get_area(self):
-        args = self.args
-        if args.circle_channel == 'a':
+        if self.args.circle_channel == 'a':
             channel = self.a
         else:
             channel = self.b
 
-        plates = Layout(args, channel, self.image_debugger).get_plates_sorted()
-        mask = self.get_mask(plates)
+        plates = Layout(channel, self.image_debugger).get_plates_sorted()
         result = {
             "filename": self.filepath,
             "units": []
         }
-        empty_mask = np.zeros_like(mask)
-        overlay_mask = copy(empty_mask)
+
+        all_circles = [c for p in plates for c in p.circles]
+        target_mask = self.get_target_mask(all_circles, max_delta_e=20)
+
+        if self.args.overlay:
+            logger.debug("Prepare annotated overlay for QC")
+            overlay_mask = np.zeros_like(self.a, dtype="bool")
+            alpha = 0.2
+            blended = (alpha * self.rgb) + ((1-alpha) * gray2rgb(target_mask))
+            blended = np.asarray(blended, dtype="uint8")
+            annotated_image = Image.fromarray(blended)
+            draw_tool = ImageDraw.Draw(annotated_image)
+
         for p in plates:
-            self.logger.debug(f"Processing plate {p.id}")
+            logger.debug(f"Processing plate {p.id}")
+            if self.args.overlay:
+                logger.debug(f"Annotate overlay with plate ID: {p.id}")
+                draw_tool.text(p.centroid, str(p.id), (255, 0, 255))
             for j, c in enumerate(p.circles):
                 unit = j+1+6*(p.id-1)
-                self.logger.debug(f"Processing circle {unit}")
-                circle_mask = copy(empty_mask)
-                cv2.circle(circle_mask, (c[0], c[1]), c[2], 255, -1)
-                local_mask = cv2.bitwise_and(circle_mask, mask)
-                pixels = cv2.countNonZero(local_mask)
+                logger.debug(f"Processing circle {unit}")
+                circle_mask = self.get_circle_mask(c)
+                circle_target = circle_mask & target_mask
+                # todo pass these variables up as configurable options
+                pixels = np.count_nonzero(circle_target)
                 result["units"].append((p.id, unit, pixels))
-                if args.overlay:
-                    overlay_mask = cv2.bitwise_or(overlay_mask, local_mask)
-        if args.overlay:
-
-            self.logger.debug("Prepare annotated overlay for QC")
-            overlay_mask = cv2.cvtColor(overlay_mask, cv2.COLOR_GRAY2RGB)
-            overlay = cv2.addWeighted(self.rgb, 0.5, overlay_mask, 0.5, 0.2, 0)
-            self.image_debugger.render_image(overlay, "Overlay (unlabeled)")
-            for p in plates:
-                self.logger.debug(f"Annotate overlay with plate ID: {p.id}")
-                cv2.putText(overlay, str(p.id), p.centroid, 0, 5, (255, 0, 255), 5)
-                for j, c in enumerate(p.circles):
+                if self.args.overlay:
+                    logger.debug(f"Join target to overlay mask: {p.id}")
                     unit = j + 1 + 6 * (p.id - 1)
                     # draw the outer circle
-                    cv2.circle(overlay, (c[0], c[1]), c[2], (255, 0, 0), 5)
-                    # draw the center of the circle
-                    cv2.circle(overlay, (c[0], c[1]), 2, (0, 0, 255), 5)
-                    cv2.putText(overlay, str(unit), c[0:2], 0, 3, (0, 255, 255), 5)
-
-            self.image_debugger.render_image(overlay, "Overlay (annotated)")
-            overlay_path = Path(args.out_dir, "overlay", self.filepath.name)
+                    x = c[0]
+                    y = c[1]
+                    r = c[2]
+                    #xx, yy = draw.circle_perimeter_aa(x, y, r, shape=circle_mask.shape)
+                    draw_tool.text((x,y), str(unit), (0,255,255))
+                    draw_tool.ellipse((x-r, y-r, x+r, y+r), fill=(255, 0, 0, 0))
+        if self.args.overlay:
+            self.args.image_debug = "plot"
+            import pdb; pdb.set_trace()
+            self.image_debugger.render_image(np.array(annotated_image), "Overlay (unlabeled)")
+            overlay_path = Path(self.args.out_dir, "overlay", self.filepath.name)
             overlay_path.parent.mkdir(exist_ok=True)
-            cv2.imwrite(str(overlay_path), overlay)
+            imsave(str(overlay_path), annotated_image)
         return result  # todo consider replacing cv with skimage here too

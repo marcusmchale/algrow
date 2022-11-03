@@ -3,36 +3,18 @@ import sys
 from pathlib import Path
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from .options import options
 from .image_processing import area_worker
 from .analysis import AreaAnalyser
 from .picker import Picker
+from .options import options
+
+logger = logging.getLogger(__name__)
+args = options()
 
 
-def main():
-    args = options()
-
-    root_logger = logging.getLogger()
-    if args.loglevel:
-        if args.loglevel == 'debug':
-            root_logger.setLevel(logging.DEBUG)
-        elif args.loglevel == 'info':
-            root_logger.setLevel(logging.INFO)
-        else:
-            root_logger.setLevel(logging.WARN)
-
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
-
-    logger = logging.getLogger(__name__)
+def discgrow():
     logger.debug(f"Start with: {args}")
-
     area_out = Path(args.out_dir, args.area_file)
-
-
-
 
     if args.image:
         if Path(args.image).is_file():
@@ -44,11 +26,11 @@ def main():
 
         logger.debug("Check file exists and if it already includes data from listed images")
 
-        if not all([args.target_L, args.target_a, args.target_b]):
+        if not all([args.target_l, args.target_a, args.target_b]):
             logger.debug("Pick a colour")
             # get colour from a random image
             for first_image in images:
-                picker = Picker(first_image, args)
+                picker = Picker(first_image)
                 mean_colour_target = picker.get_mean_colour()
                 vars(args).update(mean_colour_target)
                 break
@@ -90,7 +72,7 @@ def main():
                         for record in result:
                             csv_writer.writerow(record)
                     except Exception as exc:
-                        logger.info(f'{str(image)} generated an exception: {exc}')
+                        logger.info(f'{str(image)} generated an exception: {exc}', exc_info=True)
                     else:
                         logger.info(f'{str(image)}: processed')
     if args.sample_id:

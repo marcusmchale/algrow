@@ -2,10 +2,11 @@ from configargparse import ArgumentParser
 from pathlib import Path
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 # Parse command-line arguments
 def options():
-    logger = logging.getLogger(__name__)
     config_dir = Path(Path(__file__).parent.parent, "conf.d")
     config_files = config_dir.glob("*.conf")
     parser = ArgumentParser(
@@ -50,14 +51,14 @@ def options():
         "-l",
         "--loglevel",
         help=(
-            "Set log-level: info or debug"
+            "Set log-level: INFO or DEBUG"
         ),
-        choices=["info", "debug"],
+        choices=["INFO", "DEBUG"],
         default=None
     )
     parser.add_argument(
-        "-tL", "--target_L",
-        help="typical 'L' (lightness) value for target in Lab colourspace",
+        "-tl", "--target_l",
+        help="typical 'l' (lightness) value for target in Lab colourspace",
         type=float,
         default=None
     )
