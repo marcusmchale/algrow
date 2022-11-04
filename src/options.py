@@ -57,22 +57,34 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-tl", "--target_l",
-        help="typical 'l' (lightness) value for target in Lab colourspace",
+        "-la", "--lower_a",
+        help="Lowest 'a' (green-magenta) value for target in Lab colourspace",
         type=float,
         default=None
     )
     parser.add_argument(
-        "-ta", "--target_a",
-        help="typical 'a' (green-magenta) value for target in Lab colourspace",
+        "-lb", "--lower_b",
+        help="Lowest 'b' (blue-yellow) value for target in Lab colourspace",
         type=float,
         default=None
     )
     parser.add_argument(
-        "-tb", "--target_b",
-        help="typical 'b' (blue-yellow) value for target in Lab colourspace",
+        "-ua", "--upper_a",
+        help="Highest 'a' (green-magenta) value for target in Lab colourspace",
         type=float,
         default=None
+    )
+    parser.add_argument(
+        "-ub", "--upper_b",
+        help="Highest 'b' (blue-yellow) value for target in Lab colourspace",
+        type=float,
+        default=None
+    )
+    parser.add_argument(
+        "-dt", "--dark_target",
+        help="Include superpixels below this 'l' (Lightness) value in Lab colourspace",
+        type=float,
+        default=0
     )
     parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
     parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
@@ -124,20 +136,6 @@ def options():
         help="Diameter of surrounding circles in pixels",
         default=180,
         type=float
-    )
-    parser.add_argument(
-        "-ct",
-        "--circle_diameter_tolerance",
-        help="Circle diameter tolerance, tune for circle detection",
-        default=0.05,
-        type=float
-    )
-    parser.add_argument(
-        "-ph",
-        "--param2",
-        help="Accumulator threshold for HoughCircles, if not defined then performs a search for optimum value",
-        default=None,
-        type=int
     )
     parser.add_argument(
         "-ch",

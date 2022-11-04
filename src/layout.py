@@ -127,23 +127,24 @@ class Layout:
             ]
             return plates
 
-    def get_axis_clusters(self, axis_values, rows_first: bool, cut_height):
+    def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         if args.image_debug:
-            logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate clustering")
+            logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate {plate_id} clustering")
             fig, ax = plt.subplots()
             logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram)
             logger.debug("Add cut-height line")
             plt.axhline(y=cut_height, c='k')
-            self.debugger.render_plot(f"Dendrogram for {'rows' if rows_first else 'cols'} clustering")
+            plate_id_text = f"plate {plate_id}" if plate_id else "plates"
+            self.debugger.render_plot(f"Dendrogram for {'rows' if rows_first else 'cols'} clustering for {plate_id_text}")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
     def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True):
         logger.debug(f"sort circles for plate {plate.id}")
         cut_height = int(args.circle_diameter * 0.5)
         axis_values = np.array([c[int(rows_first)] for c in plate.circles])
-        clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=cut_height)
+        clusters = self.get_axis_clusters(axis_values, rows_first, cut_height=cut_height, plate_id=plate.id)
         clusters = DataFrame(
             {
                 "cluster": clusters.flatten(),
