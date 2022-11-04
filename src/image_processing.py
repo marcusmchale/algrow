@@ -6,12 +6,15 @@ from skimage.segmentation import slic
 from skimage.color import label2rgb, rgb2lab
 from skimage import draw
 from skimage.io import imread, imsave
+from skimage.future import graph
+import matplotlib.pyplot as plt
 from re import search
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from matplotlib import font_manager
 from .layout import Layout
 from .debugger import Debugger
+
 
 
 logger = logging.getLogger(__name__)
@@ -90,8 +93,7 @@ class ImageProcessor:
         self.image_debugger.render_image(circles_mask, "Circles mask")
         return circles_mask
 
-    def get_target_mask(self, circles, n_segments=500):
-        circles_mask = self.get_circles_mask(circles)
+    def get_segments(self, circles_mask, n_segments=250):
         logger.debug(f"cluster the region of interest into segments")
         segments = slic(
             self.rgb,
@@ -101,13 +103,27 @@ class ImageProcessor:
             mask=circles_mask,
             n_segments=n_segments,
             compactness=10,
-            #slic_zero=True,
             convert2lab=True,
             enforce_connectivity=False
         )
         if self.args.image_debug:
-            self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
+            # self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
             self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
+        # To prune out regions that are like the background we create a regional adjacency graph just based on colour
+        rag = graph.rag_mean_color(self.lab, segments, mode='distance', connectivity=10)
+        if self.args.image_debug:
+            lc = graph.show_rag(segments, rag, self.rgb)
+            plt.colorbar(lc)
+            plt.show()
+        # cut segments to merge superpixels that are similar to background back into 0 (mask)
+        cut_segments = graph.cut_threshold(segments, rag, 20, in_place=False)
+        if self.args.image_debug:
+            self.image_debugger.render_image(label2rgb(cut_segments, self.rgb), "Labels (false colour)")
+        return cut_segments
+
+    def get_target_mask(self, circles):
+        circles_mask = self.get_circles_mask(circles)
+        segments = self.get_segments(circles_mask)
         # find the colour closest to the selected target colour (from picker) to extract
         logger.debug(f"Find segments with colour within thresholds")
         target_regions = []

@@ -7,14 +7,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class AreaAnalyser:
-    def __init__(self, area_csv, id_csv, area_header):
+    def __init__(self, area_csv, id_csv, args, area_header):
+        self.args = args
         self.area_header = area_header
         self.logger = logging.getLogger(__name__)
         columns = ["Block", "Unit", "Time", "Area", "Group"]
         self.df = merge(
             self._load_area(area_csv), self._load_id(id_csv), on=["Block", "Unit"]
         )[columns].set_index(["Block", "Unit", "Time"]).sort_index()
+
 
     def _load_area(self, area_csv):
         self.logger.debug(f"Load area data from file: {area_csv}")
@@ -27,8 +30,8 @@ class AreaAnalyser:
                 usecols=["ImageFile", "Unit", "Area"],
                 dtype={"ImageFile": str, "Unit": int, 'Area': np.float64}
             )
-            area_df["Time"] = to_datetime(area_df["ImageFile"].str.extract(args.time_regex))
-            area_df["Block"] = area_df["ImageFile"].str.extract(args.block_regex).astype(int)
+            area_df["Time"] = to_datetime(area_df["ImageFile"].str.extract(self.args.time_regex))
+            area_df["Block"] = area_df["ImageFile"].str.extract(self.args.block_regex).astype(int)
         return area_df
 
     def _load_id(self, id_csv):

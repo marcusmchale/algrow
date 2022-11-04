@@ -15,6 +15,7 @@ args = options()
 def discgrow():
     logger.debug(f"Start with: {args}")
     area_out = Path(args.out_dir, args.area_file)
+    area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
 
     if args.image:
         if Path(args.image).is_file():
@@ -46,7 +47,7 @@ def discgrow():
             )
 
         with open(area_out, 'a+') as csv_file:
-            area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+
             csv_writer = writer(csv_file)
             if area_out.stat().st_size == 0:  # True if output file is empty
                 csv_writer.writerow(area_header)
