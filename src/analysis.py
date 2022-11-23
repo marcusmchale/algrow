@@ -18,7 +18,6 @@ class AreaAnalyser:
             self._load_area(area_csv), self._load_id(id_csv), on=["Block", "Unit"]
         )[columns].set_index(["Block", "Unit", "Time"]).sort_index()
 
-
     def _load_area(self, area_csv):
         self.logger.debug(f"Load area data from file: {area_csv}")
         with open(area_csv) as area_csv:

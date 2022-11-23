@@ -57,32 +57,26 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-la", "--lower_a",
-        help="Lowest 'a' (green-magenta) value for target in Lab colourspace",
+        "-tl", "--target_l",
+        help="Target 'L' (Lightness) value for target in Lab colourspace",
         type=float,
         default=None
     )
     parser.add_argument(
-        "-lb", "--lower_b",
-        help="Lowest 'b' (blue-yellow) value for target in Lab colourspace",
+        "-ta", "--target_a",
+        help="Target 'a' (green-magenta) value for target in Lab colourspace",
         type=float,
         default=None
     )
     parser.add_argument(
-        "-ua", "--upper_a",
-        help="Highest 'a' (green-magenta) value for target in Lab colourspace",
-        type=float,
-        default=None
-    )
-    parser.add_argument(
-        "-ub", "--upper_b",
-        help="Highest 'b' (blue-yellow) value for target in Lab colourspace",
+        "-tb", "--target_b",
+        help="Target 'b' (blue-yellow) value for target in Lab colourspace",
         type=float,
         default=None
     )
     parser.add_argument(
         "-dt", "--dark_target",
-        help="Include superpixels below this 'l' (Lightness) value in Lab colourspace",
+        help="Include superpixels below this value of L (Lightness) value in Lab colourspace",
         type=float,
         default=0
     )
@@ -138,10 +132,10 @@ def options():
         type=float
     )
     parser.add_argument(
-        "-ch",
-        "--cut_height_tolerance",
-        help="Cut height tolerance, tune for plate clustering",
-        default=0.35,
+        "-pcs",
+        "--plate_circle_separation",
+        help="Distance in pixels between circles on a plate",
+        default=50,
         type=float
     )
     parser.add_argument(

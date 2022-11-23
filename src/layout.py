@@ -85,7 +85,7 @@ class Layout:
 
     def find_n_clusters(self, circles, cluster_size, n):
         centres = np.delete(circles, 2, axis=1)
-        cut_height = int(args.circle_diameter * (1 + args.cut_height_tolerance))
+        cut_height = int(args.circle_diameter + args.plate_circle_separation)
         logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if args.image_debug:

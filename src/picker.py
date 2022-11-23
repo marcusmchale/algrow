@@ -9,7 +9,6 @@ from .debugger import Debugger
 
 logger = logging.getLogger(__name__)
 
-
 class Picker:
     def __init__(self, image_path):
         self.image_debugger = Debugger(image_path)
@@ -70,6 +69,25 @@ class Picker:
         plt.show()
         logger.info(f"Thresholds selected: {thresholds}")
         return thresholds
+
+    def get_target_colour(self):
+        if self.mask is None:
+            self.mask = self.pick_regions()
+
+        target_colour = {
+            "target_l": self.l[self.mask].mean().round(),
+            "target_a": self.a[self.mask].mean().round(),
+            "target_b": self.b[self.mask].mean().round()
+        }
+        npix = 10
+        colour_plot = lab2rgb(np.tile(list(target_colour.values()), np.square(npix)).reshape(npix, npix, 3))
+        fig, ax = plt.subplots()
+        ax.set_title(f"Target regions colours {target_colour}")
+        ax.imshow(colour_plot)
+        plt.show()
+        logger.info(f"Thresholds selected: {target_colour}")
+        return target_colour
+
 
 
 class SelectFromImage:

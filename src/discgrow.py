@@ -27,13 +27,13 @@ def discgrow():
 
         logger.debug("Check file exists and if it already includes data from listed images")
 
-        if None in [args.lower_a, args.upper_a, args.lower_b, args.upper_b]:
+        if None in [args.target_l, args.target_a, args.target_b]:
             logger.debug("Pick a colour")
             # get colour from a random image
             for first_image in images:
                 picker = Picker(first_image)
-                thresholds = picker.get_thresholds()
-                vars(args).update(thresholds)
+                target_colour = picker.get_target_colour()
+                vars(args).update(target_colour)
                 break
 
         if area_out.is_file():  # if the file exists then check for any already processed images
