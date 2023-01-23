@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageFont
 from matplotlib import font_manager
 from .layout import Layout
 from .debugger import Debugger
-
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class ImageProcessor:
         self.image_debugger.render_image(self.lab[:, :, 1], f"Green-Red channel (a in Lab)")
         self.image_debugger.render_image(self.lab[:, :, 2], f"Blue-Yellow channel (b in Lab)")
         self.empty_mask = np.zeros_like(self.rgb[:, :, 0]).astype("bool")
+        self.circle_id_map = defaultdict(set)
 
     @property
     def l(self):
@@ -94,40 +95,15 @@ class ImageProcessor:
     def plot_adjacency_in_lab(self, rag, segments, prefix=None):
         if self.args.image_debug:
             # todo move this sort of plotting to the image debugger
-            #set_edge_attributes(rag, get_edge_attributes(rag, "euclidian_dist"), name="weight")
-            #lc = graph.show_rag(segments, rag, self.rgb)
-            #plt.colorbar(lc)
-            #plt.title(f"{prefix}: Lab euclidian distance network")
-            #
-            #set_edge_attributes(rag, get_edge_attributes(rag, "l_dist"), name="weight")
-            #lc = graph.show_rag(segments, rag, self.rgb)
-            #plt.colorbar(lc)
-            #plt.title(f"{prefix}: Lab 'l_dist' network")
-            #
-            #set_edge_attributes(rag, get_edge_attributes(rag, "a_dist"), name="weight")
-            #lc = graph.show_rag(segments, rag, self.rgb)
-            #plt.colorbar(lc)
-            #plt.title(f"{prefix}: Lab 'a_dist' network")
-            #
-            #set_edge_attributes(rag, get_edge_attributes(rag, "b_dist"), name="weight")
-            #lc = graph.show_rag(segments, rag, self.rgb)
-            #plt.colorbar(lc)
-            #plt.title(f"{prefix} :Lab 'b_dist' network")
 
             set_edge_attributes(rag, get_edge_attributes(rag, "delta_e"), name="weight")
-            lc = graph.show_rag(segments, rag, self.rgb)
-            plt.colorbar(lc)
-            plt.title(f"{prefix} :Lab deltaE network")
-
-            set_edge_attributes(rag, get_edge_attributes(rag, "delta_e_scaled"), name="weight")
-            lc = graph.show_rag(segments, rag, self.rgb)
+            lc = graph.show_rag(segments, rag, self.rgb, border_color='white')
             plt.colorbar(lc)
             plt.title(f"{prefix} :Lab deltaE scaled network")
 
             plt.show()
 
-
-    def build_graph(self, segments, connectivity=1, max_dist_l=20, max_dist_a=20, max_dist_b=40):
+    def build_graph(self, segments, connectivity=1, max_dist=8, kl=2):
         # todo pass max_dist parameters up to options()
         logger.debug("Build adjacency graph")
 
@@ -149,39 +125,43 @@ class ImageProcessor:
         # add the mean color and distance from target to select the closest node in roi
         target_lab = np.array([self.args.target_l, self.args.target_a, self.args.target_b])
         logger.debug("add distance from target colour to each node")
+
+        if self.args.image_debug:
+            dist_image = segments.copy()
+
         for n in rag:
             rag.nodes[n]['mean color'] = (rag.nodes[n]['total color'] / rag.nodes[n]['pixel count'])
             #target_distance = np.linalg.norm(rag.nodes[n]['mean color'] - target_lab)
-            target_distance = deltaE_ciede2000(rag.nodes[n]['mean color'], target_lab)
+            target_distance = deltaE_ciede2000(rag.nodes[n]['mean color'], target_lab, kL=kl)
             rag.nodes[n]["target color distance"] = target_distance
+            if self.args.image_debug:
+                dist_image[segments == n] = target_distance
+
+        if self.args.image_debug:
+            self.image_debugger.render_image(dist_image, "Superpixel distance from target colour")
 
         logger.debug("add distance in colour as weights")
-        # remove rels between nodes connected by more than max_weight
         for x, y, d in list(rag.edges(data=True)):
-            l_dist = np.linalg.norm(rag.nodes[x]['mean color'][0] - rag.nodes[y]['mean color'][0])
-            a_dist = np.linalg.norm(rag.nodes[x]['mean color'][1] - rag.nodes[y]['mean color'][1])
-            b_dist = np.linalg.norm(rag.nodes[x]['mean color'][2] - rag.nodes[y]['mean color'][2])
-            d['l_dist'] = l_dist
-            d['a_dist'] = a_dist
-            d['b_dist'] = b_dist
-            d['euclidian_dist'] = np.linalg.norm(rag.nodes[x]['mean color'] - rag.nodes[y]['mean color'])
-            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean color'], rag.nodes[y]['mean color'])
-            d['delta_e_scaled'] = deltaE_ciede2000(rag.nodes[x]['mean color'], rag.nodes[y]['mean color'], kL=2)
-            #d['delta_e'] = deltaE_cie76(rag.nodes[x]['mean color'], rag.nodes[y]['mean color'])
+            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean color'], rag.nodes[y]['mean color'], kL=kl)
 
         self.plot_adjacency_in_lab(rag, segments, prefix="Full network")
 
+        logger.debug("remove edges above {max_dist} delta_e")
         for x, y, d in list(rag.edges(data=True)):
-            if d['delta_e_scaled'] > 10:
+            if d['delta_e'] > max_dist:
                 rag.remove_edge(x, y)
-
         self.plot_adjacency_in_lab(rag, segments, prefix="Pruned by deltaE")
+
+        logger.debug("remove edges connected to 0 node (background)")
+        background_edges = list(rag.edges(0))
+        rag.remove_edges_from(background_edges)
+        self.plot_adjacency_in_lab(rag, segments, prefix="Background removed")
 
         return rag
 
-    def get_target_mask(self, circles, n_segments=1000):
+    def get_segments(self, circles, n_segments=1500, compactness=10):
+        #todo pass n_segments up as option
         circles_mask = self.get_circles_mask(circles)
-        logger.debug(f"cluster the region of interest into segments")
         segments = slic(
             self.rgb,
             # this function currently has broken behaviour when using the existing transformation and convert2lab=false
@@ -189,77 +169,66 @@ class ImageProcessor:
             # todo work out what this is doing differently when using the already converted lab image
             mask=circles_mask,
             n_segments=n_segments,
-            compactness=10,
+            compactness=compactness,
             convert2lab=True,
             enforce_connectivity=True
         )
+        # The slic output includes segments that span circles which breaks graph building.
+        # Clean it up by iterating through circles and relabel segments if found in another circle
+        # todo need to work out why these edges are being made in the first place,
+        #  should only be connections between circles through 0
+        circles_per_segment = defaultdict(int)
+        segment_counter = np.max(segments)
+        for circle in circles:
+            circle_mask = self.get_circle_mask(circle)
+            circle_segments = segments.copy()
+            circle_segments[~circle_mask] = -1 # to differentiate the background in circle from background outside
+            circle_segment_ids = set(np.unique(circle_segments))
+            circle_segment_ids.remove(-1)
+            self.circle_id_map[tuple(circle)] = circle_segment_ids
+            for i in list(circle_segment_ids):
+                circles_per_segment[i] += 1
+                if circles_per_segment[i] > 1 or i == 0 :  # add a new segment for this ID in this circle, always relabel if part of background but inside circle
+                    segment_counter += 1
+                    segments[circle_segments == i] = segment_counter
+                    self.circle_id_map[tuple(circle)].remove(i)
+                    self.circle_id_map[tuple(circle)].add(segment_counter)
 
         if self.args.image_debug:
             # self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
             self.image_debugger.render_image(label2rgb(segments, self.rgb), "Labels (false colour)")
 
+        return segments
+
+    def get_target_mask(self, circles, target_max_dist=30):
+        #todo pass target_max_dist up to options
+        logger.debug(f"cluster the region of interest into segments")
+        segments = self.get_segments(circles)
+
         # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
         rag = self.build_graph(segments)
-
         target_segments = set()
-        found_circle_segments_ids = set()  # keep this as we don't want to allow connections between circles
 
-        from collections import defaultdict
-        repeated_circle_segment_ids = defaultdict(int)
-        # todo need to work out why these edges are being made in the first place, should only be to 0#
-        # It seems like slic is creating superpixels that span circles!
-        # this must be something strange about the slic mask implementation
-        # that does not respect the enforce_connectivity rule
-        # todo consider relabelling these manually before building the graph?
-        import pdb;
-        pdb.set_trace()
-        # now within each circle
         for circle in circles:
-            circle_mask = self.get_circle_mask(circle)
-            circle_segments = segments.copy()
-            circle_segments[~circle_mask] = 0
-            #circle_segment_ids = np.delete(np.unique(circle_segments), 0)
-            circle_segment_ids = np.unique(circle_segments)
-            # all except background
-            if set(circle_segment_ids).intersection(found_circle_segments_ids):
-                for i in set(circle_segment_ids).intersection(found_circle_segments_ids):
-                    repeated_circle_segment_ids[i] += 1
-            found_circle_segments_ids.update(circle_segment_ids)
-
+            # find the starting node
             closest_target_distance = np.inf
             starting_node = None
             # todo consider a global threshold for starting node tolerance,
             #  currently just taking the closest but should be taking the closest within some max distance threshold
-            #  or we get obvious background
-
-            circle_target_segments = set()
-
-            for n in circle_segment_ids:
+            for n in self.circle_id_map[tuple(circle)]:
                 if rag.nodes[n]['mean color'][0] < self.args.dark_target:
-                    circle_target_segments.add(n)
-                if rag.nodes[n]["target color distance"] < closest_target_distance:
+                    target_segments.add(n)
+                if all([
+                        rag.nodes[n]["target color distance"] < closest_target_distance,
+                        rag.nodes[n]["target color distance"] <= target_max_dist
+                ]):
                     starting_node = n
                     closest_target_distance = rag.nodes[n]["target color distance"]
 
-            if self.args.image_debug:
-                # highlight the starting segment
-                starting_node_mask = np.equal(segments, starting_node)
-                starting_node_overlay = self.rgb.copy()
-                starting_node_overlay[starting_node_mask] = (255, 0, 255)
-                # self.image_debugger.render_image(starting_node_overlay, f"Starting node for circle")
-
-            # now start at the closest node and get connected nodes
-            circle_target_segments.update(node_connected_component(rag, starting_node))
-            circle_target_segments = circle_target_segments.union(circle_segment_ids)
-            target_segments.update(circle_target_segments)
+            # now collect nodes connected to the starting node as part of the target
+            if starting_node:
+                target_segments.update(node_connected_component(rag, starting_node))
             # todo consider getting area directly from regionprops ... but we are doing it with fill etc.
-
-        import pdb; pdb.set_trace()
-        for n in rag.nodes:
-            if n in found_circle_segments_ids:
-                pass
-        self.plot_adjacency_in_lab(rag, segments, prefix="Pruned by deltaE")
-
         # create mask from this region
         target_mask = np.isin(segments, np.array(list(target_segments)))
         logger.debug("Remove small objects in the mask")
@@ -268,6 +237,12 @@ class ImageProcessor:
         logger.debug("Remove small holes in the mask")
         filled_mask = remove_small_holes(clean_mask, self.args.fill)
         self.image_debugger.render_image(filled_mask, "Filled mask (removed small holes)")
+
+        if self.args.image_debug:
+            target_segments_image = segments.copy()
+            target_segments_image[np.isin(target_segments_image, np.array(list(target_segments)), invert=True)] = 0
+            self.image_debugger.render_image(label2rgb(target_segments_image, self.rgb), "Labels (false colour)")
+
         return target_mask
 
     def get_area(self):
