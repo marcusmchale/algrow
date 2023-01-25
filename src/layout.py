@@ -66,7 +66,7 @@ class Layout:
         #circles = np.dstack((cx, cy, rad)).squeeze()
         # Here we use the known circle size rather than found (code for found is commented out above)
         # and circle expansion factor expands search area for mask/superpixels
-        circles = np.dstack((cx, cy, np.repeat(int(self.args.circle_diameter/2)*circle_expansion_factor, len(cx)))).squeeze()
+        circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*circle_expansion_factor), len(cx)))).squeeze()
 
         if circles.shape[0] < n:
             logger.debug(f'{str(circles.shape[0])} circles found ')
