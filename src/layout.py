@@ -49,7 +49,7 @@ class Layout:
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
-    def find_n_circles(self, n, attempt=0, circle_expansion_factor = 1.2):
+    def find_n_circles(self, n, attempt=0):
 
         logger.debug(f"find {n + attempt * 10} circles")
         circle_radius_px = int(self.args.circle_diameter / 2)
@@ -66,8 +66,7 @@ class Layout:
         #circles = np.dstack((cx, cy, rad)).squeeze()
         # Here we use the known circle size rather than found (code for found is commented out above)
         # and circle expansion factor expands search area for mask/superpixels
-        circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*circle_expansion_factor), len(cx)))).squeeze()
-
+        circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))).squeeze()
         if circles.shape[0] < n:
             logger.debug(f'{str(circles.shape[0])} circles found ')
             raise InsufficientCircleDetection

@@ -19,6 +19,9 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
+class OverlappingCircles(Exception):
+    pass
+
 
 def area_worker(filepath, args):
     result = ImageProcessor(filepath, args).get_area()
@@ -87,7 +90,10 @@ class ImageProcessor:
         logger.debug("get the circles mask")
         circles_mask = np.zeros_like(self.b).astype("bool")
         for circle in circles:
-            circles_mask = circles_mask | self.get_circle_mask(circle)
+            circle_mask = self.get_circle_mask(circle)
+            if np.logical_and(circles_mask, circle_mask).any():
+                raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
+            circles_mask = circles_mask | circle_mask
         self.image_debugger.render_image(circles_mask, "Circles mask")
         return circles_mask
 
@@ -197,9 +203,12 @@ class ImageProcessor:
                 circles_per_segment[i] += 1
                 if circles_per_segment[i] > 1 or i == 0 :  # add a new segment for this ID in this circle, always relabel if part of background but inside circle
                     segment_counter += 1
+                    ## caution: this behaviour breaks get_target_mask if circles actually overlap
                     segments[circle_segments == i] = segment_counter
                     self.circle_id_map[tuple(circle)].remove(i)
+
                     self.circle_id_map[tuple(circle)].add(segment_counter)
+
 
         if self.args.image_debug:
             # self.image_debugger.render_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
@@ -218,6 +227,7 @@ class ImageProcessor:
 
         for circle in circles:
             for n in self.circle_id_map[tuple(circle)]:
+                ## caution: this can fail if circles overlap (see logic in get_segments)
                 if rag.nodes[n]["target color distance"] <= target_dist:
                     starting_segments.add(n)
                     target_segments.update(node_connected_component(rag, n))

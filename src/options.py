@@ -130,6 +130,13 @@ def options():
         type=float
     )
     parser.add_argument(
+        "-ce",
+        "--circle_expansion",
+        help="Optional expansion factor for circles (increases radius to search, circles must not overlap)",
+        default=1,
+        type=float
+    )
+    parser.add_argument(
         "-pcs",
         "--plate_circle_separation",
         help="Distance between edges of circles within a plate (px)",
