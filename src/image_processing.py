@@ -172,12 +172,13 @@ class ImageProcessor:
 
         return rag
 
-    def get_segments(self, circles, n_segments=1500, compactness=10):
-        #todo pass n_segments up as option
+    def get_segments(self, circles, n_segments=1000, compactness=10):
+
+        #todo pass n_segments up as option and tune
         circles_mask = self.get_circles_mask(circles)
         segments = slic(
             self.rgb,
-            # this function currently has broken behaviour when using the existing transformation and convert2lab=false
+            # this slic implementation has broken behaviour when using the existing transformation and convert2lab=false
             # just allowing this function to redo conversion from rgb
             # todo work out what this is doing differently when using the already converted lab image
             mask=circles_mask,
@@ -218,8 +219,11 @@ class ImageProcessor:
 
     def get_target_mask(self, circles, target_dist=8):
         logger.debug(f"cluster the region of interest into segments")
-        segments = self.get_segments(circles)
-
+        segments = self.get_segments(
+            circles,
+            n_segments=self.args.num_superpixels,
+            compactness=self.args.superpixel_compactness
+        )
         # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
         rag = self.build_graph(segments, graph_dist=self.args.graph_dist)
         starting_segments = set()

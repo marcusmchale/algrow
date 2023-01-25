@@ -67,6 +67,18 @@ def options():
         default=None
     )
     parser.add_argument(
+        '-nsp', "--num_superpixels",
+        help="The number of superpixels to find in image",
+        type=int,
+        default=1000
+    )
+    parser.add_argument(
+        '-spc', "--superpixel_compactness",
+        help="Superpixel compactness, higher is more regular (square)",
+        type=int,
+        default=20
+    )
+    parser.add_argument(
         "-tc", "--target_colour",
         help="Target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
         type=lab,
