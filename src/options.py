@@ -191,11 +191,4 @@ def options():
         help="In plate ID layout, increment from bottom to top",
         action='store_true'
     )
-    args = parser.parse_args()
-    if not args.out_dir:
-        if Path(args.image).is_file():
-            args.out_dir = Path(args.image).parents[0]
-        else:
-            args.out_dir = Path(args.image)
-    logger.info(parser.format_values())
-    return args
+    return parser

@@ -7,7 +7,6 @@ from skimage.feature import canny
 from skimage.transform import hough_circle, hough_circle_peaks
 from matplotlib import pyplot as plt
 from skimage.morphology import binary_dilation
-from .options import options
 
 logger = logging.getLogger(__name__)
 

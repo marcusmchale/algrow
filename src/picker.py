@@ -10,8 +10,8 @@ from .debugger import Debugger
 logger = logging.getLogger(__name__)
 
 class Picker:
-    def __init__(self, image_path):
-        self.image_debugger = Debugger(image_path)
+    def __init__(self, image_path, args):
+        self.image_debugger = Debugger(image_path, args)
         logger.debug("Load selected image for colour picking")
         self.rgb = plt.imread(str(image_path)).copy()
         self.lab = rgb2lab(self.rgb)

@@ -1,6 +1,6 @@
 from .options import options
 
-args = options()
+args = options().parse_args()
 
 
 LOGGING_CONFIG = {

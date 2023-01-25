@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class Debugger:
-    def __init__(self, filepath, args=options()):
+    def __init__(self, filepath, args):
         self.filepath = filepath
         self.plot = None
         self.args = args

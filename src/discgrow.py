@@ -8,11 +8,17 @@ from .picker import Picker
 from .options import options
 
 logger = logging.getLogger(__name__)
-args = options()
-
 
 def discgrow():
-    logger.info(f"Start with: {args}")
+    argparser = options()
+    args = argparser.parse_args()
+    logger.info(f"Start with: {argparser.format_values()}")
+
+    if not args.out_dir:
+        if Path(args.image).is_file():
+            args.out_dir = Path(args.image).parents[0]
+        else:
+            args.out_dir = Path(args.image)
     area_out = Path(args.out_dir, args.area_file)
     area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
 
@@ -44,7 +50,7 @@ def discgrow():
             logger.debug("Pick a colour")
             # get colour from a random image
             for first_image in images:
-                picker = Picker(first_image)
+                picker = Picker(first_image, args)
                 target_colours = picker.get_target_colours()
                 vars(args).update({"target_colour":[",".join((str(c[0]), str(c[1]), str(c[2]))) for c in target_colours]})
                 break
