@@ -74,10 +74,9 @@ class ImageProcessor:
         return self.lab[:, :, 2]
 
     def get_circle_mask(self, circle):
-        #  radius = int((args.scale * args.circle_diameter) / 2)  # todo see radius note below
         x = circle[0]
         y = circle[1]
-        radius = circle[2]  # todo consider the option of drawing a constant radius
+        radius = circle[2]
         circle_mask = self.empty_mask.copy()
         yy, xx = draw.disk((y, x), radius, shape=circle_mask.shape)
         circle_mask[yy, xx] = True

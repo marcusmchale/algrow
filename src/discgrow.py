@@ -1,5 +1,4 @@
 import logging
-import sys
 from pathlib import Path
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -13,7 +12,7 @@ args = options()
 
 
 def discgrow():
-    logger.debug(f"Start with: {args}")
+    logger.info(f"Start with: {args}")
     area_out = Path(args.out_dir, args.area_file)
     area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
 
@@ -32,6 +31,7 @@ def discgrow():
                 csv_reader = reader(csv_file)
                 next(csv_reader)
                 files_done = {Path(row[0]) for row in csv_reader}
+            files_done = set.intersection(images, files_done)
             images = images - files_done
             logger.info(
                 f'Some images already included in result file, skipping these: {",".join([str(f) for f in files_done])}'

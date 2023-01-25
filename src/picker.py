@@ -91,7 +91,8 @@ class Picker:
         ax.set_title(f"Target regions colours {target_colours}")
         ax.imshow(colour_plot)
         plt.show()
-        logger.info(f'Target colours selected: {[",".join([str(int(j)) for j in i]) for i in target_colours]}')
+        colours_string = f'{[",".join([str(int(j)) for j in i]) for i in target_colours]}'.replace("'", '"')
+        logger.info(f'Target colours selected: {colours_string}')
         return target_colours
 
 
