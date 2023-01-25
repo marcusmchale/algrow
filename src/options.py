@@ -21,6 +21,7 @@ def options():
     parser = ArgumentParser(
         default_config_files=config_files,
     )
+    parser.add_argument("-c", "--conf", help ="Config file path", is_config_file=True)
     parser.add_argument("-i", "--image", help="Input image file or directory", default=None)
     parser.add_argument(
         "-id",
