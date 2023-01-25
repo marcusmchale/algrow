@@ -48,13 +48,16 @@ class AreaAnalyser:
     def _fit(self, group):
         self.logger.debug("Fit group")
         group = group[group.log_area != -np.inf]
-        if group.elapsed_m.unique().size == 1:
+        if group.elapsed_m.unique().size <= 1:
             return np.nan, np.nan, np.nan
         polynomial, svd = np.polynomial.Polynomial.fit(group.elapsed_m, group.log_area, deg=1, full=True)
         coef = polynomial.convert().coef
         intercept = coef[0]
         slope = coef[1]
-        rss = svd[0][0]
+        try:
+            rss = svd[0][0]
+        except IndexError:
+            return None, None, None
         return intercept, slope, rss
 
     def fit_all(self, fit_start, fit_end):

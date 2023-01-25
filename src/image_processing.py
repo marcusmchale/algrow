@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
 from skimage.segmentation import slic
-from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000, deltaE_cie76
+from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000
 from skimage import draw
 from skimage.io import imread, imsave
 from skimage.future import graph
@@ -103,8 +103,8 @@ class ImageProcessor:
 
             plt.show()
 
-    def build_graph(self, segments, connectivity=1, max_dist=8, kl=2):
-        # todo pass max_dist parameters up to options()
+    def build_graph(self, segments, connectivity=1, graph_dist=8, kl=2):
+
         logger.debug("Build adjacency graph")
 
         rag = graph.RAG(segments, connectivity=connectivity)
@@ -122,9 +122,10 @@ class ImageProcessor:
             rag.nodes[current]['pixel count'] += 1
             rag.nodes[current]['total color'] += self.lab[index]
 
-        # add the mean color and distance from target to select the closest node in roi
-        target_lab = np.array([self.args.target_l, self.args.target_a, self.args.target_b])
-        logger.debug("add distance from target colour to each node")
+        # add the mean color and distance from any target colour to select the closest node in roi
+        target_lab = np.array(self.args.target_colour)
+
+        logger.debug("add distance from target colours to each node")
 
         if self.args.image_debug:
             dist_image = segments.copy()
@@ -132,13 +133,20 @@ class ImageProcessor:
         for n in rag:
             rag.nodes[n]['mean color'] = (rag.nodes[n]['total color'] / rag.nodes[n]['pixel count'])
             #target_distance = np.linalg.norm(rag.nodes[n]['mean color'] - target_lab)
-            target_distance = deltaE_ciede2000(rag.nodes[n]['mean color'], target_lab, kL=kl)
+            target_distance = min(
+                deltaE_ciede2000(
+                    np.tile(rag.nodes[n]['mean color'], target_lab.shape[0]).reshape(target_lab.shape[0],3),
+                    target_lab,
+                    kL=kl
+                )
+            )
             rag.nodes[n]["target color distance"] = target_distance
             if self.args.image_debug:
                 dist_image[segments == n] = target_distance
 
         if self.args.image_debug:
-            self.image_debugger.render_image(dist_image, "Superpixel distance from target colour")
+            #todo add debug image with scale set from 0 to target_dist
+            self.image_debugger.render_image(dist_image, "Superpixel distance from any target colour")
 
         logger.debug("add distance in colour as weights")
         for x, y, d in list(rag.edges(data=True)):
@@ -146,9 +154,9 @@ class ImageProcessor:
 
         self.plot_adjacency_in_lab(rag, segments, prefix="Full network")
 
-        logger.debug("remove edges above {max_dist} delta_e")
+        logger.debug("remove edges above {graph_dist} delta_e")
         for x, y, d in list(rag.edges(data=True)):
-            if d['delta_e'] > max_dist:
+            if d['delta_e'] > graph_dist:
                 rag.remove_edge(x, y)
         self.plot_adjacency_in_lab(rag, segments, prefix="Pruned by deltaE")
 
@@ -200,37 +208,28 @@ class ImageProcessor:
 
         return segments
 
-    def get_target_mask(self, circles, target_max_dist=30):
-        #todo pass target_max_dist up to options
+    def get_target_mask(self, circles, target_dist=8):
         logger.debug(f"cluster the region of interest into segments")
         segments = self.get_segments(circles)
 
         # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
-        rag = self.build_graph(segments)
+        rag = self.build_graph(segments, graph_dist=self.args.graph_dist)
+        starting_segments = set()
         target_segments = set()
 
         for circle in circles:
-            # find the starting node
-            closest_target_distance = np.inf
-            starting_node = None
-            # todo consider a global threshold for starting node tolerance,
-            #  currently just taking the closest but should be taking the closest within some max distance threshold
             for n in self.circle_id_map[tuple(circle)]:
-                if rag.nodes[n]['mean color'][0] < self.args.dark_target:
-                    target_segments.add(n)
-                if all([
-                        rag.nodes[n]["target color distance"] < closest_target_distance,
-                        rag.nodes[n]["target color distance"] <= target_max_dist
-                ]):
-                    starting_node = n
-                    closest_target_distance = rag.nodes[n]["target color distance"]
-
-            # now collect nodes connected to the starting node as part of the target
-            if starting_node:
-                target_segments.update(node_connected_component(rag, starting_node))
+                if rag.nodes[n]["target color distance"] <= target_dist:
+                    starting_segments.add(n)
+                    target_segments.update(node_connected_component(rag, n))
             # todo consider getting area directly from regionprops ... but we are doing it with fill etc.
         # create mask from this region
+        starting_mask = np.isin(segments, np.array(list(starting_segments)))
+
+        self.image_debugger.render_image(starting_mask, "Starting node mask (those superpixels within target_dist of a target colour)")
         target_mask = np.isin(segments, np.array(list(target_segments)))
+        self.image_debugger.render_image(target_mask, "Target node mask (include connected to starting nodes by less than graph_dist)")
+
         logger.debug("Remove small objects in the mask")
         clean_mask = remove_small_objects(target_mask, self.args.remove)
         self.image_debugger.render_image(clean_mask, "Cleaned mask (removed small objects)")
@@ -251,14 +250,17 @@ class ImageProcessor:
         else:
             channel = self.b
 
-        plates = Layout(channel, self.image_debugger).get_plates_sorted()
+        plates = Layout(channel, self.image_debugger, self.args).get_plates_sorted()
         result = {
             "filename": self.filepath,
             "units": []
         }
 
         all_circles = [c for p in plates for c in p.circles]
-        target_mask = self.get_target_mask(all_circles)
+        target_mask = self.get_target_mask(
+            all_circles,
+            target_dist=self.args.target_dist
+        )
 
         if self.args.overlay:
             logger.debug("Prepare annotated overlay for QC")

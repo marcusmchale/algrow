@@ -1,8 +1,17 @@
+import argparse
+
 from configargparse import ArgumentParser
 from pathlib import Path
 import logging
 
 logger = logging.getLogger(__name__)
+
+def lab(s: str):
+    try:
+        l, a, b = map(int, s.split(','))
+        return l, a, b
+    except:
+        raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 integers : {s}')
 
 
 # Parse command-line arguments
@@ -57,29 +66,25 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-tl", "--target_l",
-        help="Target 'L' (Lightness) value for target in Lab colourspace",
-        type=float,
-        default=None
+        "-tc", "--target_colour",
+        help="Target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
+        type=lab,
+        default=None,
+        action='append'
     )
     parser.add_argument(
-        "-ta", "--target_a",
-        help="Target 'a' (green-magenta) value for target in Lab colourspace",
-        type=float,
-        default=None
+        "-td", "--target_dist",
+        help="Maximum colour distance to consider a superpixel as the start of a target cluster",
+        type=int,
+        default=8
     )
     parser.add_argument(
-        "-tb", "--target_b",
-        help="Target 'b' (blue-yellow) value for target in Lab colourspace",
-        type=float,
-        default=None
+        "-gd", "--graph_dist",
+        help="Maximum colour distance between superpixels in a target cluster",
+        type=int,
+        default=8
     )
-    parser.add_argument(
-        "-dt", "--dark_target",
-        help="Include superpixels below this value of L (Lightness) value in Lab colourspace",
-        type=float,
-        default=0
-    )
+
     parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
     parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument(
@@ -111,13 +116,6 @@ def options():
         type=int
     )
     parser.add_argument(
-        "-k",
-        "--kernel",
-        help="Kernel for median blur, used in circle detection",
-        default=20,
-        type=int
-    )
-    parser.add_argument(
         "-sc",
         "--scale",
         help="pixels/unit distance for area calculation (if unit distance is mm then area will be reported in mm²)",
@@ -134,8 +132,15 @@ def options():
     parser.add_argument(
         "-pcs",
         "--plate_circle_separation",
-        help="Distance in pixels between circles on a plate",
+        help="Distance between edges of circles within a plate (px)",
         default=50,
+        type=float
+    )
+    parser.add_argument(
+        "-pw",
+        "--plate_width",
+        help="Length of shortest edge of plate (px)",
+        default=500,
         type=float
     )
     parser.add_argument(
@@ -192,7 +197,5 @@ def options():
             args.out_dir = Path(args.image).parents[0]
         else:
             args.out_dir = Path(args.image)
-    if args.kernel % 2 == 0:
-        args.kernel = args.kernel + 1
     logger.info(parser.format_values())
     return args

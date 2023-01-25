@@ -27,15 +27,6 @@ def discgrow():
 
         logger.debug("Check file exists and if it already includes data from listed images")
 
-        if None in [args.target_l, args.target_a, args.target_b]:
-            logger.debug("Pick a colour")
-            # get colour from a random image
-            for first_image in images:
-                picker = Picker(first_image)
-                target_colour = picker.get_target_colour()
-                vars(args).update(target_colour)
-                break
-
         if area_out.is_file():  # if the file exists then check for any already processed images
             with open(area_out) as csv_file:
                 csv_reader = reader(csv_file)
@@ -45,6 +36,18 @@ def discgrow():
             logger.info(
                 f'Some images already included in result file, skipping these: {",".join([str(f) for f in files_done])}'
             )
+
+        if not images:
+            logger.info(f'No images to process')
+
+        if not args.target_colour:
+            logger.debug("Pick a colour")
+            # get colour from a random image
+            for first_image in images:
+                picker = Picker(first_image)
+                target_colours = picker.get_target_colours()
+                vars(args).update({"target_colour":[",".join((str(c[0]), str(c[1]), str(c[2]))) for c in target_colours]})
+                break
 
         with open(area_out, 'a+') as csv_file:
 

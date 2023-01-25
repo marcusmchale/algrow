@@ -123,11 +123,13 @@ Steps:
     2. Clusters of circles are identified to define plates and remove artifact circles (Scipy.cluster.hierarchy)
     3. Orientation and arrangement of circles and plates are determined to define well identities (Scipy.cluster.hierarchy)
     4. SLIC segmentation in Lab colourspace to label target regions (skimage.segmentation)
-    5. Remove small objects and fill small holes (skimage.morphology)
-    5. The area of the image mask is determined within each annotated circle and written to a csv file.
-    6. RGR analysis is performed, figures and reports are generated.
+    5. Graph-based extension of identified superpixels to neighbouring superpixels
+    6. Remove small objects and fill small holes (skimage.morphology)
+    7. The area of the image mask is determined within each annotated circle and written to a csv file.
+    8. RGR analysis is performed, figures and reports are generated.
 
 # Todo
+  - make the graph step optional, multi-target superpixel distance is sufficient in many cases
   - Segmentation
     - Replace opencv with skimage, should be able to do all this in the one library
     - Generate labeled mask circles on first iteration through plates

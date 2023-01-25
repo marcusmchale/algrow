@@ -25,16 +25,14 @@ loglevel = "INFO"  # "info" just prints the processed files and any tuned parame
 overlay = True  # Displays segmented mask over the original image, useful for quality control
 
 [Colour config]
-target_l = 40
-target_a = 5
-target_b = 40
-#dark_target = 0  # include superpixels with lightness below this threshold
 # circle_channel = "b"
+target_colour = ["14,6,9","10,-1,12","53,7,59","29,18,39", "60,2,64", "28,2,36", "3,6,4", "40,-2,47", "35,18,45", "35,2,42", "21,16,27", "15,5,20"]
+target_dist = 4
+graph_dist = 8
 
 [Noise removal options]
 # remove = 100
 # fill = 100
-# kernel = 20  # for blur during circle detection
 
 [Area calculation]
 # scale = 5.625  # Scale of pixels per unit distance (from which area is calculated). e.g. 180px/32mm = 5.625 px/mm
@@ -46,7 +44,7 @@ target_b = 40
 [Layout detection options]
 # circles_per_plate = 6  # In plate clustering, the number of circles per plate",
 # n_plates = 8  # In plate layout, the number of plates per image",
-# circle_diameter = 180  # The diameter of rings surrounding each subject (in pixels)
+# circle_diameter = 160  # The diameter of rings surrounding each subject (in pixels)
 # plate_circle_separation = 50  # Affects the cut height for plate detection. cut_height_tolerance is poorly named. Should be replaced by a search or fixed values from plate specification
 
 [ID sequence options (circles within plates)]
