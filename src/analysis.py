@@ -90,7 +90,8 @@ class AreaAnalyser:
             self,
             ax,
             groups=None,
-            plot_fit=None
+            plot_fit=None,
+            outliers=None
     ):
         self.logger.debug("draw plot")
         mask = self._get_df_mask(groups=groups)
@@ -107,7 +108,8 @@ class AreaAnalyser:
                 if name in plot_fit:
                     ax.plot(
                         group.index.get_level_values("Time"),
-                        np.exp(group.slope * group.elapsed_m + group.intercept)
+                        np.exp(group.slope * group.elapsed_m + group.intercept),
+                        linestyle = "dashed" if outliers and name in outliers else "solid"
                     )
         ax.legend(loc='upper left')
         ax.tick_params(axis='x', labelrotation=45)
@@ -153,9 +155,11 @@ class AreaAnalyser:
             group_plot_dir = Path(outdir, "group_plots")
             group_plot_dir.mkdir(parents=True, exist_ok=True)
             for group in set(self.df.Group):
-                to_plot_fit = summary[(summary.Group == group) & ~summary.ModelFitOutlier].index.to_list()
+                #to_plot_fit = summary[(summary.Group == group) & ~summary.ModelFitOutlier].index.to_list()
+                to_plot_fit = summary[(summary.Group == group)].index.to_list()
+                outliers = summary[summary.ModelFitOutlier].index.to_list()
                 fig, ax = plt.subplots()
-                self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group])
+                self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers = outliers)
                 plt.tight_layout()
                 plt.savefig(Path(group_plot_dir, f"{group}.png"))
                 plt.close(fig)
