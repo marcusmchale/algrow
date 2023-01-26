@@ -117,21 +117,40 @@ The DiscGrow application was developed to;
   - identify outliers by considering RSS of linear regression models to highlight possible experimental issues.
 
 
-Steps:
+Simple steps:
 
-    1. Circles are identified by Hough Circle transform in median blur of selected channel of Lab colourspace (OpenCV)
-    2. Clusters of circles are identified to define plates and remove artifact circles (Scipy.cluster.hierarchy)
-    3. Orientation and arrangement of circles and plates are determined to define well identities (Scipy.cluster.hierarchy)
-    4. SLIC segmentation in Lab colourspace to label target regions (skimage.segmentation)
-    5. Graph-based extension of identified superpixels to neighbouring superpixels
-    6. Remove small objects and fill small holes (skimage.morphology)
-    7. The area of the image mask is determined within each annotated circle and written to a csv file.
-    8. RGR analysis is performed, figures and reports are generated.
+    1. Selection of target colour regions in interactive window (--target_colour).
+    2. Identify target circles by canny edge detection and Hough circle transform in selected channel of Lab colourspace (skimage)
+    3. Cluster circles to define plates and remove artifact circles (Scipy.cluster.hierarchy)
+    4. Determine orientation and arrangement of circles and plates to relate each target to its indexed identity (Scipy.cluster.hierarchy)
+    5. SLIC segmentation in Lab colourspace to identify superpixels within circles (skimage.segmentation)
+    6. Graph construction with superpixels as nodes and colour-distance weighted edges to adjacent nodes (networkx, skimage.future, skimage.colour.deltaE_ciede2000)
+    7. Selection of initial target nodes below a threshold distance from the selected set of target colours (--target_dist)
+    8. Extension of target nodes, expanding from initial target nodes to include connected superpixels below a threshold colour distance (--graph_dist)
+    9. Create mask from selected target pixels, remove small objects and fill small holes (skimage.morphology)
+    10. Calculate area of the mask within each circle and write to a csv file.
+    11. Perform analysis (calculate RGR over defined period) and prepare figures and reports.
+
+
+Tuning:
+
+The first step is run when no --target_colour values are provided as arguments or in the configuration files.
+We advise to perform colour selection first with a single representative image as input and copy the output into a configuration file to run across a time-series.
+With highly variable target colours it may be useful to run the colour-selection on multiple images and collect the outputs into a single list of target colours to use across the whole dataset.
+
+Beyond target colours there are two key parameters that may require tuning, --target_dist and graph-dist. 
+In general, you should raise these values until non-target pixels are detected, but the debugging pipeline can help to select an appropriate value. 
+
+In step 7 above, the distance between the mean colour of each superpixel node and all target colours is calculated .
+Those nodes where the minimum distance is below --target_dist will be considered as initial target nodes. 
+To optimise this value you may want to consider the plot of "distance from targets" in the debugging pipeline.
+
+In step 8 above, edges above --graph_dist colour-space distances are removed and nodes still connected to the initial target regions are included in the target area.
+To optimise this value you may want to consider the representations of the full, truncated and background-removed graphs in the debugging pipeline.
 
 # Todo
-  - make the graph step optional, multi-target superpixel distance is sufficient in many cases
+  - Make the graph step optional, multi-target superpixel distance may be sufficient in some cases
   - Segmentation
-    - Replace opencv with skimage, should be able to do all this in the one library
     - Generate labeled mask circles on first iteration through plates
       - use this to speed up counting pixels
   - Data management (probably unnecessary)
@@ -146,10 +165,12 @@ Steps:
 
 # Comparisons with other tools/frameworks 
 ## plantcv2
-  - Command line application does not require coding in Python
-  - Multiplexing does not rely on simple grid layout (we support a nested structure in rows or columns)
+  - Command line application does not require customised coding
+  - Multiplexing does not rely on a simple grid layout (we support a nested structure in rows or columns)
   - Relative rather than absolute positioning 
     - Allows movement of camera or subjects
-    - Disadvantage is we require markers being distinguishable in the image (e.g. blue circles)
+    - Disadvantage is we require ring markers around each subject being distinguishable in the image (e.g. blue circles)
+  - Multiple target colours rather than fixed thresholds
+    - graph based expansion of search area to include similar adjacent colours
 
     

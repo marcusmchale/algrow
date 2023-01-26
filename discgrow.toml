@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discgrow"
-version = "0.1.4"
+version = "0.2"
 authors = [
   { name="Marcus McHale", email="marcus.mchale@nuigalway.ie" },
 ]
-description = "Automated multiplexed area quantification for growth rate determination of macroalgal leaf discs"
+description = "Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs"
 readme = "README.md"
 license = { file="LICENSE.txt" }
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
