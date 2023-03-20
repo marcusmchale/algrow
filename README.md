@@ -1,7 +1,7 @@
 
 # DiscGrow
 
-- Automated multiplexed area quantification for growth rate determination of macroalgal lamina discs
+- Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs
 
 ## The short story 
 
@@ -9,28 +9,39 @@ Discgrow provides automated image analysis for measuring growth of macroalgal la
 It was developed to suit the experimental apparatus in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/)
 of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
-at the [National University of Ireland, Galway](https://www.nuigalway.ie/). 
-However, parameters are provided that should allow its application in other contexts 
+at the [University of Galway](https://www.universityofgalway.ie/). 
+However, parameters provided allow it to be applied in other contexts.
 
-Features:
-- Multiprocessing (-p num_cores)
+Features/parameters:
+- Suitable for large sets of images 
+  - Command line tool for ease of use on a server/cluster
+  - Multiprocessing (-p num_cores)
 - Quality-control overlays (option -q)
-- Debugging pipeline (-D)
-- Annotation
+- Debugging pipeline (-D) for tuning parameters and examining each step of processing
+- Automated annotation
   - Layout is determined by enclosing circles grouped into plates
     - Circle detection in chosen channel (-cc)
-    - Search for optimal accumulator threshold (param2 in HoughCircles) or fixed to improve performance (-ph)
-    - Pseudo-grid arrangement (i.e. sequential rows or columns of circles and plates)
-      - Number of plates and circles per plate can be defined (options -npi and -cpp)
-      - ID incrementation direction is customisable (-crf, -clr, -ctb, -prf, -plr, -ptb)
+    - Search for circles expands criteria when insufficient are detected
+    - circle expansion (-ce) to include area surrounding target circles (still must not overlap)
+    - Pseudo-grid arrangement
+      - Find clusters of circles of known size and arrangement (plates)
+        - Number of circles per plate can be defined (-cpp)
+      - Find arrangement of plates
+        - Number of plates per image can be defined (-npi) 
+      - Arrangements are simple sequences within rows (default) or columns for circles within plates (-ccf) or plates within images (-pcf)
+        - ID incrementation direction is customisable (-clr, -ctb, -plr, -ptb)
 - Segmentation
   - SLIC algorithm 
     - Radhakrishna Achanta, Appu Shaji, Kevin Smith, Aurelien Lucchi, Pascal Fua, and Sabine Süsstrunk, SLIC Superpixels Compared to State-of-the-art Superpixel Methods, TPAMI, May 2012. DOI:10.1109/TPAMI.2012.120
     - https://www.epfl.ch/labs/ivrl/research/slic-superpixels/#SLICO
     - Irving, Benjamin. “maskSLIC: regional superpixel generation with application to local pathology characterisation in medical images.”, 2016, arXiv:1606.09518
-  - optional interactive selection of representative regions for target colour selection
-    - run only if the colour (a & b in Lab colour-space) is not defined (-ta, -tb)
-  - Area is reported for closest cluster to the defined target 
+- Graph based selection of target
+  - Interactive selection of representative regions for selection of target colour(s)
+  - Nodes within colour distance (deltaE, --target_dist) of target colour are selected
+  - Adjacent nodes within colour distance (--graph_dist) are also selected
+- Noise removal
+  - Fill small holes
+  - Remove small objects 
 - Analysis
   - Linear regression of log transformed values determines daily relative daily growth rate (RGR)
   - Data exported as csv files, including raw values, RGR and per group summaries
@@ -92,8 +103,8 @@ The [previous quantification method](<https://academic.oup.com/plphys/article/18
 relied on annotation by sequential selection of the well region from a stack of images in the ImageJ graphical interface.
 The manual annotation process is time-consuming and dependent on fixed coordinate positions
 of the lamina disc across the image stack.
-Manual adjustment of fixed thresholds for segmentation in ImageJ are also time-consuming and
-can fail to identify or accurately segment atypical images.
+Manual adjustment of fixed thresholds for segmentation in ImageJ is time-consuming and
+can fail to identify or accurately segment across variable subject colours.
 Manual curation can also introduce operator error and biases to area quantification.
 
 Another key issue with the manual curation pipeline using ImageJ is the requirement to load all images in a stack into memory concurrently.
@@ -108,10 +119,11 @@ A number of pre-processing steps were employed to handle the scale of data from 
 
 The DiscGrow application was developed to;
   - independently process each image to resolve the issues of memory restrictions for large stacks of images
-  - relying on relative rather than absolute positions to remove the requirement for ROI definition and handle movement of plates/tanks/cameras between images.
-  - remove/reduce operator input into segmentation by using cluster based methods rather than thresholding.
-  - provide an image debugging pipeline for investigation of new or aberrant image sets.
-  - provide quality control pipelines to allow manual investigation of data quality and tune parameters to new image sets.
+  - rely on relative rather than absolute positions to remove the requirement for ROI definition and handle movement of plates/tanks/cameras between images.
+  - remove/reduce operator input into segmentation by using cluster based methods rather than fixed thresholds.
+  - support mixed target colours
+  - provide an image debugging pipeline for parameter tuning and investigation of new or aberrant image sets.
+  - provide quality control pipelines to allow manual investigation of data quality.
   - automate annotation for flexible plate types, numbers and arrangements. 
   - standardise and improve analysis by use of linear regression models rather than simple averaging across timepoints
   - identify outliers by considering RSS of linear regression models to highlight possible experimental issues.
@@ -162,6 +174,7 @@ To optimise this value you may want to consider the representations of the full,
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
+  - Interactive selection of colour doesn't work when run on server using X forwarding.
 
 # Comparisons with other tools/frameworks 
 ## plantcv2
@@ -170,7 +183,7 @@ To optimise this value you may want to consider the representations of the full,
   - Relative rather than absolute positioning 
     - Allows movement of camera or subjects
     - Disadvantage is we require ring markers around each subject being distinguishable in the image (e.g. blue circles)
-  - Multiple target colours rather than fixed thresholds
+  - Multiple target colours and target colour distance rather than fixed thresholds
     - graph based expansion of search area to include similar adjacent colours
 
     
