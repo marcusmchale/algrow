@@ -6,7 +6,7 @@ from skimage.segmentation import slic
 from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000
 from skimage import draw
 from skimage.io import imread, imsave
-from skimage.future import graph
+from skimage import graph
 from networkx import node_connected_component, set_edge_attributes, get_edge_attributes
 import matplotlib.pyplot as plt
 from re import search
@@ -118,16 +118,16 @@ class ImageProcessor:
             rag.nodes[n].update({
                 "labels": [n],
                 "pixel count": 0,
-                "total color": np.array([0, 0, 0], dtype=np.float64),
-                "target color distance": None
+                "total colour": np.array([0, 0, 0], dtype=np.float64),
+                "target colour distance": None
             })
 
         for index in np.ndindex(segments.shape):
             current = segments[index]
             rag.nodes[current]['pixel count'] += 1
-            rag.nodes[current]['total color'] += self.lab[index]
+            rag.nodes[current]['total colour'] += self.lab[index]
 
-        # add the mean color and distance from any target colour to select the closest node in roi
+        # add the mean colour and distance from any target colour to select the closest node in roi
         target_lab = np.array(self.args.target_colour)
 
         logger.debug("add distance from target colours to each node")
@@ -136,16 +136,16 @@ class ImageProcessor:
             dist_image = segments.copy()
 
         for n in rag:
-            rag.nodes[n]['mean color'] = (rag.nodes[n]['total color'] / rag.nodes[n]['pixel count'])
-            #target_distance = np.linalg.norm(rag.nodes[n]['mean color'] - target_lab)
+            rag.nodes[n]['mean colour'] = (rag.nodes[n]['total colour'] / rag.nodes[n]['pixel count'])
+            #target_distance = np.linalg.norm(rag.nodes[n]['mean colour'] - target_lab)
             target_distance = min(
                 deltaE_ciede2000(
-                    np.tile(rag.nodes[n]['mean color'], target_lab.shape[0]).reshape(target_lab.shape[0],3),
+                    np.tile(rag.nodes[n]['mean colour'], target_lab.shape[0]).reshape(target_lab.shape[0],3),
                     target_lab,
                     kL=kl
                 )
             )
-            rag.nodes[n]["target color distance"] = target_distance
+            rag.nodes[n]["target colour distance"] = target_distance
             if self.args.image_debug:
                 dist_image[segments == n] = target_distance
 
@@ -155,11 +155,11 @@ class ImageProcessor:
 
         logger.debug("add distance in colour as weights")
         for x, y, d in list(rag.edges(data=True)):
-            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean color'], rag.nodes[y]['mean color'], kL=kl)
+            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean colour'], rag.nodes[y]['mean colour'], kL=kl)
 
         self.plot_adjacency_in_lab(rag, segments, prefix="Full network")
 
-        logger.debug("remove edges above {graph_dist} delta_e")
+        logger.debug(f"remove edges above {graph_dist} delta_e")
         for x, y, d in list(rag.edges(data=True)):
             if d['delta_e'] > graph_dist:
                 rag.remove_edge(x, y)
@@ -232,7 +232,7 @@ class ImageProcessor:
         for circle in circles:
             for n in self.circle_id_map[tuple(circle)]:
                 ## caution: this can fail if circles overlap (see logic in get_segments)
-                if rag.nodes[n]["target color distance"] <= target_dist:
+                if rag.nodes[n]["target colour distance"] <= target_dist:
                     starting_segments.add(n)
                     target_segments.update(node_connected_component(rag, n))
             # todo consider getting area directly from regionprops ... but we are doing it with fill etc.

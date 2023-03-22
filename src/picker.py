@@ -80,18 +80,17 @@ class Picker:
         for c in np.unique(self.selection_array):
             if c == 0:
                 continue
-            l = self.l[self.selection_array == c].mean().round()
-            a = self.a[self.selection_array == c].mean().round()
-            b = self.b[self.selection_array == c].mean().round()
+            l = int(self.l[self.selection_array == c].mean())
+            a = int(self.a[self.selection_array == c].mean())
+            b = int(self.b[self.selection_array == c].mean())
             target_colours.add((l,a,b))
-            colour_plot = np.append(colour_plot, np.tile([l,a,b], np.square(npix)))
-
+            colour_plot = np.append(colour_plot, np.tile([l,a,b], np.square(npix)).astype(float))
         colour_plot = lab2rgb(colour_plot.reshape(npix * (len(np.unique(self.selection_array)) - 1 ), npix, 3))
         fig, ax = plt.subplots()
         ax.set_title(f"Target regions colours {target_colours}")
         ax.imshow(colour_plot)
         plt.show()
-        colours_string = f'{[",".join([str(int(j)) for j in i]) for i in target_colours]}'.replace("'", '"')
+        colours_string = f'{[",".join([str(j) for j in i]) for i in target_colours]}'.replace("'", '"')
         logger.info(f'Target colours selected: {colours_string}')
         return target_colours
 

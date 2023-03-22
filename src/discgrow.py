@@ -40,7 +40,7 @@ def discgrow():
             files_done = set.intersection(images, files_done)
             images = images - files_done
             logger.info(
-                f'Some images already included in result file, skipping these: {",".join([str(f) for f in files_done])}'
+                f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
             )
 
         if not images:
@@ -52,9 +52,8 @@ def discgrow():
             for first_image in images:
                 picker = Picker(first_image, args)
                 target_colours = picker.get_target_colours()
-                vars(args).update({"target_colour":[",".join((str(c[0]), str(c[1]), str(c[2]))) for c in target_colours]})
+                vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
                 break
-
         with open(area_out, 'a+') as csv_file:
 
             csv_writer = writer(csv_file)

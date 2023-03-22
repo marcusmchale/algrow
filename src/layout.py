@@ -123,6 +123,7 @@ class Layout:
             try:
                 clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates)
             except InsufficientPlateDetection:
+                logger.debug(f"Try again with detection of more circles")
                 continue
 
             logger.debug("Collect circles from target clusters into plates")
