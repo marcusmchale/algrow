@@ -68,6 +68,10 @@ Features/parameters:
     - tar -xvzf sample_images.tgz -C raw
     - discgrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
 
+# note so far this works on python 3.9 
+# i think it also may need python3-tk also installed for interactive colour picker
+
+
 ### Run from source
 
   - Download

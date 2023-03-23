@@ -11,7 +11,7 @@ authors = [
 description = "Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs"
 readme = "README.md"
 license = { file="LICENSE.txt" }
-requires-python = ">=3.9"
+requires-python = "==3.9"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
