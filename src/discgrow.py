@@ -84,8 +84,12 @@ def discgrow():
                         logger.info(f'{str(image)} generated an exception: {exc}', exc_info=True)
                     else:
                         logger.info(f'{str(image)}: processed')
+    else:
+        logger.info("No input images provided")
     if args.sample_id:
         area_analyser = AreaAnalyser(area_out, args.sample_id, args, area_header)
         area_analyser.fit_all(args.fit_start, args.fit_end)
         area_analyser.write_results(args.out_dir, group_plots=True)
+    else:
+        logger.info("No sample IDs provided")
 

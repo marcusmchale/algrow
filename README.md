@@ -190,4 +190,10 @@ To optimise this value you may want to consider the representations of the full,
   - Multiple target colours and target colour distance rather than fixed thresholds
     - graph based expansion of search area to include similar adjacent colours
 
-    
+# Notes:
+  - develop image capture using libcamera2 and apscheduler - run as daemon
+  - provide HDR (even with pi2 camera) by capturing a series of images at multiple exposures and compositing
+
+  - motorised IR cut camera (supplier pimoroni is on agresso)
+    - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
+  - 

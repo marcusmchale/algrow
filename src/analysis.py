@@ -72,6 +72,10 @@ class AreaAnalyser:
             df["log_area"] = np.log(df["Area"])  # 0 values are -Inf which are then ignored in the fit
         df["fit"] = df.groupby(["Block", "Unit"], group_keys=True).apply(self._fit)
         df[["intercept", "slope", "RSS"]] = df.fit.to_list()
+        # RGR calculation:
+        # slope of the fit is with minutes on the x-axis so convert to days (1440 minutes/day)
+        # then express as percent and
+        # round to 2 significant figures
         df["RGR"] = round(df["slope"] * 1440 * 100, 2)
         self.df = self.df.join(df[["slope", "intercept", "RGR", "RSS", "elapsed_m"]])
 
