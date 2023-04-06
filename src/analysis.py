@@ -142,7 +142,7 @@ class AreaAnalyser:
         mean_rgr_out = Path(outdir, "RGR_mean.csv")
         mean_rgr["RGR"].to_csv(mean_rgr_out)
         if rgr_plot:
-            figsize = ((len(set(self.df.Group)) / 10 + 5), 5)  # tuple of (width, height) in inches
+            figsize = ((len(set(self.df.Group)) / 10 + 5), 5)  # tuple of (width, heighqt) in inches
             fig, ax = plt.subplots()
             summary.boxplot("RGR", by="Group", rot=90, figsize=figsize )
             plt.tight_layout()

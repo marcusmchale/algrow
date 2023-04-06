@@ -47,15 +47,13 @@ def options():
         type=int
     )
     parser.add_argument(
-        "-D",
-        "--image_debug",
+        "-d",
+        "--debug",
         help=(
-            "Writes out intermediate images for debugging/tuning: "
-            "'print' to file or "
-            "'plot' to device (requires matplotlib) "
+            "Plots intermediate images for debugging/tuning"
         ),
-        choices=["plot", "print"],
-        default=None
+        choices = ["save", "plot", "both"],
+        default = None
     )
     parser.add_argument(
         "-l",
@@ -93,11 +91,10 @@ def options():
     )
     parser.add_argument(
         "-gd", "--graph_dist",
-        help="Maximum colour distance between superpixels in a target cluster",
+        help="Maximum colour distance between superpixels in a target cluster - set to 0 to avoid graph construction",
         type=int,
         default=8
     )
-
     parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
     parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument(

@@ -68,8 +68,10 @@ Features/parameters:
     - tar -xvzf sample_images.tgz -C raw
     - discgrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
 
-# note so far this works on python 3.9 
-# i think it also may need python3-tk also installed for interactive colour picker
+# this works on python 3.9 
+# i think it also may need python3-tk also installed then reinstall venv, 
+# something strange to get the lasso selector working anyway
+# 
 
 
 ### Run from source
@@ -193,7 +195,7 @@ To optimise this value you may want to consider the representations of the full,
 # Notes:
   - develop image capture using libcamera2 and apscheduler - run as daemon
   - provide HDR (even with pi2 camera) by capturing a series of images at multiple exposures and compositing
-
+  - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
   - motorised IR cut camera (supplier pimoroni is on agresso)
     - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
   - 

@@ -46,16 +46,30 @@ def discgrow():
         if not images:
             logger.info(f'No images to process')
 
+        if args.debug:
+            vars(args)["image_debug"] = True
+
         if not args.target_colour:
             logger.debug("Pick a colour")
             # get colour from a random image
             for first_image in images:
-                picker = Picker(first_image, args)
+                picker = Picker(first_image)
                 target_colours = picker.get_target_colours()
                 vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
                 break
-        with open(area_out, 'a+') as csv_file:
 
+        target_colours = vars(args)['target_colour']
+
+        if args.debug:
+            Picker.plot_colours(target_colours)
+
+        logger.debug("Write target colours to file in output directory")
+        colours_string = f'{[",".join([str(j) for j in i]) for i in target_colours]}'.replace("'", '"')
+        Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+        with open(Path(args.out_dir, "target_colours.txt"), 'w') as text_file:
+            text_file.write(colours_string)
+
+        with open(area_out, 'a+') as csv_file:
             csv_writer = writer(csv_file)
             if area_out.stat().st_size == 0:  # True if output file is empty
                 csv_writer.writerow(area_header)

@@ -5,13 +5,15 @@ from matplotlib.path import Path
 from matplotlib.widgets import LassoSelector
 import matplotlib.pyplot as plt
 import numpy as np
-from .debugger import Debugger
+from .figurebuilder import FigureBuilder
+from .options import options
 
 logger = logging.getLogger(__name__)
+args = options().parse_args()
 
 class Picker:
-    def __init__(self, image_path, args):
-        self.image_debugger = Debugger(image_path, args)
+    def __init__(self, image_path):
+        self.image_path = image_path
         logger.debug("Load selected image for colour picking")
         self.rgb = plt.imread(str(image_path)).copy()
         self.lab = rgb2lab(self.rgb)
@@ -34,15 +36,19 @@ class Picker:
 
     def pick_regions(self):
         fig, ax = plt.subplots()
+        fig.canvas.manager.set_window_title("Target colour selection")
         ax.set_title("Select representative regions (draw circles around some)")
         ax.imshow(self.rgb)
         SelectFromImage(ax, self.pixel_coords, self.selection_array)
         plt.show()
         if np.sum(self.selection_array) == 0:
             raise ValueError("No area selected")
-        overlay = self.rgb.copy()
-        overlay[self.selection_array != 0] = 255 - overlay[self.selection_array != 0] # invert colour
-        self.image_debugger.render_image(overlay, "Overlay of selection")
+        if args.debug:
+            overlay = self.rgb.copy()
+            overlay[self.selection_array != 0] = 255 - overlay[self.selection_array != 0] # invert colour
+            fig = FigureBuilder(self.image_path, "Target colour selection")
+            fig.add_image(overlay)
+            fig.print()
 
     #def get_thresholds(self):
     #    if self.mask is None:
@@ -70,30 +76,31 @@ class Picker:
     #    return thresholds
     #
     def get_target_colours(self):
-
         if len(np.unique(self.selection_array)) == 1:
             self.pick_regions()
-        target_colours = set()
-        npix = 10
-        colour_plot = np.empty((0,0,3), int)
-
+        target_colours = list()
         for c in np.unique(self.selection_array):
             if c == 0:
                 continue
             l = int(self.l[self.selection_array == c].mean())
             a = int(self.a[self.selection_array == c].mean())
             b = int(self.b[self.selection_array == c].mean())
-            target_colours.add((l,a,b))
-            colour_plot = np.append(colour_plot, np.tile([l,a,b], np.square(npix)).astype(float))
-        colour_plot = lab2rgb(colour_plot.reshape(npix * (len(np.unique(self.selection_array)) - 1 ), npix, 3))
-        fig, ax = plt.subplots()
-        ax.set_title(f"Target regions colours {target_colours}")
-        ax.imshow(colour_plot)
-        plt.show()
+            target_colours.append((l,a,b))
         colours_string = f'{[",".join([str(j) for j in i]) for i in target_colours]}'.replace("'", '"')
         logger.info(f'Target colours selected: {colours_string}')
         return target_colours
 
+    @staticmethod
+    def plot_colours(target_colours, npix = 10):
+        fig = FigureBuilder(args.image, "Target colours")
+        colour_plot = np.empty((0, 0, 3), int)
+        for l,a,b in target_colours:
+            colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
+        colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
+        fig.get_current_subplot().set_yticks(np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours)
+        fig.get_current_subplot().get_xaxis().set_visible(False)
+        fig.add_image(colour_plot)
+        fig.print()
 
 
 class SelectFromImage:
