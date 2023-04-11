@@ -10,10 +10,9 @@ from .options import options
 logger = logging.getLogger(__name__)
 args = options().parse_args()
 
-
+lock = multiprocessing.Lock()
 
 class FigureBuilder:
-    lock = multiprocessing.Lock()
     counter = 0
     if args.processes > 1:
         if args.debug in ["plot", "both"]:
@@ -32,8 +31,8 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 0
         self.col_counter = 0
-        with FigureBuilder.lock:
-            FigureBuilder.counter += 1
+        with lock:
+            FigureBuilder.counter += 1  # todo still broken for multiprocessing despite lock
 
 
     def print(self):
