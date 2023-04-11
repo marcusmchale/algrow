@@ -1,5 +1,6 @@
 import logging
 import os
+import multiprocessing
 
 import numpy as np
 from pathlib import Path
@@ -24,7 +25,7 @@ class FigureBuilder:
         if args.debug in ["plot", "both"]:
             logger.warning("Cannot use interactive plotting in multithreaded mode")
         use('Agg')
-    counter_dict = defaultdict(int)
+    counter_dict = defaultdict(lambda: multiprocessing.Value('i', 0))
     #counter = 0
     def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
         self.img_path = img_path
@@ -39,7 +40,8 @@ class FigureBuilder:
         self.row_counter = 0
         self.col_counter = 0
         #FigureBuilder.counter += 1
-        FigureBuilder.counter_dict[os.getpid()] += 1
+        with FigureBuilder.counter_dict[os.getpid()].get_lock():
+           FigureBuilder.counter_dict[os.getpid()].value += 1
 
     @classproperty
     def counter(cls):

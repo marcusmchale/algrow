@@ -6,7 +6,6 @@ from .image_processing import area_worker
 from .analysis import AreaAnalyser
 from .picker import Picker
 from .options import options
-from .figurebuilder import FigureBuilder
 
 logger = logging.getLogger(__name__)
 
