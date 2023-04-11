@@ -45,7 +45,7 @@ class FigureBuilder:
 
     @classproperty
     def counter(cls):
-        return cls.counter_dict[os.getpid()]
+        return cls.counter_dict[os.getpid()].value
 
     def print(self):
         self.fig.tight_layout()
