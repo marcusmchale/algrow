@@ -46,7 +46,8 @@ class FigureBuilder:
 
     @classproperty
     def counter(cls):
-        return cls.counter_dict[os.getpid()]
+        with multiprocessing.Lock():  # todo try this? maybe needs lock on get as well? better shared defaultdict type
+            return cls.counter_dict[os.getpid()]
 
     def print(self):
         self.fig.tight_layout()
