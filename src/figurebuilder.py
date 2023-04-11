@@ -1,42 +1,57 @@
 import logging
-import numpy as np
+import os
 
+import numpy as np
 from pathlib import Path
-from matplotlib import pyplot as plt, gridspec
+from skimage.color import lab2rgb
+from collections import defaultdict
+from matplotlib import pyplot as plt, gridspec, use
 from .options import options
+
 
 logger = logging.getLogger(__name__)
 args = options().parse_args()
 
 
+
+class classproperty(property):  # https://stackoverflow.com/a/13624858
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
+
+
 class FigureBuilder:
-    counter = 0
+    if args.processes > 1:
+        if args.debug in ["plot", "both"]:
+            logger.warning("Cannot use interactive plotting in multithreaded mode")
+        use('Agg')
+    counter_dict = defaultdict(int)
+    #counter = 0
     def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
         self.img_path = img_path
         self.step_name = step_name
         self.nrows = nrows
         self.ncols = ncols
         self.force = force
-
         self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False)
-
         self.plot = args.debug in ['plot', 'both'] or self.force in ['plot', 'both']
         self.save = args.debug in ['save', 'both'] or self.force in ['save', 'both']
         self.out_dir = args.out_dir
-
         self.row_counter = 0
         self.col_counter = 0
+        #FigureBuilder.counter += 1
+        FigureBuilder.counter_dict[os.getpid()] += 1
 
-        FigureBuilder.counter += 1
+    @classproperty
+    def counter(cls):
+        return cls.counter_dict[os.getpid()]
 
     def print(self):
-
-        # todo :the above cause the window to resize dynamically this is annoying, find a fix
         self.fig.tight_layout()
         if self.save:
             self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
             self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
             out_path = Path(self.out_dir, "debug", " - ".join([str(FigureBuilder.counter), self.step_name]), Path(Path(self.img_path).stem).with_suffix('.png'))
+            #out_path = Path(self.out_dir, "debug", self.step_name, Path(Path(self.img_path).stem).with_suffix('.png'))
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
             logger.debug(f"Save figure: {self.step_name, self.img_path}")
@@ -45,7 +60,8 @@ class FigureBuilder:
             self.fig.set_figheight(3 * (self.nrows if self.nrows else 1))
             self.fig.set_dpi(100)
             logger.debug(f"Show figure: {self.step_name, self.img_path}")
-            plt.show() ## todo, here would be good to use fig.show but that requires an event loop or it all just pops up at the end
+            plt.show()
+            ## todo, here would be good to use fig.show but that requires a managed event loop or it all just pops up at the end
             # this is only issue if we are building one figure then move the another then go back to finish the first
             # i have worked around this so far but it is a big limitation..
 
@@ -90,10 +106,14 @@ class FigureBuilder:
             self.fig.add_subplot(gs[self.nrows-1, n])
         self.ax = np.reshape(self.fig.axes, (self.nrows, ncols))
 
-
-
-
-
-
-
-
+    def plot_colours(self, target_colours, npix = 10):
+        logger.debug('Output target colours plot')
+        colour_plot = np.empty((0, 0, 3), int)
+        for l,a,b in target_colours:
+            colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
+        colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
+        self.get_current_subplot().set_yticks(
+            np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours
+        )
+        self.get_current_subplot().get_xaxis().set_visible(False)
+        self.add_image(colour_plot)

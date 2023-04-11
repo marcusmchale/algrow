@@ -13,7 +13,6 @@ def lab(s: str):
     except:
         raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 integers : {s}')
 
-
 # Parse command-line arguments
 def options():
     config_dir = Path(Path(__file__).parent.parent, "conf.d")
@@ -22,7 +21,7 @@ def options():
         default_config_files=config_files,
     )
     parser.add_argument("-c", "--conf", help ="Config file path", is_config_file=True)
-    parser.add_argument("-i", "--image", help="Input image file or directory", default=None)
+    parser.add_argument("-i", "--image", help="Input image file or directory", default=None, action='append')
     parser.add_argument(
         "-id",
         "--sample_id",

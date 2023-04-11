@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from skimage.color import rgb2lab, lab2rgb
+from skimage.color import rgb2lab
 from matplotlib.path import Path
 from matplotlib.widgets import LassoSelector
 import matplotlib.pyplot as plt
@@ -10,6 +10,7 @@ from .options import options
 
 logger = logging.getLogger(__name__)
 args = options().parse_args()
+
 
 class Picker:
     def __init__(self, image_path):
@@ -50,31 +51,6 @@ class Picker:
             fig.add_image(overlay)
             fig.print()
 
-    #def get_thresholds(self):
-    #    if self.mask is None:
-    #        self.mask = self.pick_regions()
-    #    #todo consider using std and mean to create upper and lower bounds
-    #    mean_l = self.l[self.mask].mean().round()
-    #    thresholds = {
-    #        "lower_a": self.a[self.mask].min().round(),
-    #        "lower_b": self.b[self.mask].min().round(),
-    #        "upper_a": self.a[self.mask].max().round(),
-    #        "upper_b": self.b[self.mask].max().round()
-    #    }
-    #    npix = 10
-    #    l = np.array(mean_l)  # constant L, we don't use for thresholding, just use so looks like selected levels
-    #    a = np.linspace(thresholds["lower_a"], thresholds["upper_a"], npix)
-    #    b = np.linspace(thresholds["lower_b"], thresholds["upper_b"], npix)
-    #    colour_plot = np.array(np.meshgrid(l, a, b)).reshape((3, 10, 10))
-    #    colour_plot = np.moveaxis(colour_plot, 0, 2)
-    #    colour_plot_rgb = lab2rgb(colour_plot)
-    #    fig, ax = plt.subplots()
-    #    ax.set_title(f"Target regions colours {thresholds}")
-    #    ax.imshow(colour_plot_rgb)
-    #    plt.show()
-    #    logger.info(f"Thresholds selected: {thresholds}")
-    #    return thresholds
-    #
     def get_target_colours(self):
         if len(np.unique(self.selection_array)) == 1:
             self.pick_regions()
@@ -89,18 +65,6 @@ class Picker:
         colours_string = f'{[",".join([str(j) for j in i]) for i in target_colours]}'.replace("'", '"')
         logger.info(f'Target colours selected: {colours_string}')
         return target_colours
-
-    @staticmethod
-    def plot_colours(target_colours, npix = 10):
-        fig = FigureBuilder(args.image, "Target colours")
-        colour_plot = np.empty((0, 0, 3), int)
-        for l,a,b in target_colours:
-            colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
-        colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
-        fig.get_current_subplot().set_yticks(np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours)
-        fig.get_current_subplot().get_xaxis().set_visible(False)
-        fig.add_image(colour_plot)
-        fig.print()
 
 
 class SelectFromImage:

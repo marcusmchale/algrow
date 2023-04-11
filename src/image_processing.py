@@ -54,6 +54,17 @@ class ImageProcessor:
     def __init__(self, filepath, args):
         self.filepath = Path(filepath)
         self.args = args
+
+        if args.debug:
+            fig = FigureBuilder(self.filepath, "Target colours")
+            fig.plot_colours(vars(args)['target_colour'])
+            fig.print()
+            logger.debug("Write target colours to file in output directory")
+            colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["target_colour"]]}'.replace("'", '"')
+            Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+            with open(Path(args.out_dir, "target_colours.txt"), 'w') as text_file:
+                text_file.write(colours_string)
+
         logger.debug(f"Load image as RGB: {self.filepath}")
         self.rgb = imread(str(self.filepath))
         if args.debug:
