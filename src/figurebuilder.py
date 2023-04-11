@@ -2,7 +2,6 @@ import logging
 import numpy as np
 from pathlib import Path
 from skimage.color import lab2rgb
-import multiprocessing
 from matplotlib import pyplot as plt, gridspec, use
 from .options import options
 
@@ -10,8 +9,6 @@ from .options import options
 logger = logging.getLogger(__name__)
 args = options().parse_args()
 
-lock = multiprocessing.Lock()
-counter = 0
 
 class FigureBuilder:
     if args.processes > 1:
@@ -31,9 +28,6 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 0
         self.col_counter = 0
-        with lock:
-            counter += 1  # todo still broken for multiprocessing despite lock,
-            # maybe forking is sometimes done later and can't rely on the dahred?
 
 
     def print(self):
@@ -41,8 +35,7 @@ class FigureBuilder:
         if self.save:
             self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
             self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
-            out_path = Path(self.out_dir, "debug", " - ".join([str(counter), self.step_name]), Path(Path(self.img_path).stem).with_suffix('.png'))
-            #out_path = Path(self.out_dir, "debug", self.step_name, Path(Path(self.img_path).stem).with_suffix('.png'))
+            out_path = Path(self.out_dir, "debug", self.step_name, Path(Path(self.img_path).stem).with_suffix('.png'))
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
             logger.debug(f"Save figure: {self.step_name, self.img_path}")
