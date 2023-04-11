@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 args = options().parse_args()
 
 lock = multiprocessing.Lock()
+counter = 0
 
 class FigureBuilder:
-    counter = 0
     if args.processes > 1:
         if args.debug in ["plot", "both"]:
             logger.warning("Cannot use interactive plotting in multithreaded mode")
@@ -32,7 +32,8 @@ class FigureBuilder:
         self.row_counter = 0
         self.col_counter = 0
         with lock:
-            FigureBuilder.counter += 1  # todo still broken for multiprocessing despite lock
+            counter += 1  # todo still broken for multiprocessing despite lock,
+            # maybe forking is sometimes done later and can't rely on the dahred?
 
 
     def print(self):
@@ -40,7 +41,7 @@ class FigureBuilder:
         if self.save:
             self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
             self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
-            out_path = Path(self.out_dir, "debug", " - ".join([str(FigureBuilder.counter), self.step_name]), Path(Path(self.img_path).stem).with_suffix('.png'))
+            out_path = Path(self.out_dir, "debug", " - ".join([str(counter), self.step_name]), Path(Path(self.img_path).stem).with_suffix('.png'))
             #out_path = Path(self.out_dir, "debug", self.step_name, Path(Path(self.img_path).stem).with_suffix('.png'))
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
