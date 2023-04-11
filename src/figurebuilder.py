@@ -25,7 +25,8 @@ class FigureBuilder:
         if args.debug in ["plot", "both"]:
             logger.warning("Cannot use interactive plotting in multithreaded mode")
         use('Agg')
-        counter_dict = defaultdict(int)
+    counter_dict = defaultdict(int)
+
     #counter = 0
     def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
         self.img_path = img_path
@@ -41,11 +42,11 @@ class FigureBuilder:
         self.col_counter = 0
         #FigureBuilder.counter += 1
         with multiprocessing.Lock():
-           FigureBuilder.counter_dict[os.getpid()].value += 1
+           FigureBuilder.counter_dict[os.getpid()] += 1
 
     @classproperty
     def counter(cls):
-        return cls.counter_dict[os.getpid()].value
+        return cls.counter_dict[os.getpid()]
 
     def print(self):
         self.fig.tight_layout()
