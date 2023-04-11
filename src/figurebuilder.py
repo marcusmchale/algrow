@@ -1,11 +1,8 @@
 import logging
-import os
-import multiprocessing
-
 import numpy as np
 from pathlib import Path
 from skimage.color import lab2rgb
-from collections import defaultdict
+import multiprocessing
 from matplotlib import pyplot as plt, gridspec, use
 from .options import options
 
@@ -15,19 +12,14 @@ args = options().parse_args()
 
 
 
-class classproperty(property):  # https://stackoverflow.com/a/13624858
-    def __get__(self, owner_self, owner_cls):
-        return self.fget(owner_cls)
-
-
 class FigureBuilder:
+    lock = multiprocessing.Lock()
+    counter = 0
     if args.processes > 1:
         if args.debug in ["plot", "both"]:
             logger.warning("Cannot use interactive plotting in multithreaded mode")
         use('Agg')
-    counter_dict = defaultdict(int)
 
-    #counter = 0
     def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
         self.img_path = img_path
         self.step_name = step_name
@@ -40,14 +32,9 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 0
         self.col_counter = 0
-        #FigureBuilder.counter += 1
-        with multiprocessing.Lock():
-           FigureBuilder.counter_dict[os.getpid()] += 1
+        with FigureBuilder.lock:
+            FigureBuilder.counter += 1
 
-    @classproperty
-    def counter(cls):
-        with multiprocessing.Lock():  # todo try this? maybe needs lock on get as well? better shared defaultdict type
-            return cls.counter_dict[os.getpid()]
 
     def print(self):
         self.fig.tight_layout()
@@ -69,10 +56,6 @@ class FigureBuilder:
             # or all the figures are rendered at the end.
             # This is only issue if we are building one figure then move the another then go back to finish the first.
             # So far I am only building figures successively, and that works fine as is.
-
-    #@staticmethod
-    #def none_or_one(arg):
-    #    return arg is None or arg == 1
 
     def get_current_subplot(self):
         return self.ax[self.row_counter, self.col_counter]
