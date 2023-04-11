@@ -61,13 +61,14 @@ class FigureBuilder:
             self.fig.set_dpi(100)
             logger.debug(f"Show figure: {self.step_name, self.img_path}")
             plt.show()
-            ## todo, here would be good to use fig.show but that requires a managed event loop or it all just pops up at the end
-            # this is only issue if we are building one figure then move the another then go back to finish the first
-            # i have worked around this so far but it is a big limitation..
+            ## todo, might prefer to use fig.show but that requires a managed event loop
+            # or all the figures are rendered at the end.
+            # This is only issue if we are building one figure then move the another then go back to finish the first.
+            # So far I am only building figures successively, and that works fine as is.
 
-    @staticmethod
-    def none_or_one(arg):
-        return arg is None or arg == 1
+    #@staticmethod
+    #def none_or_one(arg):
+    #    return arg is None or arg == 1
 
     def get_current_subplot(self):
         return self.ax[self.row_counter, self.col_counter]

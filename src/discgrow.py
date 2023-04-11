@@ -22,25 +22,25 @@ def discgrow():
         for i in args.image:
             if Path(i).is_file():
                 images.append(Path(i))
-            elif Path(args.image).is_dir():
-                images = images + [p for p in Path(args.image).glob('**/*.jpg')]
+            elif Path(i).is_dir():
+                images = images + [p for p in Path(i).glob('**/*.jpg')]
             else:
                 raise FileNotFoundError
 
-        if not images:
-            logger.info(f'No images to process')
+    if not images:
+        logger.info(f'No images to process')
 
-        # Organise target colour(s) for input images
-        if not args.target_colour:
-            if args.processes > 1:
-                raise ValueError("Cannot interactively pick target colours in multiprocess mode")
-            logger.debug("Pick a colour")
-            # get colour from a random image
-            for first_image in images:
-                picker = Picker(first_image)
-                target_colours = picker.get_target_colours()
-                vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
-                break
+    # Organise target colour(s) for input images
+    if not args.target_colour:
+        if args.processes > 1:
+            raise ValueError("Cannot interactively pick target colours in multiprocess mode")
+        logger.debug("Pick a colour")
+        # get colour from a random image
+        for first_image in images:
+            picker = Picker(first_image)
+            target_colours = picker.get_target_colours()
+            vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
+            break
 
 
     # Organise output directory
@@ -104,4 +104,5 @@ def discgrow():
         area_analyser.write_results(args.out_dir, group_plots=True)
     else:
         logger.info("No sample IDs provided")
+
 

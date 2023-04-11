@@ -191,6 +191,8 @@ To optimise this value you may want to consider the representations of the full,
     - Disadvantage is we require ring markers around each subject being distinguishable in the image (e.g. blue circles)
   - Multiple target colours and target colour distance rather than fixed thresholds
     - graph based expansion of search area to include similar adjacent colours
+# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5895192/
+
 
 # Notes:
   - develop image capture using libcamera2 and apscheduler - run as daemon
@@ -198,4 +200,4 @@ To optimise this value you may want to consider the representations of the full,
   - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
   - motorised IR cut camera (supplier pimoroni is on agresso)
     - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
-  - 
+    
