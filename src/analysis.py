@@ -1,6 +1,6 @@
 """Read in a sample details file and perform lsgr analysis"""
 import logging
-from pandas import read_csv, to_datetime, merge  # todo consider replacing the existing use of csv reader/writer with pandas?
+from pandas import read_csv, to_datetime, merge, Timedelta  # todo consider replacing the existing use of csv reader/writer with pandas?
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -65,9 +65,9 @@ class AreaAnalyser:
         start = self.df.index.get_level_values('Time').min()
         day0_start = start.replace(hour=0, minute=0)
         df = self.df.copy()
-        df["elapsed_D"] = (df.index.get_level_values("Time") - day0_start).astype('timedelta64[D]')
+        df["elapsed_D"] = (df.index.get_level_values("Time") - day0_start) // Timedelta(days=1)
         df = df[(df.elapsed_D >= fit_start) & (df.elapsed_D <= fit_end)]
-        df["elapsed_m"] = (df.index.get_level_values("Time") - start).astype('timedelta64[m]')
+        df["elapsed_m"] = (df.index.get_level_values("Time") - start) // Timedelta(minutes=1)
         with np.errstate(divide='ignore'):
             df["log_area"] = np.log(df["Area"])  # 0 values are -Inf which are then ignored in the fit
         df["fit"] = df.groupby(["Block", "Unit"], group_keys=True).apply(self._fit)

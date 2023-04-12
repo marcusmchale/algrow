@@ -5,7 +5,6 @@ from skimage.color import lab2rgb
 from matplotlib import pyplot as plt, gridspec, use
 from .options import options
 
-
 logger = logging.getLogger(__name__)
 args = options().parse_args()
 
@@ -28,7 +27,6 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 0
         self.col_counter = 0
-
 
     def print(self):
         self.fig.tight_layout()
