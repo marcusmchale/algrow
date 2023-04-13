@@ -122,11 +122,12 @@ class AreaAnalyser:
     def summarise(self):
         summary = self.df[["Group", "RGR", "RSS"]].droplevel("Time").drop_duplicates().dropna()
         if summary.size != 0:
+            d = np.sqrt(summary.RSS)
             # identify atypical models from RSS
-            q75, q25 = np.percentile(summary.RSS, [75, 25])
+            q75, q25 = np.percentile(d, [75, 25])
             iqr = q75 - q25
-            median = summary.RSS.median()
-            summary["ModelFitOutlier"] = summary.RSS > median + (1.5 * iqr)
+            median = d.median()
+            summary["ModelFitOutlier"] = d > median + (1.5 * iqr)
         return summary
 
     def write_results(self, outdir, rgr_plot=True, group_plots=False):

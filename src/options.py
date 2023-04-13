@@ -163,13 +163,15 @@ def options():
         "-cpp",
         "--circles_per_plate",
         help="In plate clustering, the number of circles per plate",
-        default=6
+        default=6,
+        type=int
     )
     parser.add_argument(
         "-npi",
         "--n_plates",
         help="In plate layout, the number of plates per image",
-        default=8
+        default=8,
+        type=int
     )
     parser.add_argument(
         "-ccf",

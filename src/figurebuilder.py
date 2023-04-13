@@ -5,6 +5,7 @@ from skimage.color import lab2rgb
 from matplotlib import pyplot as plt, gridspec, use
 from .options import options
 
+
 logger = logging.getLogger(__name__)
 args = options().parse_args()
 
@@ -14,6 +15,7 @@ class FigureBuilder:
         if args.debug in ["plot", "both"]:
             logger.warning("Cannot use interactive plotting in multithreaded mode")
         use('Agg')
+    counter = 0
 
     def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
         self.img_path = img_path
@@ -27,13 +29,31 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 0
         self.col_counter = 0
+        FigureBuilder.counter += 1 # need to improve management of concurrent processes for this to work with multiprocessing
+        # todo Consider disabling debugging except for -q flag (overlays) if multiprocessing
+        # currently just not using this counter when multiprocessing, but the order of debug images is not that clear.
+
 
     def print(self):
         self.fig.tight_layout()
         if self.save:
             self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
             self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
-            out_path = Path(self.out_dir, "debug", self.step_name, Path(Path(self.img_path).stem).with_suffix('.png'))
+            if args.processes > 1:
+                out_path = Path(
+                    self.out_dir,
+                    "debug",
+                    self.step_name,
+                    Path(Path(self.img_path).stem).with_suffix('.png')
+                )
+            else:
+                out_path = Path(
+                    self.out_dir,
+                    "debug",
+                    " - ".join([str(FigureBuilder.counter), self.step_name]),
+                    Path(Path(self.img_path).stem).with_suffix('.png')
+                )
+
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
             logger.debug(f"Save figure: {self.step_name, self.img_path}")
