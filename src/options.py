@@ -76,6 +76,12 @@ def options():
         default=20
     )
     parser.add_argument(
+        "-cc", "--circle_colour",
+        help="Circle colour in Lab colourspace",
+        type=lab,
+        default=None
+    )
+    parser.add_argument(
         "-tc", "--target_colour",
         help="Target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
         type=lab,
@@ -102,13 +108,6 @@ def options():
         help="Disc area filename for analysis (must be in the output directory)",
         type=str,
         default="area.csv"
-    )
-    parser.add_argument(
-        "-cc",
-        "--circle_channel",
-        help="The channel from Lab colour-space to use for circle detection",
-        choices=["a", "b"],
-        default="b",
     )
     parser.add_argument(
         "-r",

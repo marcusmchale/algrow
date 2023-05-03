@@ -274,12 +274,8 @@ class ImageProcessor:
         return target_mask
 
     def get_area(self):
-        if self.args.circle_channel == 'a':
-            channel = self.a
-        else:
-            channel = self.b
 
-        plates = Layout(channel, self.filepath, self.args).get_plates_sorted()
+        plates = Layout(self.lab, self.filepath, self.args).get_plates_sorted()
         result = {
             "filename": self.filepath,
             "units": []

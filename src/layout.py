@@ -7,6 +7,7 @@ from skimage.feature import canny
 from skimage.transform import hough_circle, hough_circle_peaks
 from .figurebuilder import FigureBuilder
 from skimage.morphology import binary_dilation
+from skimage.color import deltaE_ciede2000
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,20 @@ class Plate:
 class Layout:
     def __init__(
             self,
-            image,
+            lab,
             filepath,
             args
     ):
-        self.image = image  # filters.median(image, np.full((3, 3), args.kernel, dtype=int))
+        if args.debug:
+            fig = FigureBuilder(filepath, "Circle colour")
+            fig.plot_colours([vars(args)['circle_colour']])
+            fig.print()
+        circles_like = np.full_like(lab, args.circle_colour)
+        self.image = deltaE_ciede2000(lab, circles_like)
+        if args.debug:
+            fig = FigureBuilder(filepath, "Circle distance")
+            fig.add_image(self.image, "Delta e from circle colour", color_bar=True)
+            fig.print()
         self.filepath = filepath
         #using canny edge detection so already blurred
         self.args = args

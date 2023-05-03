@@ -1,11 +1,13 @@
 import logging
 from pathlib import Path
+import numpy as np
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from .image_processing import area_worker
 from .analysis import AreaAnalyser
 from .picker import Picker
 from .options import options
+
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +34,25 @@ def discgrow():
     # Organise target colour(s) for input images
     if not args.target_colour:
         if args.processes > 1:
-            raise ValueError("Cannot interactively pick target colours in multiprocess mode")
-        logger.debug("Pick a colour")
+            raise ValueError("Cannot interactively pick colours in multiprocess mode")
+        logger.debug("Pick a target colour")
         # get colour from a random image
         for first_image in images:
-            picker = Picker(first_image)
-            target_colours = picker.get_target_colours()
+            picker = Picker(first_image, "Target colours")
+            target_colours = picker.get_colours()
             vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
             break
 
+    # Organise circle colour(s) for layout detection
+    if not args.circle_colour:
+        if args.processes > 1:
+            raise ValueError("Cannot interactively pick colours in multiprocess mode")
+        logger.debug("Pick a circle colour")
+        for first_image in images:
+            picker = Picker(first_image, "Circle colour")
+            circle_colour = tuple(np.array(picker.get_colours()).mean(0))
+            vars(args).update({"circle_colour": circle_colour})
+            break
 
     # Organise output directory
     if not args.out_dir:

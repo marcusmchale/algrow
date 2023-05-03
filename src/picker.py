@@ -13,15 +13,16 @@ args = options().parse_args()
 
 
 class Picker:
-    def __init__(self, image_path):
+    def __init__(self, image_path, activity: str):
         self.image_path = image_path
-        logger.debug("Load selected image for colour picking")
+        logger.debug(f"Load selected image for {activity}")
         self.rgb = plt.imread(str(image_path)).copy()
         self.lab = rgb2lab(self.rgb)
         self.selection_array = np.zeros_like(self.rgb[:, :, 1], dtype="int")
         xv, yv = np.meshgrid(np.arange(self.selection_array.shape[1]), np.arange(self.selection_array.shape[0]))
         self.pixel_coords = np.vstack( (xv.flatten(), yv.flatten())).T
         self.mask = None
+        self.activity = activity
 
     @property
     def l(self):
@@ -37,34 +38,35 @@ class Picker:
 
     def pick_regions(self):
         fig, ax = plt.subplots()
-        fig.canvas.manager.set_window_title("Target colour selection")
-        ax.set_title("Select representative regions (draw circles around some)")
+        fig.canvas.manager.set_window_title(f"Selection for {self.activity}")
+        ax.set_title("Select representative regions (click and draw)")
         ax.imshow(self.rgb)
-        SelectFromImage(ax, self.pixel_coords, self.selection_array)
+        selector = SelectFromImage(ax, self.pixel_coords, self.selection_array)
         plt.show()
+        selector.disconnect()
         if np.sum(self.selection_array) == 0:
             raise ValueError("No area selected")
         if args.debug:
             overlay = self.rgb.copy()
             overlay[self.selection_array != 0] = 255 - overlay[self.selection_array != 0] # invert colour
-            fig = FigureBuilder(self.image_path, "Target colour selection")
+            fig = FigureBuilder(self.image_path, f"Selection for {self.activity}")
             fig.add_image(overlay)
             fig.print()
 
-    def get_target_colours(self):
+    def get_colours(self):
         if len(np.unique(self.selection_array)) == 1:
             self.pick_regions()
-        target_colours = list()
+        colours = list()
         for c in np.unique(self.selection_array):
             if c == 0:
                 continue
             l = int(self.l[self.selection_array == c].mean())
             a = int(self.a[self.selection_array == c].mean())
             b = int(self.b[self.selection_array == c].mean())
-            target_colours.append((l,a,b))
-        colours_string = f'{[",".join([str(j) for j in i]) for i in target_colours]}'.replace("'", '"')
-        logger.info(f'Target colours selected: {colours_string}')
-        return target_colours
+            colours.append((l,a,b))
+        colours_string = f'{[",".join([str(j) for j in i]) for i in colours]}'.replace("'", '"')
+        logger.info(f'Colours selected: {colours_string}')
+        return colours
 
 
 class SelectFromImage:
