@@ -89,14 +89,27 @@ def options():
         action='append'
     )
     parser.add_argument(
+        "-ntc", "--non_target_colour",
+        help="Non-target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
+        type=lab,
+        default=None,
+        action='append'
+    )
+    parser.add_argument(
         "-td", "--target_dist",
-        help="Maximum colour distance to consider a superpixel as the start of a target cluster",
+        help="Maximum distance from target colour to consider a superpixel as the start of a target cluster",
+        type=int,
+        default=8
+    )
+    parser.add_argument(
+        "-ntd", "--non_target_dist",
+        help="Maximum distance from non-target colour to consider a superpixel as non-target",
         type=int,
         default=8
     )
     parser.add_argument(
         "-gd", "--graph_dist",
-        help="Maximum colour distance between superpixels in a target cluster - set to 0 to avoid graph construction",
+        help="Maximum colour distance between adjacent superpixels in a target cluster - set to 0 to avoid graph construction",
         type=int,
         default=8
     )

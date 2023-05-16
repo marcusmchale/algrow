@@ -35,13 +35,26 @@ def discgrow():
     if not args.target_colour:
         if args.processes > 1:
             raise ValueError("Cannot interactively pick colours in multiprocess mode")
-        logger.debug("Pick a target colour")
+        logger.debug("Pick target colours")
         # get colour from a random image
         for first_image in images:
-            picker = Picker(first_image, "Target colours")
+            picker = Picker(first_image, "target")
             target_colours = picker.get_colours()
             vars(args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
             break
+
+    # Organise non-target colour(s) for input images
+    if not args.non_target_colour:
+        if args.processes > 1:
+            raise ValueError("Cannot interactively pick colours in multiprocess mode")
+        logger.debug("Pick non-target colours")
+        # get colour from a random image
+        for first_image in images:
+            picker = Picker(first_image, "non-target")
+            non_target_colours = picker.get_colours()
+            vars(args).update({"non_target_colour":[(c[0], c[1], c[2]) for c in non_target_colours]})
+            break
+
 
     # Organise circle colour(s) for layout detection
     if not args.circle_colour:
@@ -49,8 +62,8 @@ def discgrow():
             raise ValueError("Cannot interactively pick colours in multiprocess mode")
         logger.debug("Pick a circle colour")
         for first_image in images:
-            picker = Picker(first_image, "Circle colour")
-            circle_colour = tuple(np.array(picker.get_colours()).mean(0))
+            picker = Picker(first_image, "circle")
+            circle_colour = tuple(np.array(picker.get_colours()).mean(0).astype(int))
             vars(args).update({"circle_colour": circle_colour})
             break
 

@@ -1,4 +1,6 @@
 import logging
+
+import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 from scipy.cluster import hierarchy
@@ -38,10 +40,6 @@ class Layout:
             filepath,
             args
     ):
-        if args.debug:
-            fig = FigureBuilder(filepath, "Circle colour")
-            fig.plot_colours([vars(args)['circle_colour']])
-            fig.print()
         circles_like = np.full_like(lab, args.circle_colour)
         self.image = deltaE_ciede2000(lab, circles_like)
         if args.debug:
@@ -230,7 +228,7 @@ class Layout:
                 top_bottom=not self.args.circles_bottom_top,
                 fig=fig
             )
-            if self.args.debug and p.id < len(plates):
+            if fig and p.id < len(plates):
                 fig.add_subplot_row()
         if self.args.debug:
             fig.print()

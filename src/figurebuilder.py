@@ -2,7 +2,7 @@ import logging
 import numpy as np
 from pathlib import Path
 from skimage.color import lab2rgb
-from matplotlib import pyplot as plt, gridspec, use
+from matplotlib import pyplot as plt, gridspec, use, colors
 from .options import options
 
 
@@ -23,7 +23,7 @@ class FigureBuilder:
         self.nrows = nrows
         self.ncols = ncols
         self.force = force
-        self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False)
+        self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False, layout="constrained")
         self.plot = args.debug in ['plot', 'both'] or self.force in ['plot', 'both']
         self.save = args.debug in ['save', 'both'] or self.force in ['save', 'both']
         self.out_dir = args.out_dir
@@ -35,7 +35,6 @@ class FigureBuilder:
 
 
     def print(self):
-        self.fig.tight_layout()
         if self.save:
             self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
             self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
@@ -50,10 +49,9 @@ class FigureBuilder:
                 out_path = Path(
                     self.out_dir,
                     "debug",
-                    " - ".join([str(FigureBuilder.counter), self.step_name]),
-                    Path(Path(self.img_path).stem).with_suffix('.png')
+                    Path(self.img_path).stem,
+                    Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix('.png')
                 )
-
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
             logger.debug(f"Save figure: {self.step_name, self.img_path}")
@@ -80,14 +78,26 @@ class FigureBuilder:
             self.col_counter += 1
 
 
-    def add_image(self, img, label:str = None, color_bar=False):
+    def add_image(self, img, label:str = None, color_bar=False, diverging=False, midpoint=None):
         logger.debug("Add image to debug figure")
         axis = self.get_current_subplot()
         if label:
             axis.set_title(label, loc="left")
-        pos = axis.imshow(img)
+        if diverging and midpoint is not None:
+            pos = axis.imshow(img, cmap='RdBu_r', norm=colors.TwoSlopeNorm(vcenter=midpoint))
+        elif diverging:
+            pos = axis.imshow(img, cmap='RdBu_r')
+        else:
+            pos = axis.imshow(img)
         if color_bar:
-            plt.colorbar(pos, ax=axis)
+            self.fig.colorbar(pos, ax=axis)
+            #todo trying to add the middle point to the axis ticks - failing for some reason...
+            # cbar = self.fig.colorbar(pos, ax=axis)
+            #if midpoint is not None:
+            #    ticks = cbar.get_ticks()
+            #    if midpoint not in ticks:
+            #        ticks = np.insert(ticks, np.searchsorted(ticks, midpoint), midpoint)
+            #    cbar.set_ticks(ticks)
         self.finish_subplot()
 
     def add_subplot_row(self):
@@ -97,7 +107,8 @@ class FigureBuilder:
             self.nrows = 2
         else:
             self.nrows += 1
-        gs = gridspec.GridSpec(self.nrows, ncols)
+        self.fig.canvas.draw()
+        gs = gridspec.GridSpec(self.nrows, ncols, figure=self.fig)
         for i, ax in np.ndenumerate(self.ax):
             ax.set_position(gs[i].get_position(self.fig))
             ax.set_subplotspec(gs[i])

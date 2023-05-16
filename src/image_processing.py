@@ -59,11 +59,29 @@ class ImageProcessor:
             fig = FigureBuilder(self.filepath, "Target colours")
             fig.plot_colours(vars(args)['target_colour'])
             fig.print()
-            logger.debug("Write target colours to file in output directory")
-            colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["target_colour"]]}'.replace("'", '"')
+            target_colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["target_colour"]]}'.replace("'", '"')
+
+            fig = FigureBuilder(self.filepath, "Non-target colours")
+            fig.plot_colours(vars(args)['non_target_colour'])
+            fig.print()
+            non_target_colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["non_target_colour"]]}'.replace("'", '"')
+
+            fig = FigureBuilder(filepath, "Circle colour")
+            fig.plot_colours([vars(args)['circle_colour']])
+            fig.print()
+            circle_colour_string = f"\"{','.join([str(i) for i in vars(args)['circle_colour']])}\""
+
             Path(args.out_dir).mkdir(parents=True, exist_ok=True)
-            with open(Path(args.out_dir, "target_colours.txt"), 'w') as text_file:
-                text_file.write(colours_string)
+            with open(Path(args.out_dir, "colours.txt"), 'w') as text_file:
+                text_file.write("target_colours:")
+                text_file.write(target_colours_string)
+                text_file.write("\n")
+                text_file.write("non_target_colours:")
+                text_file.write(non_target_colours_string)
+                text_file.write("\n")
+                text_file.write("circle_colour:")
+                text_file.write(circle_colour_string)
+                text_file.write("\n")
 
         logger.debug(f"Load image as RGB: {self.filepath}")
         self.rgb = imread(str(self.filepath))
@@ -80,7 +98,7 @@ class ImageProcessor:
             fig.add_image(self.lab[:, :, 2], "Blue-Yellow channel (b in Lab)", color_bar=True)
             fig.print()
         self.empty_mask = np.zeros_like(self.rgb[:, :, 0]).astype("bool")
-        self.circle_id_map = defaultdict(set)
+        #self.circle_id_map = defaultdict(set)
 
     @property
     def l(self):
@@ -122,45 +140,42 @@ class ImageProcessor:
         lc = graph.show_rag(segments, rag, self.rgb, border_color='white', ax=axis, edge_width=0.5)
         plt.colorbar(lc, ax=axis)
         axis.set_title(prefix)
+        for n in rag.nodes:
+            axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
 
 
-    def build_graph(self, segments, segment_colour, segment_dist, connectivity=1, graph_dist=8, kl=2):
-
+    def build_graph(self, segments, segment_colours):
+        # build the graph and add labels and mean colours to nodes with distances as weights
         logger.debug("Build adjacency graph")
+        rag = graph.RAG(segments)
 
-        rag = graph.RAG(segments, connectivity=connectivity)
-
-        for n in rag:
+        for n in rag.nodes():
             rag.nodes[n].update({
                 "labels": [n],
-                "mean colour": segment_colour[n-1] if n>0 else (0,0,0),
-                "target colour distance": segment_dist[n-1] if n>0 else 0,
+                "mean colour": segment_colours[n] if n > 0 else (0, 0, 0)
             })
-
         logger.debug("add distance in colour as weights")
         for x, y, d in list(rag.edges(data=True)):
-            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean colour'], rag.nodes[y]['mean colour'], kL=kl)
-
-        if self.args.debug:
-            fig = FigureBuilder(self.filepath, "Regional Adjacency Graph", nrows = 3)
-            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Full network")
-            fig.finish_subplot()
-
-        logger.debug(f"remove edges above {graph_dist} delta_e")
-        for x, y, d in list(rag.edges(data=True)):
-            if d['delta_e'] > graph_dist:
-                rag.remove_edge(x, y)
-
-        if self.args.debug:
-            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Pruned by delta E")
-            fig.finish_subplot()
+            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean colour'], rag.nodes[y]['mean colour'], kL=2)
 
         logger.debug("remove edges connected to 0 node (background)")
         background_edges = list(rag.edges(0))
         rag.remove_edges_from(background_edges)
 
-        if self.args.debug:
-            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Removed connected to background")
+
+        fig = FigureBuilder(self.filepath, "Regional Adjacency Graph", nrows = 2) if self.args.debug else None
+        if fig:
+            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Weighted graph")
+            fig.finish_subplot()
+
+        logger.debug(f"remove edges above {self.args.graph_dist} delta_e")
+        for x, y, d in list(rag.edges(data=True)):
+            if d['delta_e'] > self.args.graph_dist:
+                rag.remove_edge(x, y)
+
+        if fig:
+            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Pruned by delta E")
+            fig.finish_subplot()
             fig.print()
 
         return rag
@@ -191,16 +206,16 @@ class ImageProcessor:
             circle_segments[~circle_mask] = -1 # to differentiate the background in circle from background outside
             circle_segment_ids = set(np.unique(circle_segments))
             circle_segment_ids.remove(-1)
-            self.circle_id_map[tuple(circle)] = circle_segment_ids
+            #self.circle_id_map[tuple(circle)] = circle_segment_ids
             for i in list(circle_segment_ids):
                 circles_per_segment[i] += 1
                 if circles_per_segment[i] > 1 or i == 0 :  # add a new segment for this ID in this circle, always relabel if part of background but inside circle
                     segment_counter += 1
                     ## caution: this behaviour breaks get_target_mask if circles actually overlap
                     segments[circle_segments == i] = segment_counter
-                    self.circle_id_map[tuple(circle)].remove(i)
+                    #self.circle_id_map[tuple(circle)].remove(i)
 
-                    self.circle_id_map[tuple(circle)].add(segment_counter)
+                    #self.circle_id_map[tuple(circle)].add(segment_counter)
 
 
         if self.args.debug:
@@ -211,66 +226,114 @@ class ImageProcessor:
 
         return segments
 
-    def get_mean_colours_and_dist(self, segments, kl):
-        target_lab = np.array(self.args.target_colour)
-        segment_colours = [r.mean_intensity for r in regionprops(segments, self.lab)]  # does not include 0 region
-        segment_dist = [min([deltaE_ciede2000(s, target, kL=kl) for target in target_lab]) for s in segment_colours]
+    def get_mean_colours_and_distances(self, segments, kl=2, target=True):
+        if target:
+            target_lab = np.array(self.args.target_colour)
+            label = "Delta e from any target colour"
+        else:
+            target_lab = np.array(self.args.non_target_colour)
+            label = "Delta e from non-target colour"
+        segment_colours = {r.label: r.mean_intensity for r in regionprops(segments, self.lab)}  # does not include 0 region
+        target_distances = {x: min([deltaE_ciede2000(segment_colours[x], target, kL=kl) for target in target_lab]) for x in segment_colours.keys()}
         if self.args.debug:
-            fig = FigureBuilder(self.filepath, "Superpixel distance")
+            fig = FigureBuilder(self.filepath, f"Superpixel distance from {'target' if target else 'non-target'}")
             dist_image = segments.copy()
-            for i, j in enumerate(segment_dist):
-                dist_image[segments == i + 1] = j
-            fig.add_image(dist_image, "Delta e from any target colour", color_bar = True)
+            for k in target_distances.keys():
+                dist_image[segments == k] = target_distances[k]
+            fig.add_image(dist_image, label, color_bar = True, diverging=True, midpoint = self.args.target_dist if target else self.args.non_target_dist)
             fig.print()
-        return segment_colours, segment_dist
+
+        return segment_colours, target_distances
 
 
-    def get_target_mask(self, circles, target_dist=8, kl=2):
-        logger.debug(f"cluster the region of interest into segments")
+    def get_target_mask_without_graph(self, segments, target_segments, non_target_segments):
+        target_mask = np.logical_and(
+            np.isin(segments, target_segments), np.isin(segments, non_target_segments, invert=True)
+        )
+        if self.args.debug:
+            fig = FigureBuilder(
+                self.filepath,
+                "Target mask",
+                nrows=3
+            )
+            fig.add_image(np.isin(segments, target_segments), "target")
+            fig.add_image(np.isin(segments, non_target_segments), "non-target")
+            fig.add_image(target_mask, "target mask")
+        return target_mask
+
+    # kl is a weighting applied to deltaE that makes it more closely resemble human colour differentiation
+    # this has improved segmentation in my experience but may not always be desirable
+    def get_target_mask_with_graph(self, circles, segments, segment_colours, target_segments, non_target_segments):
+        # First merge non-target segments with background
+        segment_colours = {k: segment_colours[k] for k in segment_colours.keys() if k not in non_target_segments}
+        segments[np.isin(segments, non_target_segments)] = 0
+
+        # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
+        rag = self.build_graph(segments, segment_colours)
+        starting_segments = set()
+        collected_segments = set()
+
+        ## Now only look within circles...is this necessary? why not just apply to the whole image since we masked the background that isn't in the image already...
+        #for circle in circles:
+        #    for n in self.circle_id_map[tuple(circle)]:
+        #        ## caution: this can fail if circles overlap (see logic in get_segments)
+        #        if n in rag.nodes and n in target_segments:
+        #            starting_segments.add(n)
+        #            collected_segments.update(node_connected_component(rag, n))
+        for n in target_segments:
+            if n in rag.nodes():  # if node is both target and background then it will be removed from the graph
+                starting_segments.add(n)
+                collected_segments.update(node_connected_component(rag, n))
+
+        target_mask = np.isin(segments, np.array(list(collected_segments)))
+        if self.args.debug:
+            fig = FigureBuilder(self.filepath, "Target mask", nrows=2)
+            # create mask from this region
+            starting_mask = np.isin(segments, np.array(list(starting_segments)))
+            fig.add_image(starting_mask, "Starting node mask")
+            fig.add_image(target_mask, "Target mask")
+            fig.print()
+
+        return target_mask
+
+    def get_target_mask(self, circles, target_dist, non_target_dist):
         segments = self.get_segments(
             circles,
             n_segments=self.args.num_superpixels,
             compactness=self.args.superpixel_compactness
         )
-
-        segment_colours, segment_dist = self.get_mean_colours_and_dist(segments, kl)
+        _, non_target_distances = self.get_mean_colours_and_distances(segments, target=False)
+        segment_colours, target_distances = self.get_mean_colours_and_distances(segments, target=True)
+        # add 1 to get 1 based indexing which matches the segment ID
+        target_segments = [k for k in target_distances.keys() if target_distances[k] <= target_dist]
+        non_target_segments = [k for k in target_distances.keys() if non_target_distances[k] <= non_target_dist]
         if self.args.graph_dist == 0:
-            target_segments = [i+1 for i,j in enumerate(segment_dist) if j <= target_dist] #add 1 to get 1 based indexing which matches the segment ID
-            target_mask = np.isin(segments, target_segments)
-            fig = FigureBuilder(self.filepath, "Mask construction", nrows=3) if self.args.debug else None
-            if fig:
-                fig.add_image(target_mask, "Target mask")
+            target_mask = self.get_target_mask_without_graph(segments, target_segments, non_target_segments)
         else:
-            # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
-            rag = self.build_graph(segments, segment_colours, segment_dist, graph_dist=self.args.graph_dist, kl=kl)
-            starting_segments = set()
-            target_segments = set()
+            target_mask = self.get_target_mask_with_graph(
+                circles,
+                segments,
+                segment_colours,
+                target_segments,
+                non_target_segments
+            )
 
-            for circle in circles:
-                for n in self.circle_id_map[tuple(circle)]:
-                    ## caution: this can fail if circles overlap (see logic in get_segments)
-                    if rag.nodes[n]["target colour distance"] <= target_dist:
-                        starting_segments.add(n)
-                        target_segments.update(node_connected_component(rag, n))
-                # todo consider getting area directly from regionprops ... but we are doing it with fill etc.
-
-            target_mask = np.isin(segments, np.array(list(target_segments)))
-            fig = FigureBuilder(self.filepath, "Mask construction", nrows=4) if self.args.debug else None
+        fig = FigureBuilder(
+                self.filepath,
+                "Fill mask",
+                nrows=len([i for i in [self.args.remove, self.args.fill] if i])
+        ) if self.args.debug else None
+        if self.args.remove:
+            logger.debug("Remove small objects in the mask")
+            target_mask = remove_small_objects(target_mask, self.args.remove)
             if fig:
-                # create mask from this region
-                starting_mask = np.isin(segments, np.array(list(starting_segments)))
-                fig.add_image(starting_mask, "Starting node mask")
-                fig.add_image(target_mask, "Target mask")
-        logger.debug("Remove small objects in the mask")
-        clean_mask = remove_small_objects(target_mask, self.args.remove)
-        if self.args.debug:
-            fig.add_image(clean_mask, "Removed small objects")
-        logger.debug("Remove small holes in the mask")
-        filled_mask = remove_small_holes(clean_mask, self.args.fill)
-        if self.args.debug:
-            fig.add_image(filled_mask, "Removed small holes")
-            fig.print()
-
+                fig.add_image(target_mask, "Removed small objects")
+        if self.args.fill:
+            logger.debug("Fill small holes in the mask")
+            target_mask = remove_small_holes(target_mask, self.args.fill)
+            if fig:
+                fig.add_image(target_mask, "Filled small holes")
+                fig.print()
         return target_mask
 
     def get_area(self):
@@ -284,7 +347,8 @@ class ImageProcessor:
         all_circles = [c for p in plates for c in p.circles]
         target_mask = self.get_target_mask(
             all_circles,
-            target_dist=self.args.target_dist
+            target_dist=self.args.target_dist,
+            non_target_dist=self.args.non_target_dist
         )
 
         if self.args.overlay or self.args.debug:
