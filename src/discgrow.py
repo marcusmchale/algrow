@@ -63,7 +63,7 @@ def discgrow():
         logger.debug("Pick a circle colour")
         for first_image in images:
             picker = Picker(first_image, "circle")
-            circle_colour = tuple(np.array(picker.get_colours()).mean(0).astype(int))
+            circle_colour = tuple(np.around(np.array(picker.get_colours()).mean(0), decimals=1))
             vars(args).update({"circle_colour": circle_colour})
             break
 

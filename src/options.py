@@ -8,10 +8,10 @@ logger = logging.getLogger(__name__)
 
 def lab(s: str):
     try:
-        l, a, b = map(int, s.split(','))
+        l, a, b = map(float, s.split(','))
         return l, a, b
     except:
-        raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 integers : {s}')
+        raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 float values : {s}')
 
 # Parse command-line arguments
 def options():

@@ -91,8 +91,8 @@ class FigureBuilder:
             pos = axis.imshow(img)
         if color_bar:
             self.fig.colorbar(pos, ax=axis)
-            #todo trying to add the middle point to the axis ticks - failing for some reason...
-            # cbar = self.fig.colorbar(pos, ax=axis)
+            # todo trying to add the middle point to the axis ticks - failing for some reason...
+            #cbar = self.fig.colorbar(pos, ax=axis)
             #if midpoint is not None:
             #    ticks = cbar.get_ticks()
             #    if midpoint not in ticks:

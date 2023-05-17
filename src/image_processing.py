@@ -4,7 +4,7 @@ from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
 from skimage.segmentation import slic
 from skimage.measure import regionprops
-from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000
+from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000, deltaE_cie76
 from skimage import draw
 from skimage.io import imread, imsave
 from skimage import graph
@@ -98,7 +98,6 @@ class ImageProcessor:
             fig.add_image(self.lab[:, :, 2], "Blue-Yellow channel (b in Lab)", color_bar=True)
             fig.print()
         self.empty_mask = np.zeros_like(self.rgb[:, :, 0]).astype("bool")
-        #self.circle_id_map = defaultdict(set)
 
     @property
     def l(self):
@@ -156,7 +155,7 @@ class ImageProcessor:
             })
         logger.debug("add distance in colour as weights")
         for x, y, d in list(rag.edges(data=True)):
-            d['delta_e'] = deltaE_ciede2000(rag.nodes[x]['mean colour'], rag.nodes[y]['mean colour'], kL=2)
+            d['delta_e'] = deltaE_cie76(rag.nodes[x]['mean colour'], rag.nodes[y]['mean colour'])
 
         logger.debug("remove edges connected to 0 node (background)")
         background_edges = list(rag.edges(0))
@@ -188,13 +187,16 @@ class ImageProcessor:
             # this slic implementation has broken behaviour when using the existing transformation and convert2lab=false
             # just allowing this function to redo conversion from rgb
             # todo work out what this is doing differently when using the already converted lab image
+            # From the _slic_cython function notes: "The image is considered to be in (z, y, x) order which can be
+            #         surprising. More commonly, the order (x, y, z) is used."
+            # could this be relevant - seems unlikely as there is no Z dimension here? - maybe check the order of the array and/or specify channel axis
             mask=circles_mask,
             n_segments=n_segments,
             compactness=compactness,
             convert2lab=True,
             enforce_connectivity=True
         )
-        # The slic output includes segments that span circles which breaks graph building.
+        # The slic output includes segment labels that span circles which breaks graph building.
         # Clean it up by iterating through circles and relabel segments if found in another circle
         # todo need to work out why these edges are being made in the first place,
         #  should only be connections between circles through 0
@@ -226,24 +228,39 @@ class ImageProcessor:
 
         return segments
 
-    def get_mean_colours_and_distances(self, segments, kl=2, target=True):
-        if target:
-            target_lab = np.array(self.args.target_colour)
-            label = "Delta e from any target colour"
-        else:
-            target_lab = np.array(self.args.non_target_colour)
-            label = "Delta e from non-target colour"
-        segment_colours = {r.label: r.mean_intensity for r in regionprops(segments, self.lab)}  # does not include 0 region
-        target_distances = {x: min([deltaE_ciede2000(segment_colours[x], target, kL=kl) for target in target_lab]) for x in segment_colours.keys()}
+    def get_segment_colours_and_distances(self, segments, reference_label, reference_colours, reference_dist):
+
+        def median_intensity(mask, intensity_image):
+            return np.median(intensity_image[mask], axis=0)
+
+        segment_colours = {r.label: r.median_intensity for r in regionprops(segments, self.lab, extra_properties=(median_intensity,))}  # does not include 0 region
+        distances = {x: min([deltaE_cie76(segment_colours[x], target) for target in reference_colours]) for x in segment_colours.keys()}
+
         if self.args.debug:
-            fig = FigureBuilder(self.filepath, f"Superpixel distance from {'target' if target else 'non-target'}")
+            fig = FigureBuilder(self.filepath, f"Segment ΔE from any {reference_label} colour")
             dist_image = segments.copy()
-            for k in target_distances.keys():
-                dist_image[segments == k] = target_distances[k]
-            fig.add_image(dist_image, label, color_bar = True, diverging=True, midpoint = self.args.target_dist if target else self.args.non_target_dist)
+            for k in distances.keys():
+                dist_image[segments == k] = distances[k]
+            fig.add_image(dist_image, f"Minimum ΔE any {reference_label} target colour", color_bar = True, diverging=True, midpoint = reference_dist)
             fig.print()
 
-        return segment_colours, target_distances
+            # add debug for EACH reference colour in a single figure, to help debug reference colour selection
+            fig = FigureBuilder(self.filepath, f"Segment ΔE from each {reference_label} colour", nrows=len(reference_colours))
+            for d in reference_colours:
+                dist_image = segments.copy()
+                distance = {x: deltaE_cie76(segment_colours[x], d) for x in segment_colours.keys()}
+                for k in distance.keys():
+                    dist_image[segments == k] = distance[k]
+                fig.add_image(
+                    dist_image,
+                    str(d),
+                    color_bar=True,
+                    diverging=True,
+                    midpoint=reference_dist
+                )
+            fig.print()
+
+        return segment_colours, distances
 
 
     def get_target_mask_without_graph(self, segments, target_segments, non_target_segments):
@@ -302,8 +319,9 @@ class ImageProcessor:
             n_segments=self.args.num_superpixels,
             compactness=self.args.superpixel_compactness
         )
-        _, non_target_distances = self.get_mean_colours_and_distances(segments, target=False)
-        segment_colours, target_distances = self.get_mean_colours_and_distances(segments, target=True)
+
+        _, non_target_distances = self.get_segment_colours_and_distances(segments, 'non-target', np.array(self.args.non_target_colour), self.args.non_target_dist)
+        segment_colours, target_distances = self.get_segment_colours_and_distances(segments,  'target', np.array(self.args.target_colour), self.args.target_dist)
         # add 1 to get 1 based indexing which matches the segment ID
         target_segments = [k for k in target_distances.keys() if target_distances[k] <= target_dist]
         non_target_segments = [k for k in target_distances.keys() if non_target_distances[k] <= non_target_dist]

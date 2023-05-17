@@ -24,18 +24,6 @@ class Picker:
         self.mask = None
         self.activity = activity
 
-    @property
-    def l(self):
-        return self.lab[:, :, 0]
-
-    @property
-    def a(self):
-        return self.lab[:, :, 1]
-
-    @property
-    def b(self):
-        return self.lab[:, :, 2]
-
     def pick_regions(self):
         fig, ax = plt.subplots()
         fig.canvas.manager.set_window_title(f"Selection for {self.activity}")
@@ -60,10 +48,8 @@ class Picker:
         for c in np.unique(self.selection_array):
             if c == 0:
                 continue
-            l = int(self.l[self.selection_array == c].mean())
-            a = int(self.a[self.selection_array == c].mean())
-            b = int(self.b[self.selection_array == c].mean())
-            colours.append((l,a,b))
+            lab = np.around(np.median(self.lab[self.selection_array == c], axis=0), decimals = 1)
+            colours.append(lab)
         colours_string = f'{[",".join([str(j) for j in i]) for i in colours]}'.replace("'", '"')
         logger.info(f'Colours selected: {colours_string}')
         return colours
