@@ -1,5 +1,7 @@
 import logging
 import numpy as np
+import pandas
+import pandas as pd
 from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
 from skimage.segmentation import slic
@@ -8,6 +10,7 @@ from skimage.color import label2rgb, rgb2lab, lab2rgb, deltaE_cie76
 from skimage import draw
 from skimage.io import imread
 from skimage import graph
+from sklearn.cluster import DBSCAN, SpectralClustering
 from networkx import node_connected_component
 from re import search
 from datetime import datetime
@@ -16,6 +19,7 @@ from matplotlib import font_manager
 from .layout import Layout
 from .figurebuilder import FigureBuilder
 from collections import defaultdict
+
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +149,7 @@ class ImageProcessor:
         for n in rag.nodes():
             rag.nodes[n].update({
                 "labels": [n],
-                "mean colour": segment_colours[n] if n > 0 else (0, 0, 0)
+                "mean colour": segment_colours.loc[n].values if n > 0 else (0, 0, 0)
             })
         logger.debug("add distance in colour as weights")
         for x, y, d in list(rag.edges(data=True)):
@@ -176,23 +180,18 @@ class ImageProcessor:
         logger.debug("Perform SLIC for superpixel identification")
         segments = slic(
             self.rgb,
-            # this slic implementation has broken behaviour when using the existing transformation and convert2lab=false
+            # this slic implementation has broken behaviour when using the existing lab transformation and convert2lab=false
             # just allowing this function to redo conversion from rgb
             # todo work out what this is doing differently when using the already converted lab image
-            # From the _slic_cython function notes: "The image is considered to be in (z, y, x) order which can be
-            #         surprising. More commonly, the order (x, y, z) is used."
-            # could this be relevant - seems unlikely as there is no Z dimension here? - maybe check the order of the array and/or specify channel axis
+            # could it be scaling?
             mask=circles_mask,
             n_segments=n_segments,
             compactness=compactness,
             convert2lab=True
-            #enforce_connectivity=True  # drop this - might mean more circles spanning a segment but we are handling this in the next step
-            # the benefit of leaving it out
         )
         # The slic output includes segment labels that span circles which breaks graph building.
         # Clean it up by iterating through circles and relabel segments if found in another circle
-        # todo need to work out why these edges are being made in the first place,
-        #  should only be connections between circles through 0
+        # Using enforce connectivity in slic didn't always work - still got some clusters spanning circles - not sure of the reason
         circles_per_segment = defaultdict(int)
         segment_counter = np.max(segments)
         for circle in circles:
@@ -212,59 +211,82 @@ class ImageProcessor:
 
         if self.args.debug:
             # add text label for each segment at the centroid for that superpixel
-            labels = {r.label: (r.centroid, r.median_intensity) for r in regionprops(segments, self.lab, extra_properties=(median_intensity,))}
+            regions = regionprops(segments, self.lab, extra_properties=(median_intensity,))
+            segment_centroid = pd.DataFrame(
+                data=[np.array(r.centroid) for r in regions],
+                index=[r.label for r in regions],
+                columns=['y', 'x']
+            )
+            invert_segment_colour_rgb = pd.DataFrame(
+                data=1-lab2rgb([np.array(r.median_intensity) for r in regions]),
+                index=segment_centroid.index,
+                columns=['R', 'G', 'B']
+            )
             fig = FigureBuilder(self.filepath, "Superpixel labels", nrows=2)
             fig.add_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
-            for k, v in labels.items():
+            for i, r in segment_centroid.iterrows():
                 fig.current_axis.text(
-                    x=v[0][1],
-                    y=v[0][0],
-                    s=k,
+                    x=r['x'],
+                    y=r['y'],
+                    s=i,
                     size=2,
-                    color = 1-lab2rgb(v[1]),
+                    color=invert_segment_colour_rgb.loc[i],
                     horizontalalignment='center',
                     verticalalignment='center'
                 )
             fig.add_image(label2rgb(segments, self.rgb), "Labels (false colour)")
-            for k, v in labels.items():
+            for i, r in segment_centroid.iterrows():
                 fig.current_axis.text(
-                    x=v[0][1],
-                    y=v[0][0],
-                    s=k,
+                    x=r['x'],
+                    y=r['y'],
+                    s=i,
                     size=2,
-                    color = 'black',
+                    color='white',
                     horizontalalignment='center',
                     verticalalignment='center'
                 )
-
             fig.print()
-
         return segments
 
     def get_segment_colours_and_distances(self, segments, reference_label, reference_colours, reference_dist):
 
+        regions = regionprops(segments, self.lab, extra_properties=(median_intensity,))
+        segment_colours = pd.DataFrame(
+            data = [np.array(r.median_intensity) for r in regions],
+            index=[r.label for r in regions],
+            columns = ['L', 'a', 'b']
+        )
 
-        segment_colours = {r.label: r.median_intensity for r in regionprops(segments, self.lab, extra_properties=(median_intensity,))}  # does not include 0 region
-        distances = {x: min([deltaE_cie76(segment_colours[x], target) for target in reference_colours]) for x in segment_colours.keys()}
-
+        distances = pd.DataFrame(
+            data = np.array([deltaE_cie76(segment_colours, r) for r in reference_colours]).transpose(),
+            index = segment_colours.index,
+            columns = [str(r) for r in reference_colours]
+        )
         if self.args.debug:
-            # https://stackoverflow.com/questions/52741742/how-to-create-lab-color-chart-using-opencv
-            # todo segment colours in Lab space 3d plot
-
             fig = FigureBuilder(
                 self.filepath,
                 f"Segment colours in CIELAB with {reference_label}"
             )
             # convert segment colours to rgb to colour scatter points
-
-            segment_colours_rgb = [lab2rgb(v) for v in segment_colours.values()]
+            segment_colours_rgb = pd.DataFrame(
+                data = lab2rgb(segment_colours),
+                index = segment_colours.index,
+                columns = ['R','G','B']
+            )
             fig.add_subplot(projection = '3d')
-            fig.current_axis.scatter(xs=[i[1] for i in segment_colours.values()], ys=[i[2] for i in segment_colours.values()], zs=[i[0] for i in segment_colours.values()], s=10, c=segment_colours_rgb, lw=0)
-            fig.current_axis.set_xlabel('A')
-            fig.current_axis.set_ylabel('B')
+            fig.current_axis.scatter(
+                xs=segment_colours['a'],
+                ys=segment_colours['b'],
+                zs=segment_colours['L'],
+                s=10,
+                c=segment_colours_rgb,
+                lw=0
+            )
+            fig.current_axis.set_xlabel('a')
+            fig.current_axis.set_ylabel('b')
             fig.current_axis.set_zlabel('L')
-            for k, v in segment_colours.items():
-                fig.current_axis.text(x=v[1], y=v[2], z=v[0], s=k, size=3)
+            for i, r in segment_colours.iterrows():
+                fig.current_axis.text(x=r['a'], y=r['b'], z=r['L'], s=i, size=3)
 
             # todo add sphere for each target
             # draw sphere
@@ -279,35 +301,30 @@ class ImageProcessor:
                     ax.plot_surface(x + c[1], y + c[2], z + c[0], color=lab2rgb(c), alpha=0.2)
 
             plt_spheres(fig.current_axis, reference_colours, np.repeat(reference_dist, len(reference_colours)))
-
             fig.animate()
-
             fig.print()
 
             fig = FigureBuilder(self.filepath, f"Segment ΔE from any {reference_label} colour")
-            dist_image = segments.copy()
-            for k in distances.keys():
-                dist_image[segments == k] = distances[k]
+            distances_copy = distances.copy()
+            distances_copy.loc[0] = np.repeat(0, distances_copy.shape[1]) # add back a distance for background segments
+            distances_copy.sort_index(inplace=True)
+            dist_image = distances_copy.min(axis=1).to_numpy()[segments]
             fig.add_image(dist_image, f"Minimum ΔE any {reference_label} target colour", color_bar = True, diverging=True, midpoint = reference_dist)
             fig.print()
 
 
             # add debug for EACH reference colour in a single figure, to help debug reference colour selection
             fig = FigureBuilder(self.filepath, f"Segment ΔE from each {reference_label} colour", nrows=len(reference_colours))
-            for d in reference_colours:
-                dist_image = segments.copy()
-                distance = {x: deltaE_cie76(segment_colours[x], d) for x in segment_colours.keys()}
-                for k in distance.keys():
-                    dist_image[segments == k] = distance[k]
+            for i, c in enumerate(reference_colours):
+                dist_image = distances_copy[str(c)].to_numpy()[segments]
                 fig.add_image(
                     dist_image,
-                    str(d),
+                    str(c),
                     color_bar=True,
                     diverging=True,
                     midpoint=reference_dist
                 )
             fig.print()
-
         return segment_colours, distances
 
 
@@ -326,25 +343,17 @@ class ImageProcessor:
             fig.add_image(target_mask, "target mask")
         return target_mask
 
-    # kl is a weighting applied to deltaE that makes it more closely resemble human colour differentiation
-    # this has improved segmentation in my experience but may not always be desirable
     def get_target_mask_with_graph(self, circles, segments, segment_colours, target_segments, non_target_segments):
         # First merge non-target segments with background
-        segment_colours = {k: segment_colours[k] for k in segment_colours.keys() if k not in non_target_segments}
         segments[np.isin(segments, non_target_segments)] = 0
+        # and we can drop the unused segment colours
+        #segment_colours = segment_colours[~segment_colours.index.isin(non_target_segments)]
 
         # Create a regional adjacency graph with weights based on distance of a and b in Lab colourspace
         rag = self.build_graph(segments, segment_colours)
         starting_segments = set()
         collected_segments = set()
 
-        ## Now only look within circles...is this necessary? why not just apply to the whole image since we masked the background that isn't in the image already...
-        #for circle in circles:
-        #    for n in self.circle_id_map[tuple(circle)]:
-        #        ## caution: this can fail if circles overlap (see logic in get_segments)
-        #        if n in rag.nodes and n in target_segments:
-        #            starting_segments.add(n)
-        #            collected_segments.update(node_connected_component(rag, n))
         for n in target_segments:
             if n in rag.nodes():  # if node is both target and background then it will be removed from the graph
                 starting_segments.add(n)
@@ -367,12 +376,30 @@ class ImageProcessor:
             n_segments=self.args.num_superpixels,
             compactness=self.args.superpixel_compactness
         )
-
         _, non_target_distances = self.get_segment_colours_and_distances(segments, 'non-target', np.array(self.args.non_target_colour), self.args.non_target_dist)
         segment_colours, target_distances = self.get_segment_colours_and_distances(segments,  'target', np.array(self.args.target_colour), self.args.target_dist)
 
-        target_segments = [k for k in target_distances.keys() if target_distances[k] <= target_dist]
-        non_target_segments = [k for k in target_distances.keys() if non_target_distances[k] <= non_target_dist]
+        #todo dbscan clustering, it doesn't seem to give me much
+        # thought it would allow me to identify target and non-target clusters. might just be needing to tune it better?
+        # consider adding texture (i.e. variability within a superpixel) as an additional feature
+        #X = np.hstack([non_target_distances, target_distances])
+        #X = segment_colours
+        #
+        #
+        #for i in range(1,10):
+        #    eps = i
+        #    dbscan = DBSCAN(eps=eps).fit(X)
+        #    labels = dbscan.labels_
+        #    labels = np.insert(labels, 0, 0) #  add back 0 at start of array
+        #    new_segments = labels[segments]
+        #    new_segments[new_segments==-1] = 0 # set "noise" as background too
+        #    fig = FigureBuilder(self.filepath, f"dbscan test")
+        #    fig.add_image(label2rgb(new_segments, self.rgb), f"eps:{eps}")
+        #    fig.print()
+        #
+        target_segments = target_distances.index[target_distances.min(axis=1) <= target_dist].tolist()
+        non_target_segments = non_target_distances.index[non_target_distances.min(axis=1) <= non_target_dist].tolist()
+
         if self.args.graph_dist == 0:
             target_mask = self.get_target_mask_without_graph(segments, target_segments, non_target_segments)
         else:

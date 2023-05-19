@@ -8,4 +8,4 @@ pandas>=1.4.3
 colour-science>=0.4.1
 networkx~=3.0
 Pillow~=9.4.0
-setuptools~=44.0.0
+scikit-learn~=1.2.2
