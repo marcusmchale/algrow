@@ -101,14 +101,13 @@ class Layout:
         logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if fig:
-            ax = fig.get_current_subplot()
+            ax = fig.add_subplot()
             logger.debug("Output dendrogram and treecut height for circle clustering")
             logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram, ax=ax)
             logger.debug("Add cut-height line")
             ax.axhline(y=cut_height, c='k')
             ax.set_title("Dendrogram")
-            fig.finish_subplot()
         logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
         clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
         unique, counts = np.array(np.unique(clusters, return_counts=True))
@@ -147,8 +146,8 @@ class Layout:
 
     def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None, fig = None):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
-        if self.args.debug:
-            ax = fig.get_current_subplot()
+        if fig:
+            ax = fig.add_subplot()
             logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate {plate_id} clustering")
             logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram,  ax=ax)
@@ -156,7 +155,6 @@ class Layout:
             ax.axhline(y=cut_height, c='k')
             if plate_id:
                 ax.set_title(f"Plate {plate_id}")
-            fig.finish_subplot()
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
     def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True, fig = None):
@@ -219,7 +217,12 @@ class Layout:
             self.filepath,
             f"Circle clustering by {'rows' if rows_first else 'cols'}"
         ) if self.args.debug else None
+        first = True
         for i, p in enumerate(plates):
+            if first:
+                first = False
+            else:
+                fig.add_subplot_row()
             p.id = i+1
             self.sort_circles(
                 p,
@@ -228,8 +231,6 @@ class Layout:
                 top_bottom=not self.args.circles_bottom_top,
                 fig=fig
             )
-            if fig and p.id < len(plates):
-                fig.add_subplot_row()
         if self.args.debug:
             fig.print()
         return plates.tolist()

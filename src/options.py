@@ -39,6 +39,12 @@ def options():
         help="Write out overlay for quality control"
     )
     parser.add_argument(
+        '-an',
+        "--animations",
+        help = "Use imagemagick to generate gif animations of 3d plots",
+        action='store_true'
+    )
+    parser.add_argument(
         "-p",
         "--processes",
         help="Number of processes to launch (images to concurrently process)",

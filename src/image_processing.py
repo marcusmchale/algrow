@@ -4,12 +4,11 @@ from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
 from skimage.segmentation import slic
 from skimage.measure import regionprops
-from skimage.color import label2rgb, rgb2lab, deltaE_ciede2000, deltaE_cie76
+from skimage.color import label2rgb, rgb2lab, lab2rgb, deltaE_cie76
 from skimage import draw
-from skimage.io import imread, imsave
+from skimage.io import imread
 from skimage import graph
-from networkx import node_connected_component, set_edge_attributes, get_edge_attributes
-import matplotlib.pyplot as plt
+from networkx import node_connected_component
 from re import search
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
@@ -23,6 +22,9 @@ logger = logging.getLogger(__name__)
 class OverlappingCircles(Exception):
     pass
 
+
+def median_intensity(mask, intensity_image):
+    return np.median(intensity_image[mask], axis=0)
 
 def area_worker(filepath, args):
     logger.debug(f"Processing file: {filepath}")
@@ -134,14 +136,6 @@ class ImageProcessor:
             fig.print()
         return circles_mask
 
-    def subplot_adjacency(self, axis, rag, segments, prefix=None):
-        set_edge_attributes(rag, get_edge_attributes(rag, "delta_e"), name="weight")
-        lc = graph.show_rag(segments, rag, self.rgb, border_color='white', ax=axis, edge_width=0.5)
-        plt.colorbar(lc, ax=axis)
-        axis.set_title(prefix)
-        for n in rag.nodes:
-            axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
-
 
     def build_graph(self, segments, segment_colours):
         # build the graph and add labels and mean colours to nodes with distances as weights
@@ -164,8 +158,7 @@ class ImageProcessor:
 
         fig = FigureBuilder(self.filepath, "Regional Adjacency Graph", nrows = 2) if self.args.debug else None
         if fig:
-            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Weighted graph")
-            fig.finish_subplot()
+            fig.plot_adjacency(rag, segments, self.rgb, prefix='Weighted graph')
 
         logger.debug(f"remove edges above {self.args.graph_dist} delta_e")
         for x, y, d in list(rag.edges(data=True)):
@@ -173,8 +166,7 @@ class ImageProcessor:
                 rag.remove_edge(x, y)
 
         if fig:
-            self.subplot_adjacency(fig.get_current_subplot(), rag, segments, prefix="Pruned by delta E")
-            fig.finish_subplot()
+            fig.plot_adjacency(rag, segments, self.rgb, prefix='Pruned by delta E')
             fig.print()
 
         return rag
@@ -193,8 +185,9 @@ class ImageProcessor:
             mask=circles_mask,
             n_segments=n_segments,
             compactness=compactness,
-            convert2lab=True,
-            enforce_connectivity=True
+            convert2lab=True
+            #enforce_connectivity=True  # drop this - might mean more circles spanning a segment but we are handling this in the next step
+            # the benefit of leaving it out
         )
         # The slic output includes segment labels that span circles which breaks graph building.
         # Clean it up by iterating through circles and relabel segments if found in another circle
@@ -208,41 +201,96 @@ class ImageProcessor:
             circle_segments[~circle_mask] = -1 # to differentiate the background in circle from background outside
             circle_segment_ids = set(np.unique(circle_segments))
             circle_segment_ids.remove(-1)
-            #self.circle_id_map[tuple(circle)] = circle_segment_ids
             for i in list(circle_segment_ids):
                 circles_per_segment[i] += 1
                 if circles_per_segment[i] > 1 or i == 0 :  # add a new segment for this ID in this circle, always relabel if part of background but inside circle
                     segment_counter += 1
-                    ## caution: this behaviour breaks get_target_mask if circles actually overlap
+                    ## caution: this behaviour may break get_target_mask if circles actually overlap
+                    # - a few things have changed here so maybe not anymore? check the logic or add tests!
+                    # currently prevented by earlier checking for overlaps
                     segments[circle_segments == i] = segment_counter
-                    #self.circle_id_map[tuple(circle)].remove(i)
-
-                    #self.circle_id_map[tuple(circle)].add(segment_counter)
-
 
         if self.args.debug:
+            # add text label for each segment at the centroid for that superpixel
+            labels = {r.label: (r.centroid, r.median_intensity) for r in regionprops(segments, self.lab, extra_properties=(median_intensity,))}
             fig = FigureBuilder(self.filepath, "Superpixel labels", nrows=2)
             fig.add_image(label2rgb(segments, self.rgb, kind='avg'), "Labels (average)")
+            for k, v in labels.items():
+                fig.current_axis.text(
+                    x=v[0][1],
+                    y=v[0][0],
+                    s=k,
+                    size=2,
+                    color = 1-lab2rgb(v[1]),
+                    horizontalalignment='center',
+                    verticalalignment='center'
+                )
             fig.add_image(label2rgb(segments, self.rgb), "Labels (false colour)")
+            for k, v in labels.items():
+                fig.current_axis.text(
+                    x=v[0][1],
+                    y=v[0][0],
+                    s=k,
+                    size=2,
+                    color = 'black',
+                    horizontalalignment='center',
+                    verticalalignment='center'
+                )
+
             fig.print()
 
         return segments
 
     def get_segment_colours_and_distances(self, segments, reference_label, reference_colours, reference_dist):
 
-        def median_intensity(mask, intensity_image):
-            return np.median(intensity_image[mask], axis=0)
 
         segment_colours = {r.label: r.median_intensity for r in regionprops(segments, self.lab, extra_properties=(median_intensity,))}  # does not include 0 region
         distances = {x: min([deltaE_cie76(segment_colours[x], target) for target in reference_colours]) for x in segment_colours.keys()}
 
         if self.args.debug:
+            # https://stackoverflow.com/questions/52741742/how-to-create-lab-color-chart-using-opencv
+            # todo segment colours in Lab space 3d plot
+
+            fig = FigureBuilder(
+                self.filepath,
+                f"Segment colours in CIELAB with {reference_label}"
+            )
+            # convert segment colours to rgb to colour scatter points
+
+            segment_colours_rgb = [lab2rgb(v) for v in segment_colours.values()]
+            fig.add_subplot(projection = '3d')
+            fig.current_axis.scatter(xs=[i[1] for i in segment_colours.values()], ys=[i[2] for i in segment_colours.values()], zs=[i[0] for i in segment_colours.values()], s=10, c=segment_colours_rgb, lw=0)
+            fig.current_axis.set_xlabel('A')
+            fig.current_axis.set_ylabel('B')
+            fig.current_axis.set_zlabel('L')
+            for k, v in segment_colours.items():
+                fig.current_axis.text(x=v[1], y=v[2], z=v[0], s=k, size=3)
+
+            # todo add sphere for each target
+            # draw sphere
+            def plt_spheres(ax, list_center, list_radius):
+                for c, r in zip(list_center, list_radius):
+                    # draw sphere
+                    # adapted from https://stackoverflow.com/questions/64656951/plotting-spheres-of-radius-r
+                    u, v = np.mgrid[0:2 * np.pi:50j, 0:np.pi:50j]
+                    x = r * np.cos(u) * np.sin(v)
+                    y = r * np.sin(u) * np.sin(v)
+                    z = r * np.cos(v)
+                    ax.plot_surface(x + c[1], y + c[2], z + c[0], color=lab2rgb(c), alpha=0.2)
+
+            plt_spheres(fig.current_axis, reference_colours, np.repeat(reference_dist, len(reference_colours)))
+
+            fig.animate()
+
+            fig.print()
+
             fig = FigureBuilder(self.filepath, f"Segment ΔE from any {reference_label} colour")
             dist_image = segments.copy()
             for k in distances.keys():
                 dist_image[segments == k] = distances[k]
             fig.add_image(dist_image, f"Minimum ΔE any {reference_label} target colour", color_bar = True, diverging=True, midpoint = reference_dist)
             fig.print()
+
 
             # add debug for EACH reference colour in a single figure, to help debug reference colour selection
             fig = FigureBuilder(self.filepath, f"Segment ΔE from each {reference_label} colour", nrows=len(reference_colours))
@@ -322,7 +370,7 @@ class ImageProcessor:
 
         _, non_target_distances = self.get_segment_colours_and_distances(segments, 'non-target', np.array(self.args.non_target_colour), self.args.non_target_dist)
         segment_colours, target_distances = self.get_segment_colours_and_distances(segments,  'target', np.array(self.args.target_colour), self.args.target_dist)
-        # add 1 to get 1 based indexing which matches the segment ID
+
         target_segments = [k for k in target_distances.keys() if target_distances[k] <= target_dist]
         non_target_segments = [k for k in target_distances.keys() if non_target_distances[k] <= non_target_dist]
         if self.args.graph_dist == 0:

@@ -3,6 +3,9 @@ import numpy as np
 from pathlib import Path
 from skimage.color import lab2rgb
 from matplotlib import pyplot as plt, gridspec, use, colors
+from skimage import graph
+from networkx import set_edge_attributes, get_edge_attributes
+from matplotlib import animation
 from .options import options
 
 
@@ -17,70 +20,54 @@ class FigureBuilder:
         use('Agg')
     counter = 0
 
-    def __init__(self, img_path, step_name, nrows = None, ncols = None, force = None):
+    def __init__(self, img_path, step_name, nrows = 1, ncols = 1, force = None):
         self.img_path = img_path
         self.step_name = step_name
         self.nrows = nrows
         self.ncols = ncols
         self.force = force
-        self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False, layout="constrained")
+        self.fig = plt.figure()
+        #self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False, layout="constrained", projection=projection)
         self.plot = args.debug in ['plot', 'both'] or self.force in ['plot', 'both']
         self.save = args.debug in ['save', 'both'] or self.force in ['save', 'both']
         self.out_dir = args.out_dir
-        self.row_counter = 0
+        self.row_counter = 1
         self.col_counter = 0
         FigureBuilder.counter += 1 # need to improve management of concurrent processes for this to work with multiprocessing
         # todo Consider disabling debugging except for -q flag (overlays) if multiprocessing
         # currently just not using this counter when multiprocessing, but the order of debug images is not that clear.
 
+    @property
+    def axes(self):
+        return self.fig.axes
 
-    def print(self):
-        if self.save:
-            self.fig.set_figwidth(8 * (self.ncols if self.ncols else 1))
-            self.fig.set_figheight(6 * (self.nrows if self.nrows else 1))
-            if args.processes > 1:
-                out_path = Path(
-                    self.out_dir,
-                    "debug",
-                    self.step_name,
-                    Path(Path(self.img_path).stem).with_suffix('.png')
-                )
-            else:
-                out_path = Path(
-                    self.out_dir,
-                    "debug",
-                    Path(self.img_path).stem,
-                    Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix('.png')
-                )
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            self.fig.savefig(str(out_path), dpi=300)
-            logger.debug(f"Save figure: {self.step_name, self.img_path}")
-        if self.plot:
-            self.fig.set_figwidth(4 * (self.ncols if self.ncols else 1))
-            self.fig.set_figheight(3 * (self.nrows if self.nrows else 1))
-            self.fig.set_dpi(100)
-            logger.debug(f"Show figure: {self.step_name, self.img_path}")
-            plt.show()
-            ## todo, might prefer to use fig.show but that requires a managed event loop
-            # or all the figures are rendered at the end.
-            # This is only issue if we are building one figure then move the another then go back to finish the first.
-            # So far I am only building figures successively, and that works fine as is.
+    @property
+    def current_axis(self):
+        return self.axes[self.current_ax_index]
 
-    def get_current_subplot(self):
-        return self.ax[self.row_counter, self.col_counter]
+    @property
+    def current_ax_index(self):
+        return (self.row_counter - 1) * self.ncols + self.col_counter - 1
 
-    def finish_subplot(self):
-        ncols = 1 if self.ncols is None else self.ncols
-        if self.col_counter == ncols - 1:
-            self.col_counter = 0
+    def add_subplot(self, projection = None):
+        self.col_counter += 1
+        if self.col_counter > self.ncols:
+            self.col_counter = 1
             self.row_counter += 1
-        else:
-            self.col_counter += 1
+        return self.fig.add_subplot(self.nrows, self.ncols, self.current_ax_index + 1, projection=projection)
 
+    def add_subplot_row(self):
+        logger.debug("Add another row of subplots to existing figure")
+        self.nrows += 1
+        self.fig.canvas.draw()
+        gs = gridspec.GridSpec(self.nrows, self.ncols, figure=self.fig)
+        for i, ax in enumerate(self.axes):
+            ax.set_position(gs[i].get_position(self.fig))
+            ax.set_subplotspec(gs[i])
 
     def add_image(self, img, label:str = None, color_bar=False, diverging=False, midpoint=None):
-        logger.debug("Add image to debug figure")
-        axis = self.get_current_subplot()
+        logger.debug("Add image to figure")
+        axis = self.add_subplot()
         if label:
             axis.set_title(label, loc="left")
         if diverging and midpoint is not None:
@@ -91,39 +78,101 @@ class FigureBuilder:
             pos = axis.imshow(img)
         if color_bar:
             self.fig.colorbar(pos, ax=axis)
-            # todo trying to add the middle point to the axis ticks - failing for some reason...
+            # todo trying to add the midpoint to the axis ticks - failing for some reason...
             #cbar = self.fig.colorbar(pos, ax=axis)
             #if midpoint is not None:
             #    ticks = cbar.get_ticks()
             #    if midpoint not in ticks:
             #        ticks = np.insert(ticks, np.searchsorted(ticks, midpoint), midpoint)
             #    cbar.set_ticks(ticks)
-        self.finish_subplot()
 
-    def add_subplot_row(self):
-        logger.debug("Add subplot row to existing figure")
-        ncols = 1 if self.ncols is None else self.ncols
-        if self.nrows is None:
-            self.nrows = 2
-        else:
-            self.nrows += 1
-        self.fig.canvas.draw()
-        gs = gridspec.GridSpec(self.nrows, ncols, figure=self.fig)
-        for i, ax in np.ndenumerate(self.ax):
-            ax.set_position(gs[i].get_position(self.fig))
-            ax.set_subplotspec(gs[i])
-        for n in range(ncols):
-            self.fig.add_subplot(gs[self.nrows-1, n])
-        self.ax = np.reshape(self.fig.axes, (self.nrows, ncols))
+
+    def plot_adjacency(self, rag, segments, background, prefix=None):
+        logger.debug("Add adjacency plot to figure")
+        axis = self.add_subplot()
+        set_edge_attributes(rag, get_edge_attributes(rag, "delta_e"), name="weight")
+        lc = graph.show_rag(segments, rag, background, border_color='white', ax=self.current_axis, edge_width=0.5)
+        plt.colorbar(lc, ax=axis)
+        axis.set_title(prefix)
+        for n in rag.nodes:
+            axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
+
+
 
     def plot_colours(self, target_colours, npix = 10):
-        logger.debug('Output target colours plot')
+        logger.debug('Prepare target colours plot')
         colour_plot = np.empty((0, 0, 3), int)
         for l,a,b in target_colours:
             colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
         colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
-        self.get_current_subplot().set_yticks(
+        #colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix))
+        self.add_image(colour_plot)
+        self.current_axis.set_yticks(
             np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours
         )
-        self.get_current_subplot().get_xaxis().set_visible(False)
-        self.add_image(colour_plot)
+        self.current_axis.get_xaxis().set_visible(False)
+
+    def get_out_path(self, suffix='.png'):
+        if args.processes > 1:
+            out_path = Path(
+                self.out_dir,
+                "debug",
+                self.step_name,
+                Path(Path(self.img_path).stem).with_suffix(suffix)
+            )
+        else:
+            out_path = Path(
+                self.out_dir,
+                "debug",
+                Path(self.img_path).stem,
+                Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix(suffix)
+            )
+        return out_path
+
+    def animate(self):
+        if not args.animations & self.save:
+            return
+        def rotate(angle, ax):
+            ax.view_init(azim=angle)
+            return [ax]
+
+        logger.debug("Making animation")
+        out_path = self.get_out_path(suffix='.gif')
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        # as animation seems to create multiple instances (and hence triggers the counter)
+        rot_animation = animation.FuncAnimation(
+            self.fig,
+            rotate,
+            fargs=[self.current_axis],
+            frames=np.arange(0, 360, 10),
+            interval=200
+        )
+        try:
+            rot_animation.save(str(out_path), dpi=80, writer='imagemagick')
+        except OSError:
+            logger.debug('failed to generate animation of 3d plot - requires imagemagick')
+            # todo adapt this to work on windows systems using Pillow or similar
+            pass
+
+
+
+    def print(self):
+        if self.save:
+            self.fig.set_figwidth(8 * self.ncols)
+            self.fig.set_figheight(6 * self.nrows)
+            out_path = self.get_out_path()
+
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            self.fig.savefig(str(out_path), dpi=300)
+            logger.debug(f"Save figure: {self.step_name, self.img_path}")
+        if self.plot:
+            self.fig.set_figwidth(4 * self.ncols)
+            self.fig.set_figheight(3 * self.nrows)
+            self.fig.set_dpi(100)
+            logger.debug(f"Show figure: {self.step_name, self.img_path}")
+            plt.show()
+            ## todo, might prefer to use fig.show but that requires a managed event loop
+            # or all the figures are rendered at the end.
+            # This is only issue if we are building one figure then move the another then go back to finish the first.
+            # So far I am only building figures successively, and that works fine as is.
+        plt.close()
