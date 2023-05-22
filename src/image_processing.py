@@ -1,6 +1,5 @@
 import logging
 import numpy as np
-import pandas
 import pandas as pd
 from pathlib import Path
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
@@ -10,14 +9,14 @@ from skimage.color import label2rgb, rgb2lab, lab2rgb, deltaE_cie76
 from skimage import draw
 from skimage.io import imread
 from skimage import graph
-from sklearn.cluster import DBSCAN, SpectralClustering
 from networkx import node_connected_component
 from re import search
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 from matplotlib import font_manager
-from .layout import Layout
+from .layout import LayoutDetector
 from .figurebuilder import FigureBuilder
+from .picker import Picker
 from collections import defaultdict
 
 
@@ -60,34 +59,6 @@ class ImageProcessor:
     def __init__(self, filepath, args):
         self.filepath = Path(filepath)
         self.args = args
-
-        if args.debug:
-            fig = FigureBuilder(self.filepath, "Target colours")
-            fig.plot_colours(vars(args)['target_colour'])
-            fig.print()
-            target_colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["target_colour"]]}'.replace("'", '"')
-
-            fig = FigureBuilder(self.filepath, "Non-target colours")
-            fig.plot_colours(vars(args)['non_target_colour'])
-            fig.print()
-            non_target_colours_string = f'{[",".join([str(j) for j in i]) for i in vars(args)["non_target_colour"]]}'.replace("'", '"')
-
-            fig = FigureBuilder(filepath, "Circle colour")
-            fig.plot_colours([vars(args)['circle_colour']])
-            fig.print()
-            circle_colour_string = f"\"{','.join([str(i) for i in vars(args)['circle_colour']])}\""
-
-            Path(args.out_dir).mkdir(parents=True, exist_ok=True)
-            with open(Path(args.out_dir, "colours.txt"), 'w') as text_file:
-                text_file.write("target_colours:")
-                text_file.write(target_colours_string)
-                text_file.write("\n")
-                text_file.write("non_target_colours:")
-                text_file.write(non_target_colours_string)
-                text_file.write("\n")
-                text_file.write("circle_colour:")
-                text_file.write(circle_colour_string)
-                text_file.write("\n")
 
         logger.debug(f"Load image as RGB: {self.filepath}")
         self.rgb = imread(str(self.filepath))
@@ -132,7 +103,7 @@ class ImageProcessor:
         for circle in circles:
             circle_mask = self.get_circle_mask(circle)
             if np.logical_and(circles_mask, circle_mask).any():
-                raise OverlappingCircles("Circles overlapping - consider trying again with a lower circle_expansion factor")
+                raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
             circles_mask = circles_mask | circle_mask
         if self.args.debug:
             fig = FigureBuilder(self.filepath, "Circles mask")
@@ -175,8 +146,12 @@ class ImageProcessor:
 
         return rag
 
-    def get_segments(self, circles, n_segments=1000, compactness=10):
-        circles_mask = self.get_circles_mask(circles)
+    def get_segments(self, layout):
+        n_segments = self.args.num_superpixels
+        compactness = self.args.superpixel_compactness
+
+        circles_mask = self.get_circles_mask(layout.circles)
+
         logger.debug("Perform SLIC for superpixel identification")
         segments = slic(
             self.rgb,
@@ -187,27 +162,29 @@ class ImageProcessor:
             mask=circles_mask,
             n_segments=n_segments,
             compactness=compactness,
-            convert2lab=True
+            # enforce_connectivity = True,
+            convert2lab=True #
         )
-        # The slic output includes segment labels that span circles which breaks graph building.
+
+        # The below doesn't seem needed any more.. what is the issue if a segment spans multiple circles?
+        # The slic output may include segment labels that span circles which breaks graph building.
         # Clean it up by iterating through circles and relabel segments if found in another circle
-        # Using enforce connectivity in slic didn't always work - still got some clusters spanning circles - not sure of the reason
-        circles_per_segment = defaultdict(int)
-        segment_counter = np.max(segments)
-        for circle in circles:
-            circle_mask = self.get_circle_mask(circle)
-            circle_segments = segments.copy()
-            circle_segments[~circle_mask] = -1 # to differentiate the background in circle from background outside
-            circle_segment_ids = set(np.unique(circle_segments))
-            circle_segment_ids.remove(-1)
-            for i in list(circle_segment_ids):
-                circles_per_segment[i] += 1
-                if circles_per_segment[i] > 1 or i == 0 :  # add a new segment for this ID in this circle, always relabel if part of background but inside circle
-                    segment_counter += 1
-                    ## caution: this behaviour may break get_target_mask if circles actually overlap
-                    # - a few things have changed here so maybe not anymore? check the logic or add tests!
-                    # currently prevented by earlier checking for overlaps
-                    segments[circle_segments == i] = segment_counter
+        #logger.debug('Clean up segments spanning multiple circles')
+        #circles_per_segment = defaultdict(int)
+        #segment_counter = np.max(segments)
+        #for circle in layout.circles:
+        #    circle_mask = self.get_circle_mask(circle)
+        #    circle_segments = segments.copy()
+        #    circle_segments[~circle_mask] = -1 # to differentiate the background in circle from background outside
+        #    circle_segment_ids = set(np.unique(circle_segments))
+        #    circle_segment_ids.remove(-1)
+        #    for i in list(circle_segment_ids):
+        #        circles_per_segment[i] += 1
+        #        if circles_per_segment[i] > 1 or i == 0 : #
+        #            # add a new segment for this ID in this circle
+        #            segment_counter += 1
+        #            segments[circle_segments == i] = segment_counter
+        #
 
         if self.args.debug:
             # add text label for each segment at the centroid for that superpixel
@@ -245,18 +222,19 @@ class ImageProcessor:
                     horizontalalignment='center',
                     verticalalignment='center'
                 )
-            fig.print()
+            fig.print(large=True)
         return segments
 
-    def get_segment_colours_and_distances(self, segments, reference_label, reference_colours, reference_dist):
-
+    def get_segment_colours(self, segments):
         regions = regionprops(segments, self.lab, extra_properties=(median_intensity,))
-        segment_colours = pd.DataFrame(
+        return pd.DataFrame(
             data = [np.array(r.median_intensity) for r in regions],
             index=[r.label for r in regions],
             columns = ['L', 'a', 'b']
         )
 
+    def get_segment_distances(self, segments, segment_colours, reference_label, reference_colours, reference_dist):
+        reference_colours = np.array(reference_colours)
         distances = pd.DataFrame(
             data = np.array([deltaE_cie76(segment_colours, r) for r in reference_colours]).transpose(),
             index = segment_colours.index,
@@ -325,7 +303,7 @@ class ImageProcessor:
                     midpoint=reference_dist
                 )
             fig.print()
-        return segment_colours, distances
+        return distances
 
 
     def get_target_mask_without_graph(self, segments, target_segments, non_target_segments):
@@ -343,7 +321,7 @@ class ImageProcessor:
             fig.add_image(target_mask, "target mask")
         return target_mask
 
-    def get_target_mask_with_graph(self, circles, segments, segment_colours, target_segments, non_target_segments):
+    def get_target_mask_with_graph(self, segments, segment_colours, target_segments, non_target_segments):
         # First merge non-target segments with background
         segments[np.isin(segments, non_target_segments)] = 0
         # and we can drop the unused segment colours
@@ -370,41 +348,20 @@ class ImageProcessor:
 
         return target_mask
 
-    def get_target_mask(self, circles, target_dist, non_target_dist):
-        segments = self.get_segments(
-            circles,
-            n_segments=self.args.num_superpixels,
-            compactness=self.args.superpixel_compactness
-        )
-        _, non_target_distances = self.get_segment_colours_and_distances(segments, 'non-target', np.array(self.args.non_target_colour), self.args.non_target_dist)
-        segment_colours, target_distances = self.get_segment_colours_and_distances(segments,  'target', np.array(self.args.target_colour), self.args.target_dist)
+    def get_target_mask(self, segments):
 
-        #todo dbscan clustering, it doesn't seem to give me much
-        # thought it would allow me to identify target and non-target clusters. might just be needing to tune it better?
-        # consider adding texture (i.e. variability within a superpixel) as an additional feature
-        #X = np.hstack([non_target_distances, target_distances])
-        #X = segment_colours
-        #
-        #
-        #for i in range(1,10):
-        #    eps = i
-        #    dbscan = DBSCAN(eps=eps).fit(X)
-        #    labels = dbscan.labels_
-        #    labels = np.insert(labels, 0, 0) #  add back 0 at start of array
-        #    new_segments = labels[segments]
-        #    new_segments[new_segments==-1] = 0 # set "noise" as background too
-        #    fig = FigureBuilder(self.filepath, f"dbscan test")
-        #    fig.add_image(label2rgb(new_segments, self.rgb), f"eps:{eps}")
-        #    fig.print()
-        #
-        target_segments = target_distances.index[target_distances.min(axis=1) <= target_dist].tolist()
-        non_target_segments = non_target_distances.index[non_target_distances.min(axis=1) <= non_target_dist].tolist()
+        segment_colours = self.get_segment_colours(segments)
+
+        non_target_distances = self.get_segment_distances(segments, segment_colours, 'non-target', self.args.non_target_colour, self.args.non_target_dist)
+        target_distances = self.get_segment_distances(segments, segment_colours, 'target', self.args.target_colour, self.args.target_dist)
+
+        target_segments = target_distances.index[target_distances.min(axis=1) <= self.args.target_dist].tolist()
+        non_target_segments = non_target_distances.index[non_target_distances.min(axis=1) <= self.args.non_target_dist].tolist()
 
         if self.args.graph_dist == 0:
             target_mask = self.get_target_mask_without_graph(segments, target_segments, non_target_segments)
         else:
             target_mask = self.get_target_mask_with_graph(
-                circles,
                 segments,
                 segment_colours,
                 target_segments,
@@ -430,19 +387,44 @@ class ImageProcessor:
         return target_mask
 
     def get_area(self):
+        layout = LayoutDetector(self.rgb, self.lab, self.filepath, self.args).get_layout()
 
-        plates = Layout(self.lab, self.filepath, self.args).get_plates_sorted()
         result = {
             "filename": self.filepath,
             "units": []
         }
 
-        all_circles = [c for p in plates for c in p.circles]
-        target_mask = self.get_target_mask(
-            all_circles,
-            target_dist=self.args.target_dist,
-            non_target_dist=self.args.non_target_dist
-        )
+        segments = self.get_segments(layout)
+        segment_colours = self.get_segment_colours(segments)
+
+        # Target colour(s) for input images
+        if not self.args.target_colour:
+           logger.debug("Pick target colours")
+           # get colour from image
+           picker = Picker(self.rgb, self.lab, self.filepath, "target", args = self.args)
+           target_colours = picker.get_reference_colours(segments, segment_colours, self.args.target_dist, 'Target')
+           vars(self.args).update({"target_colour":[(c[0], c[1], c[2]) for c in target_colours]})
+
+
+        # Non-target colour(s) for input images
+        if not self.args.non_target_colour:
+           logger.debug("Pick non-target colours")
+           # get colour from a random image
+           picker = Picker(self.rgb, self.lab, self.filepath, "non-target", args = self.args)
+           non_target_colours = picker.get_reference_colours(segments, segment_colours, self.args.non_target_dist, 'Non-target')
+           vars(self.args).update({"non_target_colour":[(c[0], c[1], c[2]) for c in non_target_colours]})
+
+
+        if self.args.debug:
+            fig = FigureBuilder(self.filepath, "Target colours")
+            fig.plot_colours(vars(self.args)['target_colour'])
+            fig.print()
+
+            fig = FigureBuilder(self.filepath, "Non-target colours")
+            fig.plot_colours(vars(self.args)['non_target_colour'])
+            fig.print()
+
+        target_mask = self.get_target_mask(segments)
 
         if self.args.overlay or self.args.debug:
             logger.debug("Prepare annotated overlay for QC")
@@ -458,7 +440,7 @@ class ImageProcessor:
         font_file = font_manager.findfont(font_manager.FontProperties())
         large_font = ImageFont.truetype(font_file, size=int(height/50), encoding="unic")
         small_font = ImageFont.truetype(font_file, size=int(height/80), encoding="unic")
-        for p in plates:
+        for p in layout.plates:
             logger.debug(f"Processing plate {p.id}")
             for j, c in enumerate(p.circles):
                 unit = j+1+6*(p.id-1)

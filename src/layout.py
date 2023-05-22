@@ -1,15 +1,15 @@
 import logging
 
-import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 from scipy.cluster import hierarchy
-from skimage import filters, draw
+from skimage import draw
 from skimage.feature import canny
 from skimage.transform import hough_circle, hough_circle_peaks
 from .figurebuilder import FigureBuilder
 from skimage.morphology import binary_dilation
-from skimage.color import deltaE_ciede2000
+from skimage.color import deltaE_cie76
+from .picker import Picker
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +34,44 @@ class Plate:
 
 
 class Layout:
+    def __init__(self, plates):
+        if plates is None:
+            raise ImageContentException("The layout could not be detected")
+        self.plates = plates
+
+    @property
+    def circles(self):
+        return np.array([c for p in self.plates for c in p.circles])
+
+
+class LayoutDetector:
     def __init__(
             self,
+            rgb,
             lab,
             filepath,
             args
     ):
+        self.args = args
+        # Use coloured circles to detect layout
+        if not args.circle_colour:
+            logger.debug("Select a region of a circle that outlines target areas")
+            picker = Picker(rgb, lab, filepath, "circle", args = self.args)
+            circle_colour = tuple(np.around(np.array(picker.get_colours()).mean(0), decimals=1))
+            vars(args).update({"circle_colour": circle_colour})
+
+        fig = FigureBuilder(filepath, "Circle colour")
+        fig.plot_colours([vars(args)['circle_colour']])
+        fig.print()
+
         circles_like = np.full_like(lab, args.circle_colour)
-        self.image = deltaE_ciede2000(lab, circles_like)
+        self.image = deltaE_cie76(lab, circles_like)
         if args.debug:
             fig = FigureBuilder(filepath, "Circle distance")
-            fig.add_image(self.image, "Delta e from circle colour", color_bar=True)
+            fig.add_image(self.image, "ΔE from circle colour", color_bar=True)
             fig.print()
         self.filepath = filepath
-        #using canny edge detection so already blurred
-        self.args = args
+
 
     @staticmethod
     def hough_circles(image, hough_radii):
@@ -70,7 +93,7 @@ class Layout:
             num_peaks=n + attempt * 10  # each time we increase the target peak number
         )
         #circles = np.dstack((cx, cy, rad)).squeeze()
-        # Here we use the known circle size rather than found (code for found is commented out above)
+        # Use the known circle size rather than found size
         # and circle expansion factor expands search area for mask/superpixels
         circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))).squeeze()
         if circles.shape[0] < n:
@@ -83,11 +106,11 @@ class Layout:
                 x = circle[0]
                 y = circle[1]
                 radius = circle[2]
-                #yy, xx = draw.circle_perimeter(y, x, radius, shape=circle_debug.shape)
                 yy, xx = draw.circle_perimeter(y, x, radius, shape=circle_debug.shape)
                 circle_debug[yy, xx] = 255
             circle_debug = binary_dilation(circle_debug, np.full((10, 10), 1, dtype="bool"))  # very slow
             # todo find faster way to draw thick lines
+            # consider skimage.segmentation.mark_boundaries
             overlay = np.copy(self.image)
             overlay[circle_debug] = 255
             fig.add_image(overlay, f"Attempt {attempt}")
@@ -144,7 +167,8 @@ class Layout:
             ]
             return plates
 
-    def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None, fig = None):
+    @staticmethod
+    def get_axis_clusters(axis_values, rows_first: bool, cut_height, plate_id=None, fig = None):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         if fig:
             ax = fig.add_subplot()
@@ -157,33 +181,7 @@ class Layout:
                 ax.set_title(f"Plate {plate_id}")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
-    def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True, fig = None):
-        logger.debug(f"sort circles for plate {plate.id}")
-        cut_height = int(self.args.circle_diameter * 0.5)
-        axis_values = np.array([c[int(rows_first)] for c in plate.circles])
-        clusters = self.get_axis_clusters(
-            axis_values,
-            rows_first,
-            cut_height=cut_height,
-            plate_id=plate.id,
-            fig = fig
-        )
-        clusters = DataFrame(
-            {
-                "cluster": clusters.flatten(),
-                "circle": plate.circles.tolist(),
-                "primary_axis": [c[int(rows_first)] for c in plate.circles],
-                "secondary_axis": [c[int(not rows_first)] for c in plate.circles]
-            }
-        )
-        clusters = clusters.sort_values(
-            "primary_axis", ascending=top_bottom if rows_first else left_right
-        ).groupby("cluster", sort=False, group_keys=True).apply(
-            lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
-        )
-        plate.circles = clusters.circle.tolist()
-
-    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True, plate_width_tolerance = 0.2):
+    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True, plate_width_tolerance=0.2):
         # default is currently just what our lab is used to using, a better default would be top_bottom = True
         logger.debug("Sort plates")
         axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
@@ -191,10 +189,10 @@ class Layout:
             self.filepath,
             f"Plate clustering by {'rows' if rows_first else 'cols'}"
         ) if self.args.debug else None
-        clusters = self.get_axis_clusters(
+        clusters = LayoutDetector.get_axis_clusters(
             axis_values,
             rows_first,
-            cut_height=(self.args.plate_width*(1+plate_width_tolerance)*0.5),
+            cut_height=(self.args.plate_width * (1 + plate_width_tolerance) * 0.5),
             fig=fig
         )
         if self.args.debug:
@@ -223,7 +221,7 @@ class Layout:
                 first = False
             else:
                 fig.add_subplot_row()
-            p.id = i+1
+            p.id = i + 1
             self.sort_circles(
                 p,
                 rows_first=not self.args.circles_cols_first,
@@ -235,14 +233,40 @@ class Layout:
             fig.print()
         return plates.tolist()
 
-    def get_plates_sorted(self):
+    def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True, fig=None):
+        logger.debug(f"sort circles for plate {plate.id}")
+        cut_height = int(self.args.circle_diameter * 0.5)
+        axis_values = np.array([c[int(rows_first)] for c in plate.circles])
+        clusters = LayoutDetector.get_axis_clusters(
+            axis_values,
+            rows_first,
+            cut_height=cut_height,
+            plate_id=plate.id,
+            fig=fig
+        )
+        clusters = DataFrame(
+            {
+                "cluster": clusters.flatten(),
+                "circle": plate.circles.tolist(),
+                "primary_axis": [c[int(rows_first)] for c in plate.circles],
+                "secondary_axis": [c[int(not rows_first)] for c in plate.circles]
+            }
+        )
+        clusters = clusters.sort_values(
+            "primary_axis", ascending=top_bottom if rows_first else left_right
+        ).groupby("cluster", sort=False, group_keys=True).apply(
+            lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
+        )
+        plate.circles = clusters.circle.tolist()
+
+    def get_layout(self):
         plates = self.find_plates(self.args.n_plates,  self.args.circles_per_plate)
-        if plates is None:
-            raise ImageContentException("The plate layout could not be detected")
-        return self.sort_plates(
+        plates = self.sort_plates(
             plates,
             rows_first=not self.args.plates_cols_first,
             left_right=not self.args.plates_right_left,
             top_bottom=not self.args.plates_bottom_top
         )
+        return Layout(plates)
+
 

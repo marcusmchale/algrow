@@ -65,17 +65,17 @@ class FigureBuilder:
             ax.set_position(gs[i].get_position(self.fig))
             ax.set_subplotspec(gs[i])
 
-    def add_image(self, img, label:str = None, color_bar=False, diverging=False, midpoint=None):
+    def add_image(self, img, label:str = None, color_bar=False, diverging=False, midpoint=None, picker=None):
         logger.debug("Add image to figure")
         axis = self.add_subplot()
         if label:
             axis.set_title(label, loc="left")
         if diverging and midpoint is not None:
-            pos = axis.imshow(img, cmap='RdBu_r', norm=colors.TwoSlopeNorm(vcenter=midpoint))
+            pos = axis.imshow(img, cmap='RdBu_r', norm=colors.TwoSlopeNorm(vcenter=midpoint), picker=picker)
         elif diverging:
-            pos = axis.imshow(img, cmap='RdBu_r')
+            pos = axis.imshow(img, cmap='RdBu_r', picker=picker)
         else:
-            pos = axis.imshow(img)
+            pos = axis.imshow(img, picker=picker)
         if color_bar:
             self.fig.colorbar(pos, ax=axis)
             # todo trying to add the midpoint to the axis ticks - failing for some reason...
@@ -85,6 +85,7 @@ class FigureBuilder:
             #    if midpoint not in ticks:
             #        ticks = np.insert(ticks, np.searchsorted(ticks, midpoint), midpoint)
             #    cbar.set_ticks(ticks)
+        return pos
 
 
     def plot_adjacency(self, rag, segments, background, prefix=None):
@@ -97,10 +98,8 @@ class FigureBuilder:
         for n in rag.nodes:
             axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
 
-
-
     def plot_colours(self, target_colours, npix = 10):
-        logger.debug('Prepare target colours plot')
+        logger.debug('Prepare colours plot')
         colour_plot = np.empty((0, 0, 3), int)
         for l,a,b in target_colours:
             colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
@@ -156,10 +155,14 @@ class FigureBuilder:
 
 
 
-    def print(self):
+    def print(self, large = False):
         if self.save:
-            self.fig.set_figwidth(8 * self.ncols)
-            self.fig.set_figheight(6 * self.nrows)
+            if large:
+                self.fig.set_figwidth(16 * self.ncols)
+                self.fig.set_figheight(12 * self.nrows)
+            else:
+                self.fig.set_figwidth(8 * self.ncols)
+                self.fig.set_figheight(6 * self.nrows)
             out_path = self.get_out_path()
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
