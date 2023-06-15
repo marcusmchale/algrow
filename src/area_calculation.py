@@ -11,16 +11,18 @@ from matplotlib import font_manager
 
 from .layout import LayoutDetector
 from .figurebuilder import FigureBuilder
-
+from .logging import CustomAdapter
 from .image_loading import ImageLoaded
 
 
 logger = logging.getLogger(__name__)
 
 
-def area_worker(filepath, alpha_shape, args):
-    logger.debug(f"Processing file: {filepath}")
-    result = ImageProcessor(filepath, alpha_shape, args).get_area()
+def area_worker(filepath, alpha_hull, args):
+    adapter = CustomAdapter(logger, {'image_filepath': str(filepath)})
+
+    adapter.debug(f"Processing file: {filepath}")
+    result = ImageProcessor(filepath, alpha_hull, args).get_area()
     filename = result["filename"]
     block_match = search(args.block_regex, str(filename))
     if block_match:
@@ -45,23 +47,24 @@ def area_worker(filepath, alpha_shape, args):
 
 
 class ImageProcessor:
-    def __init__(self, filepath, alpha_shape, args):
+    def __init__(self, filepath, alpha_hull, args):
         self.image = ImageLoaded(filepath, args)
-        self.alpha_shape = alpha_shape
+        self.alpha_hull = alpha_hull
         self.args = args
+        self.logger = CustomAdapter(logger, {'image_filepath': str(filepath)})
 
     def get_area(self):
-        logger.debug("Circle expansion")
+        self.logger.debug("Circle expansion")
         layout = LayoutDetector(self.image).get_layout()
 
         # break up the masked image into chunks of points as the signed_distance calculation gives OOM otherwise
         masked_lab = self.image.lab[layout.mask]
         ind = np.linspace(0, len(masked_lab), num=int(len(masked_lab)/1e5), dtype=int, endpoint=False)[1:]
 
-        logger.debug("Calculate distance from alphashape for all pixels")
+        self.logger.debug("Calculate distance from alpha hull for all pixels")
         distances = list()
         for c in np.split(masked_lab, ind):
-            dist_c = proximity.signed_distance(self.alpha_shape, c)
+            dist_c = proximity.signed_distance(self.alpha_hull, c)
             distances.append(dist_c)
         distances_array = np.concatenate(distances)
 
@@ -70,7 +73,7 @@ class ImageProcessor:
         distance_image[~layout.mask] = 0  # set masked region as 0
 
         if self.args.debug:
-            fig = FigureBuilder(self.image.filepath, self.args, 'alpha shape distance')
+            fig = FigureBuilder(self.image.filepath, self.args, 'Alpha hull distance')
             fig.add_image(distance_image, color_bar=True)
             fig.print(large=True)
 
@@ -83,17 +86,17 @@ class ImageProcessor:
             nrows=len([i for i in [self.args.remove, self.args.fill] if i])+1
         ) if self.args.debug else None
         if fig:
-            logger.debug("Raw mask from distance threshold")
+            self.logger.debug("Raw mask from distance threshold")
             fig.add_image(target_mask, "Raw mask")
 
         if self.args.remove:
-            logger.debug("Remove small objects in the mask")
+            self.logger.debug("Remove small objects in the mask")
             target_mask = remove_small_objects(target_mask, self.args.remove)
             if fig:
                 fig.add_image(target_mask, "Removed small objects")
 
         if self.args.fill:
-            logger.debug("Fill small holes in the mask")
+            self.logger.debug("Fill small holes in the mask")
             target_mask = remove_small_holes(target_mask, self.args.fill)
             if fig:
                 fig.add_image(target_mask, "Filled small holes")
@@ -101,7 +104,7 @@ class ImageProcessor:
             fig.print()
 
         if self.args.overlay or self.args.debug:
-            logger.debug("Prepare annotated overlay for QC")
+            self.logger.debug("Prepare annotated overlay for QC")
             blended = self.image.rgb.copy()
             contour = binary_dilation(target_mask, footprint=np.full((5,5), 1))
             contour[target_mask] = False
@@ -121,7 +124,7 @@ class ImageProcessor:
         }
 
         for p in layout.plates:
-            logger.debug(f"Processing plate {p.id}")
+            self.logger.debug(f"Processing plate {p.id}")
             for j, c in enumerate(p.circles):
                 unit = j+1+6*(p.id-1)
                 #logger.debug(f"Processing circle {unit}")

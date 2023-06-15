@@ -115,7 +115,7 @@ def options():
         "-al", "--alpha",
         help="Alpha value used to create concave hull around points, 0 to use the convex hull",
         type=float,
-        default=None
+        default=0
     )
     parser.add_argument(
         "-de", "--delta",
@@ -123,15 +123,11 @@ def options():
         type=float,
         default=10
     )
-
-    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
-    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument(
-        "-ao",
-        "--area_file",
-        help="Disc area filename for analysis (must be in the output directory)",
-        type=str,
-        default="area.csv"
+        "-nc", "--num_calibration",
+        help="Number of images to use for calibration",
+        type=int,
+        default=3
     )
     parser.add_argument(
         "-r",
@@ -147,6 +143,17 @@ def options():
         default=100,
         type=int
     )
+
+    parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
+    parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
+    parser.add_argument(
+        "-ao",
+        "--area_file",
+        help="Disc area filename for analysis (must be in the output directory)",
+        type=str,
+        default="area.csv"
+    )
+
     parser.add_argument(
         "-sc",
         "--scale",

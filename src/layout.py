@@ -11,7 +11,8 @@ from .figurebuilder import FigureBuilder
 from skimage.morphology import binary_dilation
 from skimage.color import deltaE_cie76
 from .picker import Picker
-from.image_loading import ImageLoaded
+from .image_loading import ImageLoaded
+from .logging import CustomAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class Plate:
 
 class Layout:
     def __init__(self, plates, image, args):
+        self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
         if plates is None:
             raise ImageContentException("The layout could not be detected")
         self.plates = plates
@@ -71,7 +73,7 @@ class Layout:
         return circle_mask.astype('bool')
 
     def _draw_mask(self):
-        logger.debug("Draw the circles mask")
+        self.logger.debug("Draw the circles mask")
         circles_mask = np.empty(self.dim).astype("bool")
         for circle in self.circles:
             circle_mask = self.get_circle_mask(circle)
@@ -93,6 +95,8 @@ class LayoutDetector:
         self.image = image
         self.args = image.args
 
+        self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
+
         circles_like = np.full_like(self.image.lab, self.args.circle_colour)
         self.distance = deltaE_cie76(self.image.lab, circles_like)
 
@@ -101,15 +105,13 @@ class LayoutDetector:
             fig.add_image(self.distance, "ΔE from circle colour", color_bar=True)
             fig.print()
 
-
-    @staticmethod
-    def hough_circles(image, hough_radii):
-        logger.debug("Find circles")
+    def hough_circles(self, image, hough_radii):
+        self.logger.debug("Find circles")
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
     def find_n_circles(self, n, attempt=0, fig=None):
-        logger.debug(f"find {n + attempt * 10} circles")
+        self.logger.debug(f"find {n + attempt * 10} circles")
         circle_radius_px = int(self.args.circle_diameter / 2)
         # each attempt we expand the number of radii to assess
         hough_radii = np.arange(circle_radius_px - (3 * (attempt + 1)), circle_radius_px + (3 * (attempt +1)), 2)
@@ -126,11 +128,11 @@ class LayoutDetector:
         # and circle expansion factor expands search area for mask/superpixels
         circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))).squeeze()
         if circles.shape[0] < n:
-            logger.debug(f'{str(circles.shape[0])} circles found')
+            self.logger.debug(f'{str(circles.shape[0])} circles found')
             raise InsufficientCircleDetection
         if fig:
             circle_debug = np.zeros_like(self.distance, dtype="bool")
-            logger.debug("draw circles")
+            self.logger.debug("draw circles")
             for circle in circles:
                 x = circle[0]
                 y = circle[1]
@@ -143,28 +145,28 @@ class LayoutDetector:
             overlay = np.copy(self.image.rgb)
             overlay[circle_debug] = 255
             fig.add_image(overlay, f"Attempt {attempt + 1}")
-        logger.debug(
+        self.logger.debug(
             f"{str(circles.shape[0])} circles found")
         return circles
 
     def find_n_clusters(self, circles, cluster_size, n, cluster_distance_tolerance=0.2, fig=None):
         centres = np.delete(circles, 2, axis=1)
         cut_height = int((self.args.circle_diameter + self.args.plate_circle_separation)*(1+cluster_distance_tolerance))
-        logger.debug("Create dendrogram of centre distances (linkage method)")
+        self.logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if fig:
             ax = fig.add_subplot()
-            logger.debug("Output dendrogram and treecut height for circle clustering")
-            logger.debug("Create dendrogram")
+            self.logger.debug("Output dendrogram and treecut height for circle clustering")
+            self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram, ax=ax)
-            logger.debug("Add cut-height line")
+            self.logger.debug("Add cut-height line")
             ax.axhline(y=cut_height, c='k')
             ax.set_title("Dendrogram")
-        logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
+        self.logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
         clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
         unique, counts = np.array(np.unique(clusters, return_counts=True))
         target_clusters = unique[[i for i, j in enumerate(counts.flat) if j == cluster_size]]
-        logger.debug(f"Found {len(target_clusters)} plates")
+        self.logger.debug(f"Found {len(target_clusters)} plates")
         if len(target_clusters) < n:
             raise InsufficientPlateDetection(f"Only {len(target_clusters)} plates found")
         elif len(target_clusters) > n:
@@ -181,13 +183,13 @@ class LayoutDetector:
             try:
                 clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates, fig=fig)
             except InsufficientPlateDetection:
-                logger.debug(f"Try again with detection of more circles")
+                self.logger.debug(f"Try again with detection of more circles")
                 if fig:
                     fig.add_subplot_row()
                 continue
             if fig:
                 fig.print()
-            logger.debug("Collect circles from target clusters into plates")
+            self.logger.debug("Collect circles from target clusters into plates")
             plates = [
                 Plate(
                     cluster_id,
@@ -196,15 +198,14 @@ class LayoutDetector:
             ]
             return plates
 
-    @staticmethod
-    def get_axis_clusters(axis_values, rows_first: bool, cut_height, plate_id=None, fig=None):
+    def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None, fig=None):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         if fig:
             ax = fig.add_subplot()
-            logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate {plate_id} clustering")
-            logger.debug("Create dendrogram")
+            self.logger.debug(f"Plot dendrogram for {'rows' if rows_first else 'cols'} axis plate {plate_id} clustering")
+            self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram,  ax=ax)
-            logger.debug("Add cut-height line")
+            self.logger.debug("Add cut-height line")
             ax.axhline(y=cut_height, c='k')
             if plate_id:
                 ax.set_title(f"Plate {plate_id}")
@@ -232,14 +233,14 @@ class LayoutDetector:
             if fig:
                 fig.print()
             return plates
-        logger.debug("Sort plates")
+        self.logger.debug("Sort plates")
         axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
         fig = FigureBuilder(
             self.image.filepath,
             self.args,
             f"Plate clustering by {'rows' if rows_first else 'cols'}"
         ) if self.args.debug else None
-        clusters = LayoutDetector.get_axis_clusters(
+        clusters = self.get_axis_clusters(
             axis_values,
             rows_first,
             cut_height=(self.args.plate_width * (1 + plate_width_tolerance) * 0.5),
@@ -285,10 +286,10 @@ class LayoutDetector:
         return plates.tolist()
 
     def sort_circles(self, plate, rows_first=True, left_right=True, top_bottom=True, fig=None):
-        logger.debug(f"sort circles for plate {plate.id}")
+        self.logger.debug(f"sort circles for plate {plate.id}")
         cut_height = int(self.args.circle_diameter * 0.5)
         axis_values = np.array([c[int(rows_first)] for c in plate.circles])
-        clusters = LayoutDetector.get_axis_clusters(
+        clusters = self.get_axis_clusters(
             axis_values,
             rows_first,
             cut_height=cut_height,

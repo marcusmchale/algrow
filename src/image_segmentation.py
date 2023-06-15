@@ -8,6 +8,7 @@ from skimage.color import deltaE_cie76, lab2rgb, label2rgb
 from skimage.measure import regionprops_table
 
 from .figurebuilder import FigureBuilder
+from .logging import CustomAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 class Segments:
 
     def __init__(self, image, layout):
+        self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
         self.image = image
         self.args: argparse.Namespace = image.args
         self.layout = layout
@@ -24,7 +26,7 @@ class Segments:
         self.regions = None
 
     def segment(self):
-        logger.debug(f"Perform SLIC for superpixel identification")
+        self.logger.debug(f"Perform SLIC for superpixel identification")
         self.mask: np.ndarray = slic(
             self.image.rgb,
             # this slic implementation has broken behaviour when using the existing lab transformation and convert2lab=false
@@ -41,11 +43,11 @@ class Segments:
             #slic_zero=True,  # tried this out - here compactness is the initial compactness,
             convert2lab=True  # see above
         )
-        logger.debug(f"SLIC complete: {len(np.unique(self.mask)) -1} segments")
+        self.logger.debug(f"SLIC complete: {len(np.unique(self.mask)) -1} segments")
         # The slic output includes segment labels that span circles
         # This breaks graph building but also seems to not reflect accurate clustering todo investigate this
         # Clean it up by iterating through circles and relabel segments if found in another circle
-        logger.debug('Clean up segments spanning multiple circles')
+        self.logger.debug('Clean up segments spanning multiple circles')
         circles_per_segment = defaultdict(int)
         segment_counter = np.max(self.mask)
         for circle in self.layout.circles:
@@ -60,8 +62,8 @@ class Segments:
                     # add a new segment for this ID in this circle
                     segment_counter += 1
                     self.mask[circle_segments == i] = segment_counter
-        logger.debug(f"Cleanup complete: {len(np.unique(self.mask)) - 1} segments")
-        logger.debug("Calculate region properties table")
+        self.logger.debug(f"Cleanup complete: {len(np.unique(self.mask)) - 1} segments")
+        self.logger.debug("Calculate region properties table")
         self.regions = pd.DataFrame(regionprops_table(
                 self.mask,
                 intensity_image=self.image.lab,
@@ -102,9 +104,9 @@ class Segments:
 
     def mark_boundaries(self):
         if self.mask is None:
-            logger.debug("Cannot mark boundaries without first segmenting, running segmentation first")
+            self.logger.debug("Cannot mark boundaries without first segmenting, running segmentation first")
             self.segment()
-        logger.debug("Create boundary image")
+        self.logger.debug("Create boundary image")
         self.boundaries = mark_boundaries(self.image.rgb, self.mask, background_label=0)
 
     @staticmethod

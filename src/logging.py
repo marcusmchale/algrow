@@ -1,4 +1,6 @@
 from .options import options
+import logging
+
 
 args = options().parse_args()
 
@@ -8,7 +10,7 @@ LOGGING_CONFIG = {
     'disable_existing_loggers': True,
     'formatters': {
         'standard': {
-            'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+            'format': '%(asctime)s [%(levelname)s] %(name)s : %(message)s'
         },
     },
     'handlers': {
@@ -37,3 +39,8 @@ LOGGING_CONFIG = {
         },
     }
 }
+
+
+class CustomAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['image_filepath'], msg), kwargs

@@ -1,6 +1,5 @@
 import logging
 import argparse
-from importlib import reload
 
 import numpy as np
 import pandas as pd
@@ -8,7 +7,7 @@ from pathlib import Path
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider, Button, CheckButtons, TextBox
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
@@ -19,6 +18,7 @@ from trimesh import PointCloud, proximity
 
 from typing import List
 
+from .logging import CustomAdapter
 from .image_loading import ImageLoaded
 from .layout import LayoutDetector, Layout
 from .image_segmentation import Segments
@@ -26,46 +26,62 @@ from .figurebuilder import FigureBuilder
 
 logger = logging.getLogger(__name__)
 
-# todo make all logging start with the filename so can make sense of this when multithreading
+# todo make all logging start with the filename so can make sense logs when multithreading
+# consider getting getting a new logger per filename
 
 
 def image_worker(filepath: Path, args: argparse.Namespace):
-    logger.debug(f"Processing file for calibration: {filepath}")
+    adapter = CustomAdapter(logger, {'image_filepath': str(filepath)})
+    adapter.debug(f"Loadin file for calibration: {filepath}")
     image = ImageLoaded(filepath, args)
-    logger.debug(f"Detect layout for: {filepath}")
+    adapter.debug(f"Detect layout for: {filepath}")
     layout: Layout = LayoutDetector(image).get_layout()
-    logger.debug(f"Segment: {filepath}")
+    adapter.debug(f"Segment: {filepath}")
     segments: Segments = Segments(image, layout).get_segments()
-    logger.debug(f"Prepare a segment boundary image for clicker")
+    adapter.debug(f"Prepare a segment boundary image for clicker")
     segments.mark_boundaries()
-    logger.debug(f"Done preparing image: {filepath}")
+    adapter.debug(f"Done preparing image: {filepath}")
     return segments
 
 
-class Clicker:
+class Configurator:
     def __init__(self, image_filepaths: List[Path], args: argparse.Namespace):
-        logger.debug("Start calibration window")
+        logger.debug("Prepare for calibration")
         self.image_filepaths = image_filepaths
         self.args = args
 
         # The below are defined by the selector windows and updated when we disconnect it
         self.selection = defaultdict(set)
         self.selected_lab = None
-        self.alpha = None
-        self.alpha_shape = None
+        self.alpha = self.args.alpha
+        self.alpha_hull = None
+        self.delta = self.args.delta
 
         # Now prepare some images to open in the selector window
         self.filepath_segments = dict()
-        with ProcessPoolExecutor(max_workers=args.processes, mp_context=get_context('spawn')) as executor:
-            future_to_file = {executor.submit(image_worker, filepath, args): filepath for filepath in image_filepaths}
-            for future in as_completed(future_to_file):
-                filepath = future_to_file[future]
+
+        if self.args.processes > 1:
+            with ProcessPoolExecutor(max_workers=args.processes, mp_context=get_context('spawn')) as executor:
+                future_to_file = {executor.submit(image_worker, filepath, args): filepath for filepath in image_filepaths}
+                for future in as_completed(future_to_file):
+                    filepath = future_to_file[future]
+                    try:
+                        segments = future.result()
+                        self.filepath_segments[filepath] = segments
+                    except Exception as exc:
+                        print('%r generated an exception: %s' % (filepath, exc))
+        else:
+            for filepath in image_filepaths:
                 try:
-                    segments = future.result()
+                    segments = image_worker(filepath, args)
                     self.filepath_segments[filepath] = segments
                 except Exception as exc:
                     print('%r generated an exception: %s' % (filepath, exc))
         logger.debug(f"images processed: {len(self.filepath_segments.keys())}")
+
+        if len(list(self.filepath_segments.keys())) != len(self.image_filepaths):
+            logger.warning("Some images selected for calibration did not complete segmentation")
+            self.image_filepaths = list(self.filepath_segments.keys())  # in case some did not segment properly
 
         # Prepare some summary dataframes for the segments
         self.segments_lab = pd.concat(
@@ -86,16 +102,30 @@ class Clicker:
 
         self.ind = 0  # index for the images used when navigating prev/next
 
-        axdelta = self.fig.add_axes([0.1, 0, 0.5, 0.025])
-        self.delta_slider = Slider(ax=axdelta, label="Delta", valmin=0, valmax=50, valinit=self.args.delta)
+        axialpha = self.fig.add_axes([0.1, 0.025, 0.075, 0.025])
+        self.ialpha = TextBox(axialpha, 'Alpha', initial=self.alpha)
 
-        axprev = self.fig.add_axes([0.8, 0, 0.075, 0.05])
+        axbalpha = self.fig.add_axes([0.2, 0.025, 0.075, 0.05])
+        self.balpha = Button(axbalpha, 'Optimise\nAlpha')
+
+        axidelta = self.fig.add_axes([0.4, 0.025, 0.075, 0.025])
+        self.idelta = TextBox(axidelta, "Delta", initial=self.delta)
+
+        axchecks = self.fig.add_axes([0.5, 0.025, 0.1, 0.05])
+        self.bcheck = CheckButtons(
+            axchecks,
+            labels=['selection', 'within'],
+            actives=[True, True]
+        )
+
+        axprev = self.fig.add_axes([0.6, 0.025, 0.075, 0.05])
         self.bprev = Button(axprev, 'Prev')
         self.bprev.on_clicked(self.prev)
 
-        axnext = self.fig.add_axes([0.9, 0, 0.075, 0.05])
+        axnext = self.fig.add_axes([0.7, 0.025, 0.075, 0.05])
         self.bnext = Button(axnext, 'Next')
         self.bnext.on_clicked(self.next)
+
 
         # Load the first image into the figure
         first_image_segments = self.filepath_segments[image_filepaths[self.ind]]
@@ -106,15 +136,22 @@ class Clicker:
             first_image_segments,
             self.fig,
             self.artist,
-            self.delta_slider
+            self.idelta,
+            self.ialpha,
+            self.balpha,
+            self.bcheck,
+            alpha=self.alpha,
+            delta=self.delta
         )
         plt.show()
         # when we are done we update values from the final selector window back to self
         self.disconnect_selector()
 
-
     def plot_all(self, path):
-        fig = FigureBuilder(path, self.args, 'LAB colourspace (all sampled images) with alpha shape selection')
+        if not self.alpha_hull:
+            logger.warning("Configuration is incomplete, will not attempt to print summary figure")
+            return
+        fig = FigureBuilder(path, self.args, 'LAB colourspace (all sampled images) with alpha hull selection')
         ax = fig.add_subplot(projection='3d')
         ax.scatter(
             xs=self.segments_lab['a'],
@@ -126,9 +163,9 @@ class Clicker:
         )
         ax.plot_trisurf(
             *zip(
-                *self.alpha_shape.vertices[:, [1, 2, 0]]
+                *self.alpha_hull.vertices[:, [1, 2, 0]]
             ),
-            triangles=self.alpha_shape.faces[:, [1, 2, 0]],
+            triangles=self.alpha_hull.faces[:, [1, 2, 0]],
             color=(0, 1, 0, 0.5)
         )
         fig.animate()
@@ -158,9 +195,14 @@ class Clicker:
             self.filepath_segments[self.image_filepaths[self.ind]],
             self.fig,
             self.artist,
-            self.delta_slider,
+            self.idelta,
+            self.ialpha,
+            self.balpha,
+            self.bcheck,
             existing_selection=self.selection[self.image_filepaths[self.ind]],
-            prior_lab=prior_lab
+            prior_lab=prior_lab,
+            alpha=self.alpha,
+            delta=self.delta
         )
         self.fig.canvas.draw()
         logger.debug('new image loaded')
@@ -169,7 +211,8 @@ class Clicker:
         prior_image_path = self.selector.segments.image.filepath
         self.selection[prior_image_path] = self.selector.selection
         self.alpha = self.selector.alpha
-        self.alpha_shape = self.selector.alpha_shape
+        self.alpha_hull = self.selector.alpha_hull
+        self.delta = self.selector.delta
         selection_indices = [(k, i) for k, v in self.selection.items() for i in v]
         self.selected_lab = self.segments_lab.loc[selection_indices].to_numpy().round(decimals=1)
 
@@ -177,18 +220,23 @@ class Clicker:
         logger.info(f'Colours selected: {colours_string}')
         self.selector.disconnect()
 
+    def disconnect(self):
+        raise NotImplementedError
+        #todo should probably clean up the connections to checkbox and textboxes
 
 
 class ClickSelect:
 
-    def __init__(self, segments, fig, artist, delta_slider, existing_selection=None, prior_lab=None):
+    def __init__(self, segments, fig, artist, delta_text, alpha_text, alpha_button, checkbuttons, existing_selection=None, prior_lab=None, alpha=None, delta=None):
 
         self.segments = segments
         self.displayed_img = self.segments.boundaries.copy()
 
         self.fig = fig
         self.artist = artist
-        self.delta_slider = delta_slider
+        self.delta_text = delta_text
+        self.alpha_text = alpha_text
+        self.checkbuttons = checkbuttons
 
         if existing_selection is not None:
             self.selection = existing_selection
@@ -208,8 +256,9 @@ class ClickSelect:
         #   this would help to see clusters
         #   maybe color only those from current image to differentiate
 
-        self.alpha_shape = None
-        self.alpha = None
+        self.alpha_hull = None
+        self.alpha = alpha
+        self.delta = delta
         self.trisurf = None
 
         self.click = self.fig.canvas.mpl_connect('pick_event', self.onclick)
@@ -217,9 +266,14 @@ class ClickSelect:
         # self.keypress = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
         # self.keyrelease = self.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
 
-        self.delta_slider.on_changed(self.update_img)
-        self.update_img()
+        self.delta_text.on_submit(self.set_delta)
+        self.alpha_text.on_submit(self.set_alpha)
+        alpha_button.on_clicked(self.optimise_alpha)
 
+        self.highlight_selection, self.highlight_within = self.checkbuttons.get_status()
+        self.checkbuttons.on_clicked(self.update_highlighting)
+
+        self.update_img()
 
     #def on_key_press(self, event):
     #    if event.key == 'shift':
@@ -252,60 +306,92 @@ class ClickSelect:
             self.selection.add(segment)
         logger.debug(f"selection: {self.selection}")
         #logger.debug(f"background {self.background}")
-        self.update_img(points_changed=True)
+        self.update_img(recalculate_alpha_hull=True)
 
     def disconnect(self):
         self.fig.canvas.mpl_disconnect(self.click)
         #self.fig.canvas.mpl_disconnect(self.keypress)
         #self.fig.canvas.mpl_disconnect(self.keyrelease)
 
-    def update_img(self, _=None, points_changed=False):
+    def set_alpha(self, _):
+        try:
+            self.alpha = float(self.alpha_text.text)
+        except ValueError:
+            logger.debug("Value for alpha text input could not be coerced to float")
+            self.alpha_text.set_val(self.alpha)
+        self.update_img(recalculate_alpha_hull=True)
+
+    def set_delta(self, _):
+        try:
+            self.delta = float(self.delta_text.text)
+        except ValueError:
+            logger.debug("Value for delta text input could not be coerced to float")
+            self.alpha_text.set_val(self.delta)
+        self.update_img()
+
+    def optimise_alpha(self, _=None):
+        points = self.get_points()
+        if len(points) >= 4:
+            logger.debug(f"optimising alpha")
+            self.alpha = round(optimizealpha(points), ndigits=3)
+            logger.debug(f"optimised alpha: {self.alpha}")
+        else:
+            self.alpha = None
+            self.alpha_hull = None
+            logger.debug(f"Insufficient points to construct polygon")
+        self.alpha_text.set_val(self.alpha)
+        self.update_img(recalculate_alpha_hull=True)
+
+    def update_highlighting(self, _=None):
+        self.highlight_selection, self.highlight_within = self.checkbuttons.get_status()
+        self.update_img()
+
+    def get_points(self):
+        if self.selection:
+            selection_lab = self.segments.lab.loc[list(self.selection)].values
+            points = list(self.prior_lab.union(set(map(tuple, selection_lab))))
+        else:
+            points = list(self.prior_lab)
+        return points
+
+    def update_img(self, _=None, recalculate_alpha_hull=False):
         self.displayed_img = self.segments.boundaries.copy()
-
-        if points_changed or self.alpha_shape is None:
-            logger.debug('update points')
-            if self.selection:
-                selection_lab = self.segments.lab.loc[list(self.selection)].values
-                points = list(self.prior_lab.union(set(map(tuple, selection_lab))))
+        points = self.get_points()
+        if (recalculate_alpha_hull or self.alpha_hull is None) and len(points) >= 4:
+            if self.alpha is None or self.alpha == 0:
+                # the api for alphashape is a bit strange,
+                # it returns a shapely polygon when alpha is 0
+                # rather than a trimesh object which is returned for other values of alpha
+                # so just calculate the convex hull with trimesh to ensure we get a consistent return value
+                self.alpha_hull = PointCloud(points).convex_hull
             else:
-                points = list(self.prior_lab)
-            if len(points) >= 4:
-                logger.debug('update alpha shape')
-                logger.debug(f"optimising alpha")
-                self.alpha = optimizealpha(points)
-                logger.debug(f"optimised alpha: {self.alpha}")
+                self.alpha_hull = alphashape(np.array(points), self.alpha)
 
-                if self.alpha == 0:
-                    # the api for alphashape is a bit strange,
-                    # it returns a shapely polygon when alpha is 0
-                    # rather than a trimesh object which is returned for other values of alpha
-                    # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                    self.alpha_shape = PointCloud(points).convex_hull
-                else:
-                    self.alpha_shape = alphashape(np.array(points), self.alpha)
-            else:
-                self.alpha_shape = None
-
-        if self.alpha_shape:
-            distance = proximity.signed_distance(self.alpha_shape, self.segments.lab)
-            contained = list(self.segments.lab[distance >= -self.delta_slider.val].index)
+        if self.alpha_hull is not None:
+            distance = proximity.signed_distance(self.alpha_hull, self.segments.lab)
+            contained = list(self.segments.lab[distance >= -self.delta].index)
             logger.debug(f"contained: {contained}")
             # below we reorder the vertices so L is the z axis
             if self.trisurf is not None:
-                logger.debug("remove existing alpha shape from plot")
+                logger.debug("remove existing alpha hull from plot")
                 self.trisurf.remove()
-            logger.debug("Draw alpha shape on plot")
-            self.trisurf = self.lab_ax.plot_trisurf(*zip(*self.alpha_shape.vertices[:,[1,2,0]]), triangles=self.alpha_shape.faces[:,[1,2,0]], color=(0,1,0,0.5))
-            #self.lab_ax.scatter(xs=self.segments.lab['a'], ys=self.segments.lab['b'], zs=self.segments.lab['L'], s=10, c=self.segments.rgb, lw=0)
+            logger.debug("Draw alpha hull on plot")
+            self.trisurf = self.lab_ax.plot_trisurf(
+                *zip(*self.alpha_hull.vertices[:, [1, 2, 0]]),
+                triangles=self.alpha_hull.faces[:, [1, 2, 0]],
+                color=(0, 1, 0, 0.5)
+            )
             self.lab_fig.canvas.draw()
-            # todo consider update rather than recalculate alpha shape
         else:
             contained: list = list(self.selection)
+            if self.trisurf is not None:
+                self.trisurf.remove()
+            self.lab_fig.canvas.draw()
 
-        self.displayed_img[np.isin(self.segments.mask, contained)] = [0, 100, 0]
-        self.displayed_img[np.isin(self.segments.mask, list(self.selection))] = [0, 0, 100]
-        #self.displayed_img[np.isin(self.image.segments.mask, list(self.background))] = [100, 0, 0]
-        #self.displayed_img[np.isin(self.image.segments.mask, list(self.background)) & np.isin(self.segments.mask, contained)] = [100, 0, 100]
+        if self.highlight_within:
+            self.displayed_img[np.isin(self.segments.mask, list(set(contained)-self.selection))] = [0, 100, 0]
+        if self.highlight_selection:
+            self.displayed_img[np.isin(self.segments.mask, list(self.selection))] = [0, 0, 100]
 
         self.artist.set_data(self.displayed_img)
         self.fig.canvas.draw()

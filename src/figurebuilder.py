@@ -7,7 +7,7 @@ from skimage import graph
 from networkx import set_edge_attributes, get_edge_attributes
 from matplotlib import animation, get_backend
 from .options import options
-
+from .logging import CustomAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,13 @@ class FigureBuilder:
     def __init__(self, img_path, args, step_name, nrows = 1, ncols = 1, force = None): # todo refactor force to something like loglevels
         self.img_path = img_path
         self.args = args
+        self.logger = CustomAdapter(logger, {'image_filepath': img_path})
 
         self.plot = args.debug in ['plot', 'both'] or force in ['plot', 'both']
         self.save = args.debug in ['save', 'both'] or force in ['save', 'both']
         if args.processes > 1:
             if self.plot in ["plot", "both"]:
-                logger.warning("Cannot use interactive plotting in multithreaded mode")
+                self.logger.warning("Cannot use interactive plotting in multithreaded mode")
                 self.plot = False
 
         self.step_name = step_name
@@ -59,7 +60,7 @@ class FigureBuilder:
         return self.fig.add_subplot(self.nrows, self.ncols, self.current_ax_index + 1, projection=projection)
 
     def add_subplot_row(self):
-        logger.debug("Add another row of subplots to existing figure")
+        self.logger.debug("Add another row of subplots to existing figure")
         self.nrows += 1
         self.fig.canvas.draw()
         gs = gridspec.GridSpec(self.nrows, self.ncols, figure=self.fig)
@@ -68,7 +69,7 @@ class FigureBuilder:
             ax.set_subplotspec(gs[i])
 
     def add_image(self, img, label:str = None, color_bar=False, diverging=False, midpoint=None, picker=None):
-        logger.debug("Add image to figure")
+        self.logger.debug("Add image to figure")
         axis = self.add_subplot()
         if label:
             axis.set_title(label, loc="left")
@@ -91,7 +92,7 @@ class FigureBuilder:
 
 
     def plot_adjacency(self, rag, segments, background, prefix=None):
-        logger.debug("Add adjacency plot to figure")
+        self.logger.debug("Add adjacency plot to figure")
         axis = self.add_subplot()
         set_edge_attributes(rag, get_edge_attributes(rag, "delta_e"), name="weight")
         lc = graph.show_rag(segments, rag, background, border_color='white', ax=self.current_axis, edge_width=0.5)
@@ -101,7 +102,7 @@ class FigureBuilder:
             axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
 
     def plot_colours(self, target_colours, npix = 10):
-        logger.debug('Prepare colours plot')
+        self.logger.debug('Prepare colours plot')
         colour_plot = np.empty((0, 0, 3), int)
         for l,a,b in target_colours:
             colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
@@ -130,7 +131,7 @@ class FigureBuilder:
             ax.view_init(azim=ii[0], elev=ii[1])
             return [ax]
 
-        logger.debug("Making animation")
+        self.logger.debug("Making animation")
         out_path = self.get_out_path(suffix='.gif')
         out_path.parent.mkdir(parents=True, exist_ok=True)
         rot_animation = animation.FuncAnimation(
@@ -143,7 +144,7 @@ class FigureBuilder:
         try:
             rot_animation.save(str(out_path), dpi=80, writer='imagemagick')
         except OSError:
-            logger.debug('failed to generate animation of 3d plot - requires imagemagick')
+            self.logger.debug('failed to generate animation of 3d plot - requires imagemagick')
             # todo adapt this to work on windows systems using Pillow or similar
             pass
         self.current_axis.view_init(elev=45, azim=45)
@@ -161,12 +162,12 @@ class FigureBuilder:
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             self.fig.savefig(str(out_path), dpi=300)
-            logger.debug(f"Save figure: {self.step_name, self.img_path}")
+            self.logger.debug(f"Save figure: {self.step_name, self.img_path}")
         if self.plot:
             self.fig.set_figwidth(4 * self.ncols)
             self.fig.set_figheight(3 * self.nrows)
             self.fig.set_dpi(100)
-            logger.debug(f"Show figure: {self.step_name, self.img_path}")
+            self.logger.debug(f"Show figure: {self.step_name, self.img_path}")
             plt.show()
             ## todo, might prefer to use fig.show but that requires a managed event loop
             # or all the figures are rendered at the end.

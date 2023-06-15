@@ -12,12 +12,13 @@ from .options import options, update_arg
 from .figurebuilder import FigureBuilder
 from .image_loading import ImageLoaded
 from .picker import Picker
-from .calibration import Clicker
+from .calibration import Configurator
 from .area_calculation import area_worker
 from .analysis import AreaAnalyser
 
 
 logger = logging.getLogger(__name__)
+
 
 
 def discgrow():
@@ -61,22 +62,22 @@ def discgrow():
         fig.plot_colours([args.circle_colour])
         fig.print()
 
-    # Need points to construct alphashape for target colours selection
+    # Need points to construct alpha hull for target colours selection
     # Get this from a sample of images across the sequence
-    if args.target_colours is None or len(args.target_colours) < 4:  # 4 is the minimum points to define an alpha_shape
+    if args.target_colours is None or len(args.target_colours) < 4:  # 4 is the minimum points to define an alpha_hull
         if args.target_colours is not None and len(args.target_colours) < 0:
             logger.warning("Less than 4 target colours specified - discarding provided colours")
-        n = 3  # select at most n images for calibration, spaced evenly across the input sequence
-        idx = np.unique(np.round(np.linspace(0, len(image_filepaths) - 1, n)).astype(int))
+        idx = np.unique(np.round(np.linspace(0, len(image_filepaths) - 1, args.num_calibration)).astype(int))
         sample_images = list(np.array(image_filepaths)[idx])
-        clicker = Clicker(sample_images, args)
-        if clicker.alpha_shape is None:
+        logger.debug(f"Sampled {args.num_calibration} images for calibration")
+        clicker = Configurator(sample_images, args)
+        if clicker.alpha_hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 points")
         if args.debug:
             clicker.plot_all(".")
         update_arg(args, 'alpha', clicker.alpha)
-        update_arg(args, "target_colours", list(map(tuple, clicker.selected_lab.tolist())))
-        update_arg(args, 'delta', clicker.delta_slider.val)
+        update_arg(args, "target_colours", list(map(tuple, clicker.alpha_hull.vertices.tolist())))
+        update_arg(args, 'delta', clicker.delta)
 
     if args.debug:
         fig = FigureBuilder(".", args, "Target colours")
@@ -97,15 +98,15 @@ def discgrow():
         text_file.write(f"alpha = {args.alpha}\n")
         text_file.write(f"delta = {args.delta}\n")
 
-    # Construct alpha shape from target colours
+    # Construct alpha hull from target colours
     if args.alpha == 0:
         # the api for alphashape is a bit strange,
         # it returns a shapely polygon when alpha is 0
         # rather than a trimesh object which is returned for other values of alpha
         # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-        alpha_shape = PointCloud(args.target_colours).convex_hull
+        alpha_hull = PointCloud(args.target_colours).convex_hull
     else:
-        alpha_shape = alphashape(np.array(args.target_colours), args.alpha)
+        alpha_hull = alphashape(np.array(args.target_colours), args.alpha)
 
     # prepare output file for results
     area_out = Path(args.out_dir, args.area_file)
@@ -131,7 +132,7 @@ def discgrow():
         if args.processes > 1:
             with ProcessPoolExecutor(max_workers=args.processes,  mp_context=get_context('spawn')) as executor:
                 future_to_file = {
-                    executor.submit(area_worker, filepath, alpha_shape, args): filepath for filepath in image_filepaths
+                    executor.submit(area_worker, filepath, alpha_hull, args): filepath for filepath in image_filepaths
                 }
                 for future in as_completed(future_to_file):
                     fp = future_to_file[future]
@@ -146,7 +147,7 @@ def discgrow():
         else:
             for filepath in image_filepaths:
                 try:
-                    result = area_worker(filepath, alpha_shape, args)
+                    result = area_worker(filepath, alpha_hull, args)
                     for record in result:
                         csv_writer.writerow(record)
                 except Exception as exc:
