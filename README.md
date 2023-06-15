@@ -55,6 +55,9 @@ Features/parameters:
   - debugging pipeline with images for each step and dendrograms for clustering in layout detection (-D)
   - overlay images with the final image mask, defined circles and plate/circle identifiers (-q) 
 
+reading: # https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub
+the above uses kmeans for initial clustering, could be doing this but prefer supervised for a single target cluster
+
 ## Get started
 ### Distribution
 

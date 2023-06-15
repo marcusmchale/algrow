@@ -5,31 +5,33 @@ from skimage.color import lab2rgb
 from matplotlib import pyplot as plt, gridspec, use, colors
 from skimage import graph
 from networkx import set_edge_attributes, get_edge_attributes
-from matplotlib import animation
+from matplotlib import animation, get_backend
 from .options import options
 
 
 logger = logging.getLogger(__name__)
-args = options().parse_args()
 
 
 class FigureBuilder:
-    if args.processes > 1:
-        if args.debug in ["plot", "both"]:
-            logger.warning("Cannot use interactive plotting in multithreaded mode")
-        use('Agg')
     counter = 0
 
-    def __init__(self, img_path, step_name, nrows = 1, ncols = 1, force = None):
+    def __init__(self, img_path, args, step_name, nrows = 1, ncols = 1, force = None): # todo refactor force to something like loglevels
         self.img_path = img_path
+        self.args = args
+
+        self.plot = args.debug in ['plot', 'both'] or force in ['plot', 'both']
+        self.save = args.debug in ['save', 'both'] or force in ['save', 'both']
+        if args.processes > 1:
+            if self.plot in ["plot", "both"]:
+                logger.warning("Cannot use interactive plotting in multithreaded mode")
+                self.plot = False
+
         self.step_name = step_name
         self.nrows = nrows
         self.ncols = ncols
         self.force = force
         self.fig = plt.figure()
-        #self.fig, self.ax = plt.subplots(nrows if nrows else 1, ncols if ncols else 1, num=self.step_name, squeeze=False, layout="constrained", projection=projection)
-        self.plot = args.debug in ['plot', 'both'] or self.force in ['plot', 'both']
-        self.save = args.debug in ['save', 'both'] or self.force in ['save', 'both']
+
         self.out_dir = args.out_dir
         self.row_counter = 1
         self.col_counter = 0
@@ -112,39 +114,31 @@ class FigureBuilder:
         self.current_axis.get_xaxis().set_visible(False)
 
     def get_out_path(self, suffix='.png'):
-        if args.processes > 1:
-            out_path = Path(
-                self.out_dir,
-                "debug",
-                self.step_name,
-                Path(Path(self.img_path).stem).with_suffix(suffix)
-            )
-        else:
-            out_path = Path(
-                self.out_dir,
-                "debug",
-                Path(self.img_path).stem,
-                Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix(suffix)
-            )
+        out_path = Path(
+            self.out_dir,
+            "debug",
+            Path(self.img_path).stem,
+            Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix(suffix)
+        )
         return out_path
 
     def animate(self):
-        if not args.animations & self.save:
+        if not self.args.animations & self.save:
             return
-        def rotate(angle, ax):
-            ax.view_init(azim=angle)
+
+        def rotate(ii, ax):
+            ax.view_init(azim=ii[0], elev=ii[1])
             return [ax]
 
         logger.debug("Making animation")
         out_path = self.get_out_path(suffix='.gif')
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        # as animation seems to create multiple instances (and hence triggers the counter)
         rot_animation = animation.FuncAnimation(
             self.fig,
             rotate,
             fargs=[self.current_axis],
-            frames=np.arange(0, 360, 10),
-            interval=200
+            frames=np.array([np.arange(0, 720, 20), np.arange(0, 180, 5)]).T,
+            interval=500
         )
         try:
             rot_animation.save(str(out_path), dpi=80, writer='imagemagick')
@@ -152,7 +146,7 @@ class FigureBuilder:
             logger.debug('failed to generate animation of 3d plot - requires imagemagick')
             # todo adapt this to work on windows systems using Pillow or similar
             pass
-
+        self.current_axis.view_init(elev=45, azim=45)
 
 
     def print(self, large = False):

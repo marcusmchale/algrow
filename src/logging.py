@@ -20,7 +20,7 @@ LOGGING_CONFIG = {
         },
     },
     'loggers': {
-        '': {  # root logger
+        '': {  # root logger  # I prefer to set this as WARNING, otherwise we get debug from loaded packages as well
             'handlers': ['default'],
             'level': 'WARNING',
             'propagate': False

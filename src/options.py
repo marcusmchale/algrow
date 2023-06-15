@@ -2,16 +2,27 @@ import argparse
 
 from configargparse import ArgumentParser
 from pathlib import Path
+
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 def lab(s: str):
     try:
         l, a, b = map(float, s.split(','))
         return l, a, b
-    except:
+    except ValueError:
         raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 float values : {s}')
+
+
+def update_arg(args, arg, val):
+    if vars(args)[arg] is None:
+        logger.info(f"Setting {arg}: {val}")
+    else:
+        logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]}")
+    vars(args).update({arg: val})
+
 
 # Parse command-line arguments
 def options():
@@ -57,8 +68,8 @@ def options():
         help=(
             "Plots intermediate images for debugging/tuning"
         ),
-        choices = ["save", "plot", "both"],
-        default = None
+        choices=["save", "plot", "both"],
+        default=None
     )
     parser.add_argument(
         "-l",
@@ -78,8 +89,14 @@ def options():
     parser.add_argument(
         '-spc', "--superpixel_compactness",
         help="Superpixel compactness, higher is more regular (square)",
-        type=int,
-        default=20
+        type=float,
+        default=1
+    )
+    parser.add_argument(
+        '-sig', "--sigma",
+        help="Smoothing kernel applied before superpixel clustering",
+        type=float,
+        default=1
     )
     parser.add_argument(
         "-cc", "--circle_colour",
@@ -88,37 +105,25 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-tc", "--target_colour",
-        help="Target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
+        "-tc", "--target_colours",
+        help="Target colour points in Lab colourspace as comma separated floats, at least 4 points are required",
         type=lab,
         default=None,
         action='append'
     )
     parser.add_argument(
-        "-ntc", "--non_target_colour",
-        help="Non-target colour in Lab colourspace as comma separated integers. Multiple targets are accepted",
-        type=lab,
-        default=None,
-        action='append'
+        "-al", "--alpha",
+        help="Alpha value used to create concave hull around points, 0 to use the convex hull",
+        type=float,
+        default=None
     )
     parser.add_argument(
-        "-td", "--target_dist",
-        help="Maximum distance from target colour to consider a superpixel as the start of a target cluster",
-        type=int,
-        default=8
+        "-de", "--delta",
+        help="Maximum distance outside of target polygon to consider as target",
+        type=float,
+        default=10
     )
-    parser.add_argument(
-        "-ntd", "--non_target_dist",
-        help="Maximum distance from non-target colour to consider a superpixel as non-target",
-        type=int,
-        default=8
-    )
-    parser.add_argument(
-        "-gd", "--graph_dist",
-        help="Maximum colour distance between adjacent superpixels in a target cluster - set to 0 to avoid graph construction",
-        type=int,
-        default=8
-    )
+
     parser.add_argument("-fs", "--fit_start", help="Start (day) for RGR calculation", type=int, default=0)
     parser.add_argument("-fe", "--fit_end", help="End (day) for RGR calculation", type=int, default=float('inf'))
     parser.add_argument(
