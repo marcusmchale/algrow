@@ -13,12 +13,18 @@ def lab(s: str):
         l, a, b = map(float, s.split(','))
         return l, a, b
     except ValueError:
-        raise argparse.ArgumentTypeError(f'Colour must be a tuple of 3 float values : {s}')
+        raise argparse.ArgumentTypeError(f'Each colour must be a string with 3 comma separated float values: {s}')
 
 
 def update_arg(args, arg, val):
+    if isinstance(val, list) and isinstance(val[0], tuple):
+        val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
+    elif isinstance(val, tuple):
+        val_str = f"\"{','.join([str(i) for i in val])}\""
+    else:
+        val_str = str(val)
     if vars(args)[arg] is None:
-        logger.info(f"Setting {arg}: {val}")
+        logger.info(f"Setting {arg}: {val_str}")
     else:
         logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]}")
     vars(args).update({arg: val})
@@ -52,7 +58,7 @@ def options():
     parser.add_argument(
         '-an',
         "--animations",
-        help = "Use imagemagick to generate gif animations of 3d plots",
+        help="Use imagemagick to generate gif animations of 3d plots",
         action='store_true'
     )
     parser.add_argument(

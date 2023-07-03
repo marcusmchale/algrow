@@ -4,394 +4,422 @@ import argparse
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from collections import defaultdict
+from typing import Optional
 
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, Button, CheckButtons, TextBox
+import wx
+import wx.lib.mixins.inspection as WIT  # todo CONSIDER just use wx.App when done developing
+import wx.lib.inspection
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import get_context
+from matplotlib.backends.backend_wxagg import (
+    FigureCanvasWxAgg as FigureCanvas,
+    NavigationToolbar2WxAgg as NavigationToolbar
+)
+from matplotlib.figure import Figure
+from matplotlib import get_data_path  # we are recycling some matplotlib icons
 
 from alphashape import alphashape, optimizealpha
-from trimesh import PointCloud, proximity
+from trimesh import PointCloud, proximity, Trimesh
 
 
-from typing import List
-
-from .logging import CustomAdapter
-from .image_loading import ImageLoaded
-from .layout import LayoutDetector, Layout
-from .image_segmentation import Segments
 from .figurebuilder import FigureBuilder
+from .image_segmentation import Segmentor
 
 logger = logging.getLogger(__name__)
 
-# todo make all logging start with the filename so can make sense logs when multithreading
-# consider getting getting a new logger per filename
 
+class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App when done developing
 
-def image_worker(filepath: Path, args: argparse.Namespace):
-    adapter = CustomAdapter(logger, {'image_filepath': str(filepath)})
-    adapter.debug(f"Loadin file for calibration: {filepath}")
-    image = ImageLoaded(filepath, args)
-    adapter.debug(f"Detect layout for: {filepath}")
-    layout: Layout = LayoutDetector(image).get_layout()
-    adapter.debug(f"Segment: {filepath}")
-    segments: Segments = Segments(image, layout).get_segments()
-    adapter.debug(f"Prepare a segment boundary image for clicker")
-    segments.mark_boundaries()
-    adapter.debug(f"Done preparing image: {filepath}")
-    return segments
+    # overriding init to pass in the arguments from CLI/configuration file(s)
+    def __init__(self, segmentor: Segmentor, args: argparse.Namespace = None, **kwargs):
+        logger.debug("Start configurator")
+        self.segmentor = segmentor
+        self.frame = None
+        self.args = args or []
+        super().__init__(self, **kwargs)
 
+    def OnInit(self):
+        self.Init()
+        self.frame = CanvasFrame(self.segmentor, self.args)
+        self.frame.Show(True)
+        return True
 
-class Configurator:
-    def __init__(self, image_filepaths: List[Path], args: argparse.Namespace):
-        logger.debug("Prepare for calibration")
-        self.image_filepaths = image_filepaths
-        self.args = args
-
-        # The below are defined by the selector windows and updated when we disconnect it
-        self.selection = defaultdict(set)
-        self.selected_lab = None
-        self.alpha = self.args.alpha
-        self.alpha_hull = None
-        self.delta = self.args.delta
-
-        # Now prepare some images to open in the selector window
-        self.filepath_segments = dict()
-
-        if self.args.processes > 1:
-            with ProcessPoolExecutor(max_workers=args.processes, mp_context=get_context('spawn')) as executor:
-                future_to_file = {executor.submit(image_worker, filepath, args): filepath for filepath in image_filepaths}
-                for future in as_completed(future_to_file):
-                    filepath = future_to_file[future]
-                    try:
-                        segments = future.result()
-                        self.filepath_segments[filepath] = segments
-                    except Exception as exc:
-                        print('%r generated an exception: %s' % (filepath, exc))
-        else:
-            for filepath in image_filepaths:
-                try:
-                    segments = image_worker(filepath, args)
-                    self.filepath_segments[filepath] = segments
-                except Exception as exc:
-                    print('%r generated an exception: %s' % (filepath, exc))
-        logger.debug(f"images processed: {len(self.filepath_segments.keys())}")
-
-        if len(list(self.filepath_segments.keys())) != len(self.image_filepaths):
-            logger.warning("Some images selected for calibration did not complete segmentation")
-            self.image_filepaths = list(self.filepath_segments.keys())  # in case some did not segment properly
-
-        # Prepare some summary dataframes for the segments
-        self.segments_lab = pd.concat(
-            {fp: seg.lab for fp, seg in self.filepath_segments.items()},
-            axis=0,
-            names=['filepath', 'label']
-        )
-        self.segments_rgb = pd.concat(
-            {fp: seg.rgb for fp, seg in self.filepath_segments.items()},
-            axis=0,
-            names=['filepath', 'label']
-        )
-
-        # Prepare the plots that will be used by the selector
-        self.fig, self.ax = plt.subplots()
-        self.fig.canvas.manager.set_window_title(f'Selection for target colours')
-        self.ax.set_title("Click to select/deselect representative regions for target colour")
-
-        self.ind = 0  # index for the images used when navigating prev/next
-
-        axialpha = self.fig.add_axes([0.1, 0.025, 0.075, 0.025])
-        self.ialpha = TextBox(axialpha, 'Alpha', initial=self.alpha)
-
-        axbalpha = self.fig.add_axes([0.2, 0.025, 0.075, 0.05])
-        self.balpha = Button(axbalpha, 'Optimise\nAlpha')
-
-        axidelta = self.fig.add_axes([0.4, 0.025, 0.075, 0.025])
-        self.idelta = TextBox(axidelta, "Delta", initial=self.delta)
-
-        axchecks = self.fig.add_axes([0.5, 0.025, 0.1, 0.05])
-        self.bcheck = CheckButtons(
-            axchecks,
-            labels=['selection', 'within'],
-            actives=[True, True]
-        )
-
-        axprev = self.fig.add_axes([0.6, 0.025, 0.075, 0.05])
-        self.bprev = Button(axprev, 'Prev')
-        self.bprev.on_clicked(self.prev)
-
-        axnext = self.fig.add_axes([0.7, 0.025, 0.075, 0.05])
-        self.bnext = Button(axnext, 'Next')
-        self.bnext.on_clicked(self.next)
-
-
-        # Load the first image into the figure
-        first_image_segments = self.filepath_segments[image_filepaths[self.ind]]
-        self.artist = self.ax.imshow(first_image_segments.boundaries, picker=True)
-
-        # Launch the selector
-        self.selector = ClickSelect(
-            first_image_segments,
-            self.fig,
-            self.artist,
-            self.idelta,
-            self.ialpha,
-            self.balpha,
-            self.bcheck,
-            alpha=self.alpha,
-            delta=self.delta
-        )
-        plt.show()
-        # when we are done we update values from the final selector window back to self
-        self.disconnect_selector()
-
-    def plot_all(self, path):
-        if not self.alpha_hull:
+    def plot_hull(self, path):
+        if self.frame.alpha_selection.hull is None:
             logger.warning("Configuration is incomplete, will not attempt to print summary figure")
             return
-        fig = FigureBuilder(path, self.args, 'LAB colourspace (all sampled images) with alpha hull selection')
+        fig = FigureBuilder(path, self.args, 'Alpha hull')
         ax = fig.add_subplot(projection='3d')
         ax.scatter(
-            xs=self.segments_lab['a'],
-            ys=self.segments_lab['b'],
-            zs=self.segments_lab['L'],
+            xs=self.segmentor.lab['a'],
+            ys=self.segmentor.lab['b'],
+            zs=self.segmentor.lab['L'],
             s=10,
-            c=self.segments_rgb,
+            c=self.segmentor.rgb,
             lw=0
         )
+
         ax.plot_trisurf(
             *zip(
-                *self.alpha_hull.vertices[:, [1, 2, 0]]
+                *self.frame.alpha_selection.hull.vertices[:, [1, 2, 0]]
             ),
-            triangles=self.alpha_hull.faces[:, [1, 2, 0]],
+            triangles=self.frame.alpha_selection.hull.faces[:, [1, 2, 0]],
             color=(0, 1, 0, 0.5)
         )
         fig.animate()
         fig.print()
 
-    def next(self, _):
-        if self.ind < len(self.filepath_segments) - 1:
-            self.ind += 1
-            self._change_image()
 
-    def prev(self, _):
+class CanvasFrame(wx.Frame):
+    def __init__(self, segmentor: Segmentor, args: argparse.Namespace):
+        self.segmentor = segmentor
+        super().__init__(None, -1, 'Define the alpha hull', size=(1600, 800))
+        self.image_filepaths = segmentor.image_filepaths
+
+        # Set preconfigured arguments
+        self.args = args
+
+        # Prepare an index for navigating the list of sampled images
+        self.ind: int = 0
+
+        # prepare an alpha selection object -
+        # this uses the selected points to describe a hull and decide which points are within it
+        self.alpha_selection = AlphaSelection(
+            self.segmentor.lab,
+            set(),
+            alpha=self.args.alpha,
+            delta=self.args.delta
+        )
+        self.alpha_text = None
+        self.delta_text = None
+
+        # Prepare the figures and toolbars
+        # we are using two figures rather than one due to a bug in imshow that prevents efficient animation
+        # https://github.com/matplotlib/matplotlib/issues/18985
+        # by keeping them separate changing the view on one doesn't force a redraw of the other
+        self.seg_fig = Figure()
+        self.seg_fig.set_dpi(150)
+        self.seg_ax = self.seg_fig.add_subplot(111)
+        self.seg_fig.suptitle('Click to select segments', fontsize=16)
+        self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
+        self.seg_art = None
+        self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
+        self.seg_nav_toolbar.Realize()
+        seg_sizer = wx.BoxSizer(wx.VERTICAL)
+        seg_sizer.Add(self.seg_nav_toolbar, 0, wx.ALIGN_CENTER)
+        seg_sizer.Add(self.seg_cv, 1, wx.EXPAND)
+        self.seg_nav_toolbar.update()
+        self.click = self.seg_cv.mpl_connect('pick_event', self.on_click)
+
+        self.lab_fig = Figure()
+        self.lab_fig.set_dpi(100)
+        self.lab_ax = self.lab_fig.add_subplot(111, projection='3d')
+        self.lab_fig.suptitle("Segment colours in Lab", fontsize=16)
+        self.lab_ax.set_zlabel('L')
+        self.lab_ax.set_xlabel('a')
+        self.lab_ax.set_ylabel('b')
+        self.lab_cv = FigureCanvas(self, -1, self.lab_fig)
+        self.lab_art = None
+        self.tri_art = None
+        self.lab_nav_toolbar = NavigationToolbar(self.lab_cv)
+        self.lab_nav_toolbar.Realize()
+
+        lab_sizer = wx.BoxSizer(wx.VERTICAL)
+        lab_sizer.Add(self.lab_nav_toolbar, 0, wx.ALIGN_CENTER)
+        lab_sizer.Add(self.lab_cv, 1, wx.EXPAND)
+        self.lab_nav_toolbar.update()
+
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        figure_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        figure_sizer.Add(seg_sizer, proportion=1, flag=wx.LEFT | wx.TOP | wx.EXPAND)
+        figure_sizer.Add(lab_sizer, proportion=1, flag=wx.RIGHT | wx.TOP | wx.EXPAND)
+        self.sizer.Add(figure_sizer, proportion=1, flag=wx.ALIGN_CENTER)
+        self.SetSizer(self.sizer)
+        #self.Fit()
+
+        self.navigation_toolbar = None
+        self.toolbar = None
+        self.add_toolbar()
+
+        # load the first image
+        self.load_current_image()
+
+    def add_toolbar(self):
+        self.toolbar = wx.ToolBar(self, id=-1, style=wx.TB_HORIZONTAL)  # | wx.TB_TEXT)
+        self.toolbar.AddTool(
+            1,
+            "prev",
+            wx.Image(str(Path(get_data_path(), "images", "back.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            wx.ITEM_NORMAL,
+            'Previous Image',
+            'Load Previous Image',
+            None
+        )
+        self.Bind(wx.EVT_TOOL, self.load_prev, id=1)
+        self.toolbar.EnableTool(1, False)  # start on 0 so not enabled
+        self.toolbar.AddTool(
+            2,
+            "next",
+            wx.Image(str(Path(get_data_path(), "images", "forward.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            wx.ITEM_NORMAL,
+            'Next Image',
+            'Load Next Image',
+            None
+        )
+        self.Bind(wx.EVT_TOOL, self.load_next, id=2)
+        self.toolbar.EnableTool(1, len(self.image_filepaths) > 0)  # enable if more than one image
+        self.toolbar.AddSeparator()
+        self.toolbar.AddTool(
+            3,
+            "Optimise alpha",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "Alpha.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            wx.ITEM_NORMAL,
+            "Optimise alpha",
+            'Optimise alpha',
+            None
+        )
+        self.Bind(wx.EVT_TOOL, self.optimise_alpha, id=3)
+        self.alpha_text = wx.TextCtrl(self.toolbar, 4, str(self.args.alpha), style=wx.TE_PROCESS_ENTER)
+        self.Bind(wx.EVT_TEXT_ENTER, self.set_alpha, id=4)
+        self.toolbar.AddControl(self.alpha_text)
+        self.toolbar.AddSeparator()
+        self.toolbar.AddTool(
+            5,
+            "Delta",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "Delta.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "Delta.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.ITEM_NORMAL,
+            "Delta",
+            'Delta Input',
+            None
+        )
+        self.toolbar.EnableTool(5, False)
+        self.delta_text = wx.TextCtrl(self.toolbar, 6, str(self.args.delta),  style=wx.TE_PROCESS_ENTER)
+        self.Bind(wx.EVT_TEXT_ENTER, self.set_delta, id=6)
+        self.toolbar.AddControl(self.delta_text)
+        self.toolbar.AddCheckTool(
+            7,
+            "selected",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "selected.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            "Highlight selected",
+            'Highlight selected segments'
+        )
+        self.toolbar.ToggleTool(7, True)
+        self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=7)
+        self.toolbar.AddCheckTool(
+            8,
+            "within",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "within.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            "Highlight within",
+            'Highlight segments within alpha shape'
+        )
+        self.toolbar.ToggleTool(8, True)
+        self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=8)
+        self.sizer.Add(self.toolbar, 0, wx.ALIGN_LEFT)
+        self.toolbar.Realize()
+
+    def load_prev(self, _):
+        logger.debug("Load previous image")
         if self.ind > 0:
             self.ind -= 1
-            self._change_image()
-
-    def _change_image(self):
-        logger.debug('load new image')
-        # disconnect the old selector and update the stored values
-        self.disconnect_selector()
-
-        # prepare the set of existing selected colours
-        selection_indices = [(k, i) for k, v in self.selection.items() for i in v]
-        prior_lab: set = set(self.segments_lab.loc[selection_indices].apply(tuple, axis=1))
-
-        # create the new selector
-        self.selector = ClickSelect(
-            self.filepath_segments[self.image_filepaths[self.ind]],
-            self.fig,
-            self.artist,
-            self.idelta,
-            self.ialpha,
-            self.balpha,
-            self.bcheck,
-            existing_selection=self.selection[self.image_filepaths[self.ind]],
-            prior_lab=prior_lab,
-            alpha=self.alpha,
-            delta=self.delta
-        )
-        self.fig.canvas.draw()
-        logger.debug('new image loaded')
-
-    def disconnect_selector(self):
-        prior_image_path = self.selector.segments.image.filepath
-        self.selection[prior_image_path] = self.selector.selection
-        self.alpha = self.selector.alpha
-        self.alpha_hull = self.selector.alpha_hull
-        self.delta = self.selector.delta
-        selection_indices = [(k, i) for k, v in self.selection.items() for i in v]
-        self.selected_lab = self.segments_lab.loc[selection_indices].to_numpy().round(decimals=1)
-
-        colours_string = f'{[",".join([str(j) for j in i]) for i in self.selected_lab]}'.replace("'", '"')
-        logger.info(f'Colours selected: {colours_string}')
-        self.selector.disconnect()
-
-    def disconnect(self):
-        raise NotImplementedError
-        #todo should probably clean up the connections to checkbox and textboxes
-
-
-class ClickSelect:
-
-    def __init__(self, segments, fig, artist, delta_text, alpha_text, alpha_button, checkbuttons, existing_selection=None, prior_lab=None, alpha=None, delta=None):
-
-        self.segments = segments
-        self.displayed_img = self.segments.boundaries.copy()
-
-        self.fig = fig
-        self.artist = artist
-        self.delta_text = delta_text
-        self.alpha_text = alpha_text
-        self.checkbuttons = checkbuttons
-
-        if existing_selection is not None:
-            self.selection = existing_selection
+            self.load_current_image()
+            self.toolbar.EnableTool(2, True)
+        if self.ind == 0:
+            self.toolbar.EnableTool(1, False)
         else:
-            self.selection = set()
+            self.toolbar.EnableTool(1, True)
 
-        if prior_lab is not None:
-            self.prior_lab = prior_lab
+    def load_next(self, _):
+        logger.debug("Load next image")
+        if self.ind < len(self.image_filepaths) - 1:
+            self.ind += 1
+            self.load_current_image()
+            self.toolbar.EnableTool(1, True)
+        if self.ind == len(self.image_filepaths) - 1:
+            self.toolbar.EnableTool(2, False)
         else:
-            self.prior_lab = set()
+            self.toolbar.EnableTool(2, True)
 
-        self.lab_fig = plt.figure("Lab colourspace with selection")
-        self.lab_ax = plt.axes(projection='3d')
-        self.lab_ax.scatter(xs=self.segments.lab['a'], ys=self.segments.lab['b'], zs=self.segments.lab['L'], s=10,
-                            c=self.segments.rgb, lw=0)
-        #  todo consider plotting all points across all images,
-        #   this would help to see clusters
-        #   maybe color only those from current image to differentiate
+    def load_current_image(self):
+        filepath = self.image_filepaths[self.ind]
+        logger.debug(f"Load image: {filepath}")
+        self.seg_ax.set_title(str(filepath))
+        self.draw_segments_figure()
+        #self.lab_ax.set_title(str(filepath))
+        self.draw_lab_figure()
 
-        self.alpha_hull = None
-        self.alpha = alpha
-        self.delta = delta
-        self.trisurf = None
-
-        self.click = self.fig.canvas.mpl_connect('pick_event', self.onclick)
-        # self.shift_held = False
-        # self.keypress = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
-        # self.keyrelease = self.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
-
-        self.delta_text.on_submit(self.set_delta)
-        self.alpha_text.on_submit(self.set_alpha)
-        alpha_button.on_clicked(self.optimise_alpha)
-
-        self.highlight_selection, self.highlight_within = self.checkbuttons.get_status()
-        self.checkbuttons.on_clicked(self.update_highlighting)
-
-        self.update_img()
-
-    #def on_key_press(self, event):
-    #    if event.key == 'shift':
-    #        self.shift_held = True
-    #
-    #def on_key_release(self, event):
-    #    if event.key == 'shift':
-    #        self.shift_held = False
-
-    def onclick(self, event):
-        x = event.mouseevent.xdata.astype(int)
-        y = event.mouseevent.ydata.astype(int)
-        segment = self.segments.mask[y, x]
-        logger.debug(f'segment: {segment}, x: {x}, y: {y}')
-        if segment == 0:
-            return
-        #if self.shift_held:
-        #    if segment in self.selection:
-        #        self.selection.remove(segment)
-        #    #if segment in self.background:
-        #    #    self.background.remove(segment)
-        #    else:
-        #        self.background.add(segment)
-        #else:
-        #   if segment in self.background:
-        #       self.background.remove(segment)
-        if segment in self.selection:
-            self.selection.remove(segment)
-        else:
-            self.selection.add(segment)
-        logger.debug(f"selection: {self.selection}")
-        #logger.debug(f"background {self.background}")
-        self.update_img(recalculate_alpha_hull=True)
-
-    def disconnect(self):
-        self.fig.canvas.mpl_disconnect(self.click)
-        #self.fig.canvas.mpl_disconnect(self.keypress)
-        #self.fig.canvas.mpl_disconnect(self.keyrelease)
+    def optimise_alpha(self, _):
+        self.alpha_selection.update_alpha()
+        self.draw_segments_figure()
+        self.draw_lab_figure()
+        self.alpha_text.SetValue(str(self.alpha_selection.alpha))
 
     def set_alpha(self, _):
+        logger.debug("Set alpha")
+        value = self.alpha_text.GetValue()
         try:
-            self.alpha = float(self.alpha_text.text)
+            value = float(value)
         except ValueError:
-            logger.debug("Value for alpha text input could not be coerced to float")
-            self.alpha_text.set_val(self.alpha)
-        self.update_img(recalculate_alpha_hull=True)
+            logger.debug(f"Alpha input could not be coerced to float: {value}")
+            self.alpha_text.SetValue(str(self.args.alpha))
+        self.alpha_selection.update_alpha(value)
+        self.draw_segments_figure()
+        self.draw_lab_figure()
 
-    def set_delta(self, _):
+    def set_delta(self, _):  #
+        logger.debug("Set delta")
+        value = self.delta_text.GetValue()
         try:
-            self.delta = float(self.delta_text.text)
+            value = float(value)
         except ValueError:
-            logger.debug("Value for delta text input could not be coerced to float")
-            self.alpha_text.set_val(self.delta)
-        self.update_img()
+            logger.debug(f"Delta input could not be coerced to float: {value}")
+            self.delta_text.SetValue(self.args.alpha)
+        self.alpha_selection.set_delta(value)
+        self.draw_segments_figure()
 
-    def optimise_alpha(self, _=None):
-        points = self.get_points()
-        if len(points) >= 4:
-            logger.debug(f"optimising alpha")
-            self.alpha = round(optimizealpha(points), ndigits=3)
-            logger.debug(f"optimised alpha: {self.alpha}")
+    def on_click(self, event):
+        x = event.mouseevent.xdata.astype(int)
+        y = event.mouseevent.ydata.astype(int)
+        filepath = self.image_filepaths[self.ind]
+        sid = self.segmentor.filepath_segments[filepath].mask[y, x]
+        logger.debug(f'file: {filepath}, segment:  {sid}, x: {x}, y: {y}')
+        if sid != 0:
+            self.alpha_selection.toggle_segment(filepath, sid)
+            self.draw_segments_figure()
+            self.draw_hull()
+
+    def draw_segments_figure(self, _=None):
+        logger.debug("Draw segments with highlighting")
+        show_selected = self.toolbar.GetToolState(7)  # true if highlight selection is selected in gui
+        logger.debug(f"show selected: {show_selected}")
+        show_within = self.toolbar.GetToolState(8)  # true if highlight within is selected in gui
+        logger.debug(f"show within: {show_within}")
+
+        filepath = self.image_filepaths[self.ind]
+        current_file_segments = self.segmentor.filepath_segments[self.image_filepaths[self.ind]]
+        img = current_file_segments.boundaries.copy()
+
+        if show_selected or show_within:
+            segments_mask = self.segmentor.filepath_segments[filepath].mask
+            if show_within:
+                self.alpha_selection.update_dist(filepath)
+                within = self.alpha_selection.dist[(self.alpha_selection.dist >= -self.alpha_selection.delta).values].index
+                within = [j for i, j in within if i == filepath]
+                logger.debug(f'within: {within}')
+                img[np.isin(segments_mask, within)] = (0, 1, 0)
+            if show_selected:
+                selected = [j for i, j in self.alpha_selection.selection if i == filepath]
+                logger.debug(f'selected: {selected}')
+                img[np.isin(segments_mask, selected)] = (0, 0, 1)
+
+        if self.seg_art is None:
+            self.seg_art = self.seg_ax.imshow(img, picker=True)
         else:
-            self.alpha = None
-            self.alpha_hull = None
-            logger.debug(f"Insufficient points to construct polygon")
-        self.alpha_text.set_val(self.alpha)
-        self.update_img(recalculate_alpha_hull=True)
+            self.seg_art.set_data(img)
 
-    def update_highlighting(self, _=None):
-        self.highlight_selection, self.highlight_within = self.checkbuttons.get_status()
-        self.update_img()
+        self.seg_cv.draw_idle()
+        self.seg_cv.flush_events()
 
-    def get_points(self):
-        if self.selection:
-            selection_lab = self.segments.lab.loc[list(self.selection)].values
-            points = list(self.prior_lab.union(set(map(tuple, selection_lab))))
+    def draw_lab_figure(self, _=None):
+        current_file_segments = self.segmentor.filepath_segments[self.image_filepaths[self.ind]]
+        elev, azim = self.lab_ax.elev, self.lab_ax.azim  # get the current view angles on lab plot to reload with
+
+        if self.lab_art is not None:
+            self.lab_art.remove()
+            self.lab_art = None
+        self.lab_art = self.lab_ax.scatter(
+            xs=current_file_segments.lab['a'],
+            ys=current_file_segments.lab['b'],
+            zs=current_file_segments.lab['L'],
+            s=10,
+            c=current_file_segments.rgb,
+            lw=0
+        )
+        self.lab_ax.view_init(elev=elev, azim=azim)
+        self.draw_hull()
+
+    def draw_hull(self):
+        if self.tri_art is not None:
+            logger.debug("remove existing alpha hull from plot")
+            self.tri_art.remove()
+            self.tri_art = None
+
+        if self.alpha_selection.hull is not None:
+            logger.debug("draw alpha hull on plot")
+            self.tri_art = self.lab_ax.plot_trisurf(
+                *zip(*self.alpha_selection.hull.vertices[:, [1, 2, 0]]),
+                triangles=self.alpha_selection.hull.faces[:, [1, 2, 0]],
+                color=(0, 1, 0, 0.5)
+            )
+
+        self.lab_cv.draw_idle()
+        self.lab_cv.flush_events()
+
+
+class AlphaSelection:
+    def __init__(self, points: pd.DataFrame, selection: set[tuple[Path, int]], alpha: float, delta: float):
+        self.points = points  # a pandas dataframe with filename and segment ID as index for points in Lab colourspace
+        self.selection = selection  # a set of indices for the points dataframe
+        self.alpha = alpha  # the alpha parameter for hull construction
+        self.delta = delta  # the distance from the hull surface to consider a point within the hull
+        self.dist: pd.DataFrame = pd.DataFrame(np.full(points.shape[0], -np.inf), index=points.index)
+        self.hull: Optional[Trimesh] = None
+
+    def update_alpha(self, alpha: float = None):
+        if alpha is None:
+            if len(self.selection) >= 4:
+                logger.debug(f"optimising alpha")
+                self.alpha = round(optimizealpha(self.points.loc[list(self.selection)].values), ndigits=3)
+                logger.info(f"optimised alpha: {self.alpha}")
+            else:
+                logger.debug(f"Insufficient points selected")
         else:
-            points = list(self.prior_lab)
-        return points
+            self.alpha = alpha
+        self.update_hull()
 
-    def update_img(self, _=None, recalculate_alpha_hull=False):
-        self.displayed_img = self.segments.boundaries.copy()
-        points = self.get_points()
-        if (recalculate_alpha_hull or self.alpha_hull is None) and len(points) >= 4:
+    def set_delta(self, delta: float):
+        logger.debug(f"Set delta: {delta}")
+        self.delta = delta
+
+    def toggle_segment(self, filepath, sid):
+        if (filepath, sid) in self.selection:
+            self.selection.remove((filepath, sid))
+        else:
+            self.selection.add((filepath, sid))
+        self.update_hull()
+
+    def update_hull(self):
+        selected_points = self.points.loc[list(self.selection)].values
+        logger.debug(f"selected_points:{selected_points}")
+        if len(selected_points) < 4:
+            self.hull = None
+        else:
+            logger.debug("Calculating hull")
             if self.alpha is None or self.alpha == 0:
+                logger.debug("creating convex hull")
                 # the api for alphashape is a bit strange,
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha
                 # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                self.alpha_hull = PointCloud(points).convex_hull
+                self.hull = PointCloud(selected_points).convex_hull
             else:
-                self.alpha_hull = alphashape(np.array(points), self.alpha)
+                logger.debug("creating alpha shape")
+                self.hull = alphashape(np.array(selected_points), self.alpha)
+                if len(self.hull.faces) == 0:
+                    logger.debug("More points required for a complete hull with current alpha value")
+                    self.hull = None
 
-        if self.alpha_hull is not None:
-            distance = proximity.signed_distance(self.alpha_hull, self.segments.lab)
-            contained = list(self.segments.lab[distance >= -self.delta].index)
-            logger.debug(f"contained: {contained}")
-            # below we reorder the vertices so L is the z axis
-            if self.trisurf is not None:
-                logger.debug("remove existing alpha hull from plot")
-                self.trisurf.remove()
-            logger.debug("Draw alpha hull on plot")
-            self.trisurf = self.lab_ax.plot_trisurf(
-                *zip(*self.alpha_hull.vertices[:, [1, 2, 0]]),
-                triangles=self.alpha_hull.faces[:, [1, 2, 0]],
-                color=(0, 1, 0, 0.5)
-            )
-            self.lab_fig.canvas.draw()
-        else:
-            contained: list = list(self.selection)
-            if self.trisurf is not None:
-                self.trisurf.remove()
-            self.lab_fig.canvas.draw()
+    def update_dist(self, filepath):
+        if self.hull is None:
+            logger.debug("No hull available to calculate distance")
+            return
 
-        if self.highlight_within:
-            self.displayed_img[np.isin(self.segments.mask, list(set(contained)-self.selection))] = [0, 100, 0]
-        if self.highlight_selection:
-            self.displayed_img[np.isin(self.segments.mask, list(self.selection))] = [0, 0, 100]
+        logger.debug(f"updating distances from hull for {filepath}")
+        # we don't update the whole array every time as it is too slow,
+        # we just update the current file to support display of within
+        self.dist.loc[filepath] = proximity.signed_distance(self.hull, self.points.loc[filepath]).reshape(-1, 1)
 
-        self.artist.set_data(self.displayed_img)
-        self.fig.canvas.draw()

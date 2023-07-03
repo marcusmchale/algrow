@@ -1,16 +1,17 @@
 
-# DiscGrow
+# AlGrow
 
-- Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs
+- Alpha-shape defined colourspace for image segmentation of multiplexed image sequences
 
 ## The short story 
 
-Discgrow provides automated image analysis for measuring growth of macroalgal lamina discs. 
-It was developed to suit the experimental apparatus in the 
+Algrow provides automated image analysis for measuring growth of macroalgal lamina discs. 
+It was initially developed to suit the experimental apparatus in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/)
 of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
 at the [University of Galway](https://www.universityofgalway.ie/). 
-However, parameters provided allow it to be applied in other contexts.
+However, strategy is easily generalised to other contexts such as...
+   - todo test with arabidopsis images and more
 
 Features/parameters:
 - Suitable for large sets of images 
@@ -62,14 +63,14 @@ the above uses kmeans for initial clustering, could be doing this but prefer sup
 ### Distribution
 
   - Download 
-    - get the latest [dist](https://github.com/marcusmchale/discgrow/dist)
+    - get the latest [dist](https://github.com/marcusmchale/algrow/dist)
   - Install
-    - run pip install discgrow.whl
+    - run pip install algrow.whl
   - Run
-    - cd path/to/discgrow/sample_images
+    - cd path/to/dalgrow/sample_images
     - mkdir raw
     - tar -xvzf sample_images.tgz -C raw
-    - discgrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
+    - algrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
 
 # this works on python 3.9 
 # i think it also may need python3-tk also installed then reinstall venv, 
@@ -80,18 +81,18 @@ the above uses kmeans for initial clustering, could be doing this but prefer sup
 ### Run from source
 
   - Download
-    - git clone https://github.com/marcusmchale/discgrow
+    - git clone https://github.com/marcusmchale/algrow
   - Set up virtual environment (recommended)
     - python3 -m venv venv
     - source ./venv/bin/activate
   - Run
-    - discgrow.py -i sample_images
+    - algrow.py -i sample_images
 
 
 ### Build
 
   - Download
-    - git clone https://github.com/marcusmchale/discgrow
+    - git clone https://github.com/marcusmchale/algrow
   - Set up virtual environment (recommended)
     - python3 -m venv venv
     - source ./venv/bin/activate

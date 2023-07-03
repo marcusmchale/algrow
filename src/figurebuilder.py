@@ -82,7 +82,7 @@ class FigureBuilder:
         if color_bar:
             self.fig.colorbar(pos, ax=axis)
             # todo trying to add the midpoint to the axis ticks - failing for some reason...
-            #cbar = self.fig.colorbar(pos, ax=axis)
+            #cbar = self.segment_fig.colorbar(pos, ax=axis)
             #if midpoint is not None:
             #    ticks = cbar.get_ticks()
             #    if midpoint not in ticks:
@@ -169,7 +169,7 @@ class FigureBuilder:
             self.fig.set_dpi(100)
             self.logger.debug(f"Show figure: {self.step_name, self.img_path}")
             plt.show()
-            ## todo, might prefer to use fig.show but that requires a managed event loop
+            ## todo, might prefer to use segment_fig.show but that requires a managed event loop
             # or all the figures are rendered at the end.
             # This is only issue if we are building one figure then move the another then go back to finish the first.
             # So far I am only building figures successively, and that works fine as is.

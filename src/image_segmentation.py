@@ -3,13 +3,20 @@ import logging
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+from pathlib import Path
+from typing import List
+
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import get_context
+
 from skimage.segmentation import slic, mark_boundaries
 from skimage.color import deltaE_cie76, lab2rgb, label2rgb
 from skimage.measure import regionprops_table
 
 from .figurebuilder import FigureBuilder
 from .logging import CustomAdapter
-
+from .image_loading import ImageLoaded
+from .layout import LayoutDetector, Layout
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +25,7 @@ class Segments:
 
     def __init__(self, image, layout):
         self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
+        self.logger.debug(f"Segment: {image.filepath}")
         self.image = image
         self.args: argparse.Namespace = image.args
         self.layout = layout
@@ -136,69 +144,64 @@ class Segments:
         )
         return distances
 
-        #todo move this debugging to where the method is called
-        #if debug:
-        #    fig = FigureBuilder(
-        #        self.image.filepath,
-        #        f"Segment colours in CIELAB with {reference_label}"
-        #    )
-        #    # convert segment colours to rgb to colour scatter points
-        #    segment_colours_rgb = pd.DataFrame(
-        #        data=lab2rgb(segment_colours),
-        #        index=segment_colours.index,
-        #        columns=['R', 'G', 'B']
-        #    )
-        #    fig.add_subplot(projection='3d')
-        #    fig.current_axis.scatter(
-        #        xs=segment_colours['a'],
-        #        ys=segment_colours['b'],
-        #        zs=segment_colours['L'],
-        #        s=10,
-        #        c=segment_colours_rgb,
-        #        lw=0
-        #    )
-        #    fig.current_axis.set_xlabel('a')
-        #    fig.current_axis.set_ylabel('b')
-        #    fig.current_axis.set_zlabel('L')
-        #    for i, r in segment_colours.iterrows():
-        #        fig.current_axis.text(x=r['a'], y=r['b'], z=r['L'], s=i, size=3)
-        #
-        #    # todo add sphere for each target
-        #    # draw sphere
-        #    def plt_spheres(ax, list_center, list_radius):
-        #        for c, r in zip(list_center, list_radius):
-        #            # draw sphere
-        #            # adapted from https://stackoverflow.com/questions/64656951/plotting-spheres-of-radius-r
-        #            u, v = np.mgrid[0:2 * np.pi:50j, 0:np.pi:50j]
-        #            x = r * np.cos(u) * np.sin(v)
-        #            y = r * np.sin(u) * np.sin(v)
-        #            z = r * np.cos(v)
-        #            ax.plot_surface(x + c[1], y + c[2], z + c[0], color=lab2rgb(c), alpha=0.2)
-        #
-        #    plt_spheres(fig.current_axis, reference_colours, np.repeat(reference_dist, len(reference_colours)))
-        #    fig.animate()
-        #    fig.print()
-        #
-        #    fig = FigureBuilder(self.filepath, f"Segment ΔE from any {reference_label} colour")
-        #    distances_copy = distances.copy()
-        #    distances_copy.loc[0] = np.repeat(0, distances_copy.shape[1])  # add back a distance for background segments
-        #    distances_copy.sort_index(inplace=True)
-        #    dist_image = distances_copy.min(axis=1).to_numpy()[segments]
-        #    fig.add_image(dist_image, f"Minimum ΔE any {reference_label} target colour", color_bar=True, diverging=True,
-        #                  midpoint=reference_dist)
-        #    fig.print()
-        #
-        #    # add debug for EACH reference colour in a single figure, to help debug reference colour selection
-        #    fig = FigureBuilder(self.filepath, f"Segment ΔE from each {reference_label} colour",
-        #                        nrows=len(reference_colours))
-        #    for i, c in enumerate(reference_colours):
-        #        dist_image = distances_copy[str(c)].to_numpy()[segments]
-        #        fig.add_image(
-        #            dist_image,
-        #            str(c),
-        #            color_bar=True,
-        #            diverging=True,
-        #            midpoint=reference_dist
-        #        )
-        #    fig.print()
-        #return distances
+# We need a multiple image segmentor to use for calibration where we handle multiple images together
+
+class Segmentor:   # todo consider not using layout for segmentation during calibration
+    def __init__(self, image_filepaths: List[Path], args: argparse.Namespace):
+        self.image_filepaths = image_filepaths
+        self.args = args
+        self.filepath_segments = dict()
+        self.rgb, self.lab = None, None
+
+    def run(self):
+        if self.args.processes > 1:
+            self._multiprocess()
+        else:
+            self._process()
+        self._summarise()
+
+    @staticmethod
+    def get_segments(filepath: Path, args: argparse.Namespace):
+        image = ImageLoaded(filepath, args)
+        layout: Layout = LayoutDetector(image).get_layout()
+        segments: Segments = Segments(image, layout).get_segments()
+        segments.mark_boundaries()
+        return segments
+
+    def _multiprocess(self):
+        with ProcessPoolExecutor(max_workers=self.args.processes, mp_context=get_context('spawn')) as executor:
+            future_to_file = {executor.submit(self.get_segments, filepath, self.args): filepath for filepath in
+                              self.image_filepaths}
+            for future in as_completed(future_to_file):
+                filepath = future_to_file[future]
+                adapted_logger = CustomAdapter(logger, {'image_filepath': str(filepath)})
+                try:
+                    segments = future.result()
+                    self.filepath_segments[filepath] = segments
+                except Exception as exc:
+                    adapted_logger.info(f'Exception occurred: {exc}')
+
+    def _process(self):
+        for filepath in self.image_filepaths:
+            try:
+                segments = self.get_segments(filepath, self.args)
+                self.filepath_segments[filepath] = segments
+            except Exception as exc:
+                print('%r generated an exception: %s' % (filepath, exc))
+        logger.debug(f"images processed: {len(self.filepath_segments.keys())}")
+
+    def _summarise(self):
+        if len(list(self.filepath_segments.keys())) != len(self.image_filepaths):
+            logger.warning("Some images selected for calibration did not complete segmentation")
+            self.image_filepaths = list(self.filepath_segments.keys())  # in case some did not segment properly
+        # Prepare some summary dataframes for the segment colours in rgb and lab colourspaces
+        self.rgb = pd.concat(
+            {fp: seg.rgb for fp, seg in self.filepath_segments.items()},
+            axis=0,
+            names=['filepath', 'sid']
+        )
+        self.lab = pd.concat(
+            {fp: seg.lab for fp, seg in self.filepath_segments.items()},
+            axis=0,
+            names=['filepath', 'sid']
+        )

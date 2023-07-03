@@ -10,7 +10,6 @@ from skimage.transform import hough_circle, hough_circle_peaks
 from .figurebuilder import FigureBuilder
 from skimage.morphology import binary_dilation
 from skimage.color import deltaE_cie76
-from .picker import Picker
 from .image_loading import ImageLoaded
 from .logging import CustomAdapter
 
@@ -96,6 +95,7 @@ class LayoutDetector:
         self.args = image.args
 
         self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
+        self.logger.debug(f"Detect layout for: {self.image.filepath}")
 
         circles_like = np.full_like(self.image.lab, self.args.circle_colour)
         self.distance = deltaE_cie76(self.image.lab, circles_like)

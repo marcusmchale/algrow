@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+
 import numpy as np
 from csv import reader, writer
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -12,16 +13,25 @@ from .options import options, update_arg
 from .figurebuilder import FigureBuilder
 from .image_loading import ImageLoaded
 from .picker import Picker
-from .calibration import Configurator
+from .calibration import Configurator, Segmentor
 from .area_calculation import area_worker
 from .analysis import AreaAnalyser
 
+import sys
+import traceback
 
 logger = logging.getLogger(__name__)
 
+#def excepthook(type, value, tb):
+#    message = 'Uncaught exception:\n'
+#    message += ''.join(traceback.format_exception(type, value, tb))
+#    logger.debug(message)
+#
+#
+#sys.excepthook = excepthook  # this is needed to catch exceptions from wx.Frame
 
 
-def discgrow():
+def algrow():
     argparser = options()
     args = argparser.parse_args()
     logger.info(f"Start with: {argparser.format_values()}")
@@ -50,6 +60,7 @@ def discgrow():
 
     # Need circle colour for layout detection, we can get this from a single image
     if not args.circle_colour:
+        logger.debug("Pick circle colour")
         first_image = ImageLoaded(image_filepaths[0], args)
         # todo - make this window close after first selection is made or return as array and get median/mean
         circle_colours = Picker(first_image, 'circle colour').lasso_colours()
@@ -69,15 +80,27 @@ def discgrow():
             logger.warning("Less than 4 target colours specified - discarding provided colours")
         idx = np.unique(np.round(np.linspace(0, len(image_filepaths) - 1, args.num_calibration)).astype(int))
         sample_images = list(np.array(image_filepaths)[idx])
-        logger.debug(f"Sampled {args.num_calibration} images for calibration")
-        clicker = Configurator(sample_images, args)
-        if clicker.alpha_hull is None:
+        logger.info(f"Sampled {args.num_calibration} images for calibration")
+        # store the input paths for navigating across images
+        # calculate segments from sampled images
+        segmentor = Segmentor(sample_images, args)
+        segmentor.run()  # todo link run to a button and trigger after startup, provide progress update
+        logger.info(f"Calibration with {len(segmentor.image_filepaths)} images")
+
+        app = Configurator(segmentor, args)
+        #import wx.lib.inspection
+        #wx.lib.inspection.InspectionTool().Show()
+        app.MainLoop()
+        if app.frame.alpha_selection.hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 points")
         if args.debug:
-            clicker.plot_all(".")
-        update_arg(args, 'alpha', clicker.alpha)
-        update_arg(args, "target_colours", list(map(tuple, clicker.alpha_hull.vertices.tolist())))
-        update_arg(args, 'delta', clicker.delta)
+            app.plot_hull(".")
+        update_arg(args, 'alpha', app.frame.alpha_selection.alpha)
+        update_arg(args, "target_colours", list(map(tuple, np.round(
+            app.frame.alpha_selection.hull.vertices,
+            decimals=1
+        ).tolist())))
+        update_arg(args, 'delta', app.frame.alpha_selection.delta)
 
     if args.debug:
         fig = FigureBuilder(".", args, "Target colours")
@@ -88,11 +111,10 @@ def discgrow():
         alpha = optimizealpha(np.array(args.target_colours))
         update_arg(args, 'alpha', alpha)
 
-    # Output a file summarising the selected colours, alpha and delta values
+    # Output a file summarising the calibration values: selected colours, alpha and delta values
     with open(Path(args.out_dir, "colours.conf"), 'w') as text_file:
         circle_colour_string = f"\"{','.join([str(i) for i in args.circle_colour])}\""
-        target_colours_string = f'{[",".join([str(j) for j in i]) for i in args.target_colours]}'.replace("'",
-                                                                                                          '"')
+        target_colours_string = f'{[",".join([str(j) for j in i]) for i in args.target_colours]}'.replace("'", '"')
         text_file.write(f"circle_colour = {circle_colour_string}\n")
         text_file.write(f"target_colours = {target_colours_string}\n")
         text_file.write(f"alpha = {args.alpha}\n")
@@ -108,21 +130,28 @@ def discgrow():
     else:
         alpha_hull = alphashape(np.array(args.target_colours), args.alpha)
 
+    if len(alpha_hull.faces) == 0:
+        raise ValueError("The provided target colours and alpha value do not construct a complete hull")
     # prepare output file for results
     area_out = Path(args.out_dir, args.area_file)
     area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
     logger.debug("Check file exists and if it already includes data from listed images")
     if area_out.is_file():  # if the file exists then check for any already processed images
-        with open(area_out) as csv_file:
-            csv_reader = reader(csv_file)
-            next(csv_reader)
+        while True:
+            with open(area_out) as csv_file:
+                csv_reader = reader(csv_file)
+                # Skip the header
+                try:
+                    next(csv_reader)
+                except StopIteration:
+                    logger.debug("Existing file is not more than one line")
+                    break
             files_done = {Path(row[0]) for row in csv_reader}
-        files_done = set.intersection(set(image_filepaths), files_done)
-        image_filepaths = [i for i in image_filepaths if i not in files_done]
-        logger.info(
-            f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
-        )
-
+            files_done = set.intersection(set(image_filepaths), files_done)
+            image_filepaths = [i for i in image_filepaths if i not in files_done]
+            logger.info(
+                f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
+            )
     # Process images
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)
@@ -161,5 +190,4 @@ def discgrow():
         area_analyser.write_results(args.out_dir, group_plots=True)
     else:
         logger.info("No sample IDs provided")
-
 

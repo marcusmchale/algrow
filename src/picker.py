@@ -12,7 +12,6 @@ from .figurebuilder import FigureBuilder
 from .image_segmentation import Segments
 
 
-
 logger = logging.getLogger(__name__)
 
 

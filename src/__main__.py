@@ -1,6 +1,6 @@
-from .discgrow import discgrow
+from .algrow import algrow
 
 
 if __name__ == '__main__':
-    discgrow()
+    algrow()
 
