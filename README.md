@@ -60,6 +60,10 @@ reading: # https://www.sciencedirect.com/science/article/pii/S0167865519302806?v
 the above uses kmeans for initial clustering, could be doing this but prefer supervised for a single target cluster
 
 ## Get started
+apt install python3.10
+apt install python3.10-venv
+
+
 ### Distribution
 
   - Download 
@@ -93,9 +97,15 @@ the above uses kmeans for initial clustering, could be doing this but prefer sup
 
   - Download
     - git clone https://github.com/marcusmchale/algrow
+  -  Install python
+    - sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev
+  - Install dependencies for wxpython build
+    - sudo apt install dpkg-dev build-essential python3-dev freeglut3 libgl1-mesa-dev libgstreamer-plugins-base1.0-dev libgtk-3-dev libjpeg-dev libnotify-dev libpng-dev libsdl2-dev libsm-dev libtiff-dev libwebkit2gtk-4.0-dev libxtst-dev
   - Set up virtual environment (recommended)
-    - python3 -m venv venv
+    - python3.10 -m venv venv
     - source ./venv/bin/activate
+    - pip install --upgrade pip
+    - pip install dist/algrow-0.3-py3-none-any.whl
   - Build
     - python3 -m build
 
