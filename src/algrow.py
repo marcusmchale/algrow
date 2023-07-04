@@ -87,19 +87,6 @@ def algrow():
 
         app = Configurator(segmentor, args)
         app.MainLoop()
-        logger.debug("exiting configurator")
-
-        if app.frame.alpha_selection.hull is None:
-            raise ValueError("Calibration not complete - please start again and select more than 4 points")
-        if args.debug:
-            app.plot_hull(".")
-
-        update_arg(args, 'alpha', app.frame.alpha_selection.alpha)
-        update_arg(args, "target_colours", list(map(tuple, np.round(
-            app.frame.alpha_selection.hull.vertices,
-            decimals=1
-        ).tolist())))
-        update_arg(args, 'delta', app.frame.alpha_selection.delta)
 
     if args.debug:
         fig = FigureBuilder(".", args, "Target colours")

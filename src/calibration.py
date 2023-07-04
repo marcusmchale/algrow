@@ -20,7 +20,7 @@ from matplotlib import get_data_path  # we are recycling some matplotlib icons
 from alphashape import alphashape, optimizealpha
 from trimesh import PointCloud, proximity, Trimesh
 
-
+from .options import update_arg
 from .figurebuilder import FigureBuilder
 from .image_segmentation import Segmentor
 
@@ -42,32 +42,6 @@ class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App w
         self.frame = CanvasFrame(self.segmentor, self.args)
         self.frame.Show(True)
         return True
-
-    def plot_hull(self, path):
-        if self.frame.alpha_selection.hull is None:
-            logger.warning("Configuration is incomplete, will not attempt to print summary figure")
-            return
-        logger.debug("Plotting hull in lab colourspace")
-        fig = FigureBuilder(path, self.args, 'Alpha hull')
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(
-            xs=self.segmentor.lab['a'],
-            ys=self.segmentor.lab['b'],
-            zs=self.segmentor.lab['L'],
-            s=10,
-            c=self.segmentor.rgb,
-            lw=0
-        )
-
-        ax.plot_trisurf(
-            *zip(
-                *self.frame.alpha_selection.hull.vertices[:, [1, 2, 0]]
-            ),
-            triangles=self.frame.alpha_selection.hull.faces[:, [1, 2, 0]],
-            color=(0, 1, 0, 0.5)
-        )
-        fig.animate()
-        fig.print()
 
 
 class CanvasFrame(wx.Frame):
@@ -92,6 +66,11 @@ class CanvasFrame(wx.Frame):
         )
         self.alpha_text = None
         self.delta_text = None
+
+        # add a close button to test remote closing
+
+        close_button = wx.Button(self, label="Close")
+        close_button.Bind(wx.EVT_BUTTON, self.on_close)
 
         # Prepare the figures and toolbars
         # we are using two figures rather than one due to a bug in imshow that prevents efficient animation
@@ -143,6 +122,23 @@ class CanvasFrame(wx.Frame):
 
         # load the first image
         self.load_current_image()
+
+    def on_close(self, _):
+        logger.debug("Close called")
+        if self.alpha_selection.hull is None:
+            raise ValueError("Calibration not complete - please start again and select more than 4 points")
+        if self.args.debug:
+            self.plot_hull(".")
+
+        update_arg(self.args, 'alpha', self.alpha_selection.alpha)
+        update_arg(self.args, "target_colours", list(map(tuple, np.round(
+            self.alpha_selection.hull.vertices,
+            decimals=1
+        ).tolist())))
+        update_arg(self.args, 'delta', self.alpha_selection.delta)
+        self.Close()
+
+
 
     def add_toolbar(self):
         self.toolbar = wx.ToolBar(self, id=-1, style=wx.TB_HORIZONTAL)  # | wx.TB_TEXT)
@@ -221,6 +217,7 @@ class CanvasFrame(wx.Frame):
         self.toolbar.ToggleTool(8, True)
         self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=8)
         self.sizer.Add(self.toolbar, 0, wx.ALIGN_LEFT)
+
         self.toolbar.Realize()
 
     def load_prev(self, _):
@@ -359,6 +356,32 @@ class CanvasFrame(wx.Frame):
         self.lab_cv.draw_idle()
         self.lab_cv.flush_events()
 
+    def plot_hull(self, path):
+        if self.alpha_selection.hull is None:
+            logger.warning("Configuration is incomplete, will not attempt to print summary figure")
+            return
+        logger.debug("Plotting hull in lab colourspace")
+        fig = FigureBuilder(path, self.args, 'Alpha hull')
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(
+            xs=self.segmentor.lab['a'],
+            ys=self.segmentor.lab['b'],
+            zs=self.segmentor.lab['L'],
+            s=10,
+            c=self.segmentor.rgb,
+            lw=0
+        )
+
+        ax.plot_trisurf(
+            *zip(
+                *self.alpha_selection.hull.vertices[:, [1, 2, 0]]
+            ),
+            triangles=self.alpha_selection.hull.faces[:, [1, 2, 0]],
+            color=(0, 1, 0, 0.5)
+        )
+        fig.animate()
+        fig.print()
+
 
 class AlphaSelection:
     def __init__(self, points: pd.DataFrame, selection: set[tuple[Path, int]], alpha: float, delta: float):
@@ -422,4 +445,3 @@ class AlphaSelection:
         # we don't update the whole array every time as it is too slow,
         # we just update the current file to support display of within
         self.dist.loc[filepath] = proximity.signed_distance(self.hull, self.points.loc[filepath]).reshape(-1, 1)
-
