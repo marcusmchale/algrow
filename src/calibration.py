@@ -95,7 +95,7 @@ class CanvasFrame(wx.Frame):
         # Prepare the figures and toolbars
         # we are using two figures rather than one due to a bug in imshow that prevents efficient animation
         # https://github.com/matplotlib/matplotlib/issues/18985
-        # by keeping them separate changing the view on one doesn't force a redraw of the other
+        # by keeping them separate, changing the view on one doesn't force a redraw of the other
         self.seg_fig = Figure()
         self.seg_fig.set_dpi(150)
         self.seg_ax = self.seg_fig.add_subplot(111)
@@ -249,7 +249,6 @@ class CanvasFrame(wx.Frame):
         logger.debug(f"Load image: {filepath}")
         self.seg_ax.set_title(str(filepath))
         self.draw_segments_figure()
-        #self.lab_ax.set_title(str(filepath))
         self.draw_lab_figure()
 
     def optimise_alpha(self, _):
@@ -285,7 +284,7 @@ class CanvasFrame(wx.Frame):
         x = event.mouseevent.xdata.astype(int)
         y = event.mouseevent.ydata.astype(int)
         filepath = self.image_filepaths[self.ind]
-        sid = self.segmentor.filepath_segments[filepath].mask[y, x]
+        sid = self.segmentor.filepath_to_segments[filepath].mask[y, x]
         logger.debug(f'file: {filepath}, segment:  {sid}, x: {x}, y: {y}')
         if sid != 0:
             self.alpha_selection.toggle_segment(filepath, sid)
@@ -300,11 +299,11 @@ class CanvasFrame(wx.Frame):
         logger.debug(f"show within: {show_within}")
 
         filepath = self.image_filepaths[self.ind]
-        current_file_segments = self.segmentor.filepath_segments[self.image_filepaths[self.ind]]
+        current_file_segments = self.segmentor.filepath_to_segments[self.image_filepaths[self.ind]]
         img = current_file_segments.boundaries.copy()
 
         if show_selected or show_within:
-            segments_mask = self.segmentor.filepath_segments[filepath].mask
+            segments_mask = self.segmentor.filepath_to_segments[filepath].mask
             if show_within:
                 self.alpha_selection.update_dist(filepath)
                 within = self.alpha_selection.dist[(self.alpha_selection.dist >= -self.alpha_selection.delta).values].index
@@ -325,7 +324,7 @@ class CanvasFrame(wx.Frame):
         self.seg_cv.flush_events()
 
     def draw_lab_figure(self, _=None):
-        current_file_segments = self.segmentor.filepath_segments[self.image_filepaths[self.ind]]
+        current_file_segments = self.segmentor.filepath_to_segments[self.image_filepaths[self.ind]]
         elev, azim = self.lab_ax.elev, self.lab_ax.azim  # get the current view angles on lab plot to reload with
 
         if self.lab_art is not None:

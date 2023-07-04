@@ -17,18 +17,18 @@ from .calibration import Configurator, Segmentor
 from .area_calculation import area_worker
 from .analysis import AreaAnalyser
 
-import sys
-import traceback
+# import sys
+# import traceback
 
 logger = logging.getLogger(__name__)
 
-#def excepthook(type, value, tb):
-#    message = 'Uncaught exception:\n'
-#    message += ''.join(traceback.format_exception(type, value, tb))
-#    logger.debug(message)
+#   def excepthook(type, value, tb):
+#       message = 'Uncaught exception:\n'
+#       message += ''.join(traceback.format_exception(type, value, tb))
+#       logger.debug(message)
 #
 #
-#sys.excepthook = excepthook  # this is needed to catch exceptions from wx.Frame
+#   sys.excepthook = excepthook  # this snippet is useful to catch exceptions from wx.Frame
 
 
 def algrow():
@@ -81,16 +81,13 @@ def algrow():
         idx = np.unique(np.round(np.linspace(0, len(image_filepaths) - 1, args.num_calibration)).astype(int))
         sample_images = list(np.array(image_filepaths)[idx])
         logger.info(f"Sampled {args.num_calibration} images for calibration")
-        # store the input paths for navigating across images
-        # calculate segments from sampled images
         segmentor = Segmentor(sample_images, args)
-        segmentor.run()  # todo link run to a button and trigger after startup, provide progress update
+        segmentor.run()
         logger.info(f"Calibration with {len(segmentor.image_filepaths)} images")
 
         app = Configurator(segmentor, args)
-        #import wx.lib.inspection
-        #wx.lib.inspection.InspectionTool().Show()
         app.MainLoop()
+
         if app.frame.alpha_selection.hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 points")
         if args.debug:
@@ -146,12 +143,12 @@ def algrow():
                 except StopIteration:
                     logger.debug("Existing file is not more than one line")
                     break
-            files_done = {Path(row[0]) for row in csv_reader}
-            files_done = set.intersection(set(image_filepaths), files_done)
-            image_filepaths = [i for i in image_filepaths if i not in files_done]
-            logger.info(
-                f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
-            )
+                files_done = {Path(row[0]) for row in csv_reader}
+                files_done = set.intersection(set(image_filepaths), files_done)
+                image_filepaths = [i for i in image_filepaths if i not in files_done]
+                logger.info(
+                    f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
+                )
     # Process images
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)

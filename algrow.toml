@@ -3,12 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "discgrow"
-version = "0.2"
+name = "algrow"
+version = "0.3"
 authors = [
-  { name="Marcus McHale", email="marcus.mchale@nuigalway.ie" },
+  { name="Marcus McHale", email="marcus.mchale@universityofgalway.ie" },
 ]
-description = "Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs"
+description = "Alpha shape defined colourspace for automated growth rate determination in multiplexed images of macroalgal discs"
 readme = "README.md"
 license = { file="LICENSE.txt" }
 requires-python = "==3.9"
@@ -18,8 +18,8 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    ["numpy", "opencv-python", "scipy", "scikit-image", "matplotlib"]
+    ["numpy", "scipy", "scikit-image", "matplotlib", "wxpython"]
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/marcusmchale/discgrow"
+"Homepage" = "https://github.com/marcusmchale/algrow"

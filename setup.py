@@ -1,14 +1,24 @@
 from setuptools import setup
 
 setup(
-    name='discgrow',
-    version='0.2',
+    name='algrow',
+    version='0.3',
     packages=['src'],
-    scripts=['discgrow.py'],
-    url='https://github.com/marcusmchale/discgrow',
+    scripts=['algrow.py'],
+    url='https://github.com/marcusmchale/algrow',
     license='LICENSE.txt',
-    author='marcus',
-    author_email='marcus.mchale@nuigalway.ie',
-    description='Graph-based detection of target superpixels for automated growth rate determination in multiplexed images of macroalgal discs"',
-    install_requires=["numpy", "opencv-python", "scipy", "scikit-image", "matplotlib", "pandas", "setuptools"]
+    author='Marcus McHale',
+    author_email='marcus.mchale@universityofgalway.ie',
+    description='Alpha shape defined colour space for automated growth rate determination in multiplexed images of macroalgal discs"',
+    install_requires=[
+        "configargparse~=1.5.5",
+        "numpy~=1.25.0",
+        "pandas~=2.0.3",
+        "scipy~=1.11.1",
+        "scikit-image~=0.21.0",
+        "scikit-learn~=1.3.0",
+        "alphashape~=1.3.1",
+        "matplotlib~=3.7.1",
+        "wxPython~=4.2.1"
+    ]
 )

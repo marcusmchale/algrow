@@ -113,6 +113,10 @@ class ImageProcessor:
             #  blended[~target_mask] = np.divide(blended[~target_mask], 2)
             annotated_image = Image.fromarray(blended)
             draw_tool = ImageDraw.Draw(annotated_image)
+        else:
+            draw_tool = None
+            annotated_image = None
+
         height = self.image.rgb.shape[0]
         font_file = font_manager.findfont(font_manager.FontProperties())
         large_font = ImageFont.truetype(font_file, size=int(height/50), encoding="unic")
@@ -127,28 +131,23 @@ class ImageProcessor:
             self.logger.debug(f"Processing plate {p.id}")
             for j, c in enumerate(p.circles):
                 unit = j+1+6*(p.id-1)
-                #logger.debug(f"Processing circle {unit}")
                 circle_mask = layout.get_circle_mask(c)
                 circle_target = circle_mask & target_mask
-                # todo pass these variables up as configurable options
                 pixels = np.count_nonzero(circle_target)
                 result["units"].append((p.id, unit, pixels))
                 if self.args.overlay or self.args.debug:
-                    #logger.debug(f"Join target to overlay mask: {p.id}")
                     unit = j + 1 + 6 * (p.id - 1)
                     # draw the outer circle
                     x = c[0]
                     y = c[1]
                     r = c[2]
-                    #xx, yy = draw.circle_perimeter_aa(x, y, r, shape=circle_mask.shape)
-                    draw_tool.text((x,y), str(unit), "blue", small_font)
+                    draw_tool.text((x, y), str(unit), "blue", small_font)
                     draw_tool.ellipse((x-r, y-r, x+r, y+r), outline=(255, 255, 0), fill=None, width=5)
             if self.args.overlay or self.args.debug:
-                #logger.debug(f"Annotate overlay with plate ID: {p.id}")
                 draw_tool.text(p.centroid, str(p.id), "red", large_font)
         if self.args.overlay or self.args.debug:
             fig = FigureBuilder(self.image.filepath, self.args, "Overlay", force="save")
             fig.add_image(annotated_image)
             fig.print()
-        return result  # todo consider replacing cv with skimage here too
+        return result
 
