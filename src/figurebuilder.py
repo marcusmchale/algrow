@@ -2,11 +2,8 @@ import logging
 import numpy as np
 from pathlib import Path
 from skimage.color import lab2rgb
-from matplotlib import pyplot as plt, gridspec, use, colors
-from skimage import graph
-from networkx import set_edge_attributes, get_edge_attributes
-from matplotlib import animation, get_backend
-from .options import options
+from matplotlib import pyplot as plt, gridspec, colors
+from matplotlib import animation
 from .logging import CustomAdapter
 
 logger = logging.getLogger(__name__)
@@ -15,7 +12,9 @@ logger = logging.getLogger(__name__)
 class FigureBuilder:
     counter = 0
 
-    def __init__(self, img_path, args, step_name, nrows = 1, ncols = 1, force = None): # todo refactor force to something like loglevels
+    def __init__(self, img_path, args, step_name, nrows=1, ncols=1, force=None):
+        # todo refactor force to something equivalent to loglevels
+        # i.e. have different levels of debug image outputs
         self.img_path = img_path
         self.args = args
         self.logger = CustomAdapter(logger, {'image_filepath': img_path})
@@ -36,9 +35,9 @@ class FigureBuilder:
         self.out_dir = args.out_dir
         self.row_counter = 1
         self.col_counter = 0
-        FigureBuilder.counter += 1 # need to improve management of concurrent processes for this to work with multiprocessing
+        FigureBuilder.counter += 1
+        # need to improve management of concurrent processes for counters to work properly with multiprocessing
         # todo Consider disabling debugging except for -q flag (overlays) if multiprocessing
-        # currently just not using this counter when multiprocessing, but the order of debug images is not that clear.
 
     @property
     def axes(self):
@@ -90,24 +89,12 @@ class FigureBuilder:
             #    cbar.set_ticks(ticks)
         return pos
 
-
-    def plot_adjacency(self, rag, segments, background, prefix=None):
-        self.logger.debug("Add adjacency plot to figure")
-        axis = self.add_subplot()
-        set_edge_attributes(rag, get_edge_attributes(rag, "delta_e"), name="weight")
-        lc = graph.show_rag(segments, rag, background, border_color='white', ax=self.current_axis, edge_width=0.5)
-        plt.colorbar(lc, ax=axis)
-        axis.set_title(prefix)
-        for n in rag.nodes:
-            axis.text(*reversed(rag.nodes[n]['centroid']), rag.nodes[n]['labels'][0], fontsize=3, color='red')
-
-    def plot_colours(self, target_colours, npix = 10):
+    def plot_colours(self, target_colours, npix=10):
         self.logger.debug('Prepare colours plot')
         colour_plot = np.empty((0, 0, 3), int)
-        for l,a,b in target_colours:
+        for l, a, b in target_colours:
             colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
         colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
-        #colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix))
         self.add_image(colour_plot)
         self.current_axis.set_yticks(
             np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours
@@ -148,7 +135,6 @@ class FigureBuilder:
             # todo adapt this to work on windows systems using Pillow or similar
             pass
         self.current_axis.view_init(elev=45, azim=45)
-
 
     def print(self, large = False):
         if self.save:
