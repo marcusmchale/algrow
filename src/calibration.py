@@ -47,6 +47,7 @@ class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App w
         if self.frame.alpha_selection.hull is None:
             logger.warning("Configuration is incomplete, will not attempt to print summary figure")
             return
+        logger.debug("Plotting hull in lab colourspace")
         fig = FigureBuilder(path, self.args, 'Alpha hull')
         ax = fig.add_subplot(projection='3d')
         ax.scatter(
