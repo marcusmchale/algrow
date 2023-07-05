@@ -102,12 +102,30 @@ class FigureBuilder:
         self.current_axis.get_xaxis().set_visible(False)
 
     def get_out_path(self, suffix='.png'):
-        out_path = Path(
-            self.out_dir,
-            "debug",
-            Path(self.img_path).stem,
-            Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix(suffix)
-        )
+        if self.args.debug:
+            out_path = Path(
+                self.out_dir,
+                "debug",
+                Path(self.img_path).stem,
+                Path(" - ".join([str(FigureBuilder.counter), self.step_name])).with_suffix(suffix)
+            )
+        elif self.args.overlay:
+            out_path = Path(
+                self.out_dir,
+                "overlay",
+                Path(self.img_path).with_suffix(suffix)
+            )
+        else:
+            out_path = Path(
+                self.out_dir,
+                "figures",
+                Path(".".join([
+                    Path(self.img_path).stem,
+                    str(FigureBuilder.counter),
+                    self.step_name,
+                    suffix
+                ]))
+            )
         return out_path
 
     def animate(self):
@@ -136,7 +154,7 @@ class FigureBuilder:
             pass
         self.current_axis.view_init(elev=45, azim=45)
 
-    def print(self, large = False):
+    def print(self, large=False):
         if self.save:
             if large:
                 self.fig.set_figwidth(16 * self.ncols)

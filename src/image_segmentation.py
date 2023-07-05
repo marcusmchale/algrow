@@ -179,6 +179,7 @@ class Segmentor:   # todo consider not using layout for segmentation during cali
                     self.filepath_to_segments[filepath] = segments
                 except Exception as exc:
                     adapted_logger.info(f'Exception occurred: {exc}')
+        logger.debug(f"images processed: {len(self.filepath_to_segments.keys())}")
 
     def _process(self):
         for filepath in self.image_filepaths:
@@ -191,8 +192,10 @@ class Segmentor:   # todo consider not using layout for segmentation during cali
 
     def _summarise(self):
         if len(list(self.filepath_to_segments.keys())) != len(self.image_filepaths):
-            logger.warning("Some images selected for calibration did not complete segmentation")
             self.image_filepaths = list(self.filepath_to_segments.keys())  # in case some did not segment properly
+            logger.warning(f"Some images did not complete segmentation: reduced to {len(self.image_filepaths)}")
+        if len(self.image_filepaths) == 0:
+            raise ValueError("Could not complete calibration")
         # Prepare some summary dataframes for the segment colours in rgb and lab colourspaces
         self.rgb = pd.concat(
             {fp: seg.rgb for fp, seg in self.filepath_to_segments.items()},

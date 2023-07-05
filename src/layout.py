@@ -106,7 +106,7 @@ class LayoutDetector:
             fig.print()
 
     def hough_circles(self, image, hough_radii):
-        self.logger.debug(f"Find circles with radius: {hough_radii}")
+        self.logger.debug(f"Find circles with radii: {hough_radii}")
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
@@ -114,7 +114,7 @@ class LayoutDetector:
         self.logger.debug(f"find {n + attempt * 10} circles")
         circle_radius_px = int(self.args.circle_diameter / 2)
         # each attempt we expand the number of radii to assess
-        hough_radii = np.arange(circle_radius_px - (3 * (attempt + 1)), circle_radius_px + (3 * (attempt +1)), 2)
+        hough_radii = np.arange(circle_radius_px - (3 * (attempt + 1)), circle_radius_px + (3 * (attempt + 1)), 2)
         hough_result = self.hough_circles(self.distance, hough_radii)
         _accum, cx, cy, rad = hough_circle_peaks(
             hough_result,
@@ -123,10 +123,13 @@ class LayoutDetector:
             min_ydistance=int(self.args.circle_diameter),
             num_peaks=n + attempt * 10  # each time we increase the target peak number
         )
-        #circles = np.dstack((cx, cy, rad)).squeeze()
-        # Use the known circle size rather than found size
-        # and circle expansion factor expands search area for mask/superpixels
-        circles = np.dstack((cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))).squeeze()
+        # circles = np.dstack((cx, cy, rad)).squeeze()
+        # todo consider whether to use found circle size (above) or the known circle size (below)
+        # we don't have issues with overlapping if useing found
+        # note the expansion factor appplied below to increase the search area for mask/superpixels
+        circles = np.dstack(
+            (cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))
+        ).squeeze()
         if circles.shape[0] < n:
             self.logger.debug(f'{str(circles.shape[0])} circles found')
             raise InsufficientCircleDetection
