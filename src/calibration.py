@@ -137,6 +137,17 @@ class CanvasFrame(wx.Frame):
             decimals=1
         ).tolist())))
         update_arg(self.args, 'delta', self.alpha_selection.delta)
+
+        # Output a file summarising the calibration values: selected colours, alpha and delta values
+        logger.debug("Write out calibration parameters")
+        with open(Path(self.args.out_dir, "colours.conf"), 'w') as text_file:
+            circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
+            hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace("'", '"')
+            text_file.write(f"circle_colour = {circle_colour_string}\n")
+            text_file.write(f"hull_vertices = {hull_vertices_string}\n")
+            text_file.write(f"alpha = {self.args.alpha}\n")
+            text_file.write(f"delta = {self.args.delta}\n")
+
         # self.Close()
         event.Skip()
         #self.Destroy()
