@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import wx
-import wx.lib.mixins.inspection as WIT  # todo CONSIDER just use wx.App when done developing
+# import wx.lib.mixins.inspection as WIT  # alternative to wx.App, provides inspectable app
 
 from matplotlib.backends.backend_wxagg import (
     FigureCanvasWxAgg as FigureCanvas,
@@ -26,7 +26,7 @@ from .image_segmentation import Segmentor
 logger = logging.getLogger(__name__)
 
 
-#class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App when done developing
+#class Configurator(WIT.InspectableApp):  # alternative to wx.App, provides inspectable app
 class Configurator(wx.App):
 
     # overriding init to pass in the arguments from CLI/configuration file(s)
@@ -38,13 +38,16 @@ class Configurator(wx.App):
         super().__init__(self, **kwargs)
 
     def OnInit(self):
-        #self.Init()  # required only with inspectable app
+        logger.debug("Start app")
+        #self.Init()  # required with inspectable app
         self.frame = CanvasFrame(self.segmentor, self.args)
         self.frame.Show(True)
+        self.SetTopWindow(self.frame)
         return True
 
 
 class CanvasFrame(wx.Frame):
+
     def __init__(self, segmentor: Segmentor, args: argparse.Namespace):
         self.segmentor = segmentor
         super().__init__(None, -1, 'Define the alpha hull', size=(1600, 800))
@@ -68,9 +71,7 @@ class CanvasFrame(wx.Frame):
         self.delta_text = None
 
         # add a close button to test remote closing
-
-        close_button = wx.Button(self, label="Close")
-        close_button.Bind(wx.EVT_BUTTON, self.on_close)
+        self.Bind(wx.EVT_CLOSE, self.on_exit)
 
         # Prepare the figures and toolbars
         # we are using two figures rather than one due to a bug in imshow that prevents efficient animation
@@ -123,7 +124,7 @@ class CanvasFrame(wx.Frame):
         # load the first image
         self.load_current_image()
 
-    def on_close(self, _):
+    def on_exit(self, event):
         logger.debug("Close called")
         if self.alpha_selection.hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 points")
@@ -137,7 +138,8 @@ class CanvasFrame(wx.Frame):
         ).tolist())))
         update_arg(self.args, 'delta', self.alpha_selection.delta)
         # self.Close()
-        self.Destroy()
+        event.Skip()
+        #self.Destroy()
 
 
 
