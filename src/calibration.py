@@ -8,7 +8,6 @@ from typing import Optional
 
 import wx
 import wx.lib.mixins.inspection as WIT  # todo CONSIDER just use wx.App when done developing
-import wx.lib.inspection
 
 from matplotlib.backends.backend_wxagg import (
     FigureCanvasWxAgg as FigureCanvas,
@@ -27,7 +26,8 @@ from .image_segmentation import Segmentor
 logger = logging.getLogger(__name__)
 
 
-class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App when done developing
+#class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App when done developing
+class Configurator(wx.App):
 
     # overriding init to pass in the arguments from CLI/configuration file(s)
     def __init__(self, segmentor: Segmentor, args: argparse.Namespace = None, **kwargs):
@@ -38,7 +38,7 @@ class Configurator(WIT.InspectableApp):  # todo consider replacing with wx.App w
         super().__init__(self, **kwargs)
 
     def OnInit(self):
-        self.Init()
+        #self.Init()  # required only with inspectable app
         self.frame = CanvasFrame(self.segmentor, self.args)
         self.frame.Show(True)
         return True
@@ -136,7 +136,7 @@ class CanvasFrame(wx.Frame):
             decimals=1
         ).tolist())))
         update_arg(self.args, 'delta', self.alpha_selection.delta)
-        self.Close()
+        # self.Close()
         self.Destroy()
 
 
@@ -166,7 +166,7 @@ class CanvasFrame(wx.Frame):
             None
         )
         self.Bind(wx.EVT_TOOL, self.load_next, id=2)
-        self.toolbar.EnableTool(1, len(self.image_filepaths) > 0)  # enable if more than one image
+        self.toolbar.EnableTool(2, len(self.image_filepaths) > 0)  # enable if more than one image
         self.toolbar.AddSeparator()
         self.toolbar.AddTool(
             3,
