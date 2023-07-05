@@ -131,12 +131,13 @@ class CanvasFrame(wx.Frame):
             self.plot_hull(".")
 
         update_arg(self.args, 'alpha', self.alpha_selection.alpha)
-        update_arg(self.args, "target_colours", list(map(tuple, np.round(
+        update_arg(self.args, "hull_vertices", list(map(tuple, np.round(
             self.alpha_selection.hull.vertices,
             decimals=1
         ).tolist())))
         update_arg(self.args, 'delta', self.alpha_selection.delta)
         self.Close()
+        self.Destroy()
 
 
 

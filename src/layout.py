@@ -106,7 +106,7 @@ class LayoutDetector:
             fig.print()
 
     def hough_circles(self, image, hough_radii):
-        self.logger.debug("Find circles")
+        self.logger.debug(f"Find circles with radius: {hough_radii}")
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 

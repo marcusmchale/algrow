@@ -75,8 +75,8 @@ def algrow():
 
     # Need points to construct alpha hull for target colours selection
     # Get this from a sample of images across the sequence
-    if args.target_colours is None or len(args.target_colours) < 4:  # 4 is the minimum points to define an alpha_hull
-        if args.target_colours is not None and len(args.target_colours) < 0:
+    if args.hull_vertices is None or len(args.hull_vertices) < 4:  # 4 is the minimum points to define an alpha_hull
+        if args.hull_vertices is not None and len(args.hull_vertices) < 0:
             logger.warning("Less than 4 target colours specified - discarding provided colours")
         idx = np.unique(np.round(np.linspace(0, len(image_filepaths) - 1, args.num_calibration)).astype(int))
         sample_images = list(np.array(image_filepaths)[idx])
@@ -90,19 +90,19 @@ def algrow():
 
     if args.debug:
         fig = FigureBuilder(".", args, "Target colours")
-        fig.plot_colours(args.target_colours)
+        fig.plot_colours(args.hull_vertices)
         fig.print()
 
     if args.alpha is None:
-        alpha = optimizealpha(np.array(args.target_colours))
+        alpha = optimizealpha(np.array(args.hull_vertices))
         update_arg(args, 'alpha', alpha)
 
     # Output a file summarising the calibration values: selected colours, alpha and delta values
     with open(Path(args.out_dir, "colours.conf"), 'w') as text_file:
         circle_colour_string = f"\"{','.join([str(i) for i in args.circle_colour])}\""
-        target_colours_string = f'{[",".join([str(j) for j in i]) for i in args.target_colours]}'.replace("'", '"')
+        hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in args.hull_vertices]}'.replace("'", '"')
         text_file.write(f"circle_colour = {circle_colour_string}\n")
-        text_file.write(f"target_colours = {target_colours_string}\n")
+        text_file.write(f"hull_vertices = {hull_vertices_string}\n")
         text_file.write(f"alpha = {args.alpha}\n")
         text_file.write(f"delta = {args.delta}\n")
 
@@ -112,9 +112,9 @@ def algrow():
         # it returns a shapely polygon when alpha is 0
         # rather than a trimesh object which is returned for other values of alpha
         # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-        alpha_hull = PointCloud(args.target_colours).convex_hull
+        alpha_hull = PointCloud(args.hull_vertices).convex_hull
     else:
-        alpha_hull = alphashape(np.array(args.target_colours), args.alpha)
+        alpha_hull = alphashape(np.array(args.hull_vertices), args.alpha)
 
     if len(alpha_hull.faces) == 0:
         raise ValueError("The provided target colours and alpha value do not construct a complete hull")
