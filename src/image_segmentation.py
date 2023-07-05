@@ -52,24 +52,23 @@ class Segments:
         )
         self.logger.debug(f"SLIC complete: {len(np.unique(self.mask)) -1} segments")
         # The slic output includes segment labels that can span circles, despite the mask
-        # This breaks graph building but also seems to not reflect accurate clustering todo investigate this
-        # Clean it up by iterating through circles and relabel segments if found in another circle
-        self.logger.debug('Relabel segments spanning multiple circles')
-        circles_per_segment = defaultdict(int)
-        segment_counter = np.max(self.mask)
-        for circle in self.layout.circles:
-            circle_mask = self.layout.get_circle_mask(circle)
-            circle_segments = self.mask.copy()
-            circle_segments[~circle_mask] = -1  # to differentiate the background in circle from background outside
-            circle_segment_ids = set(np.unique(circle_segments))
-            circle_segment_ids.remove(-1)
-            for i in list(circle_segment_ids):
-                circles_per_segment[i] += 1
-                if circles_per_segment[i] > 1 or i == 0: #
-                    # add a new segment for this ID in this circle
-                    segment_counter += 1
-                    self.mask[circle_segments == i] = segment_counter
-        self.logger.debug(f"Relabelling complete: {len(np.unique(self.mask)) - 1} segments")
+        # Clean these up by iterating through circles and relabel segments if found in another circle - ensuring they are then unique
+        #self.logger.debug('Relabel segments spanning multiple circles')
+        #circles_per_segment = defaultdict(int)
+        #segment_counter = np.max(self.mask)
+        #for circle in self.layout.circles:
+        #    circle_mask = self.layout.get_circle_mask(circle)
+        #    circle_segments = self.mask.copy()
+        #    circle_segments[~circle_mask] = -1  # to differentiate the background in circle from background outside
+        #    circle_segment_ids = set(np.unique(circle_segments))
+        #    circle_segment_ids.remove(-1)
+        #    for i in list(circle_segment_ids):
+        #        circles_per_segment[i] += 1
+        #        if circles_per_segment[i] > 1 or i == 0: #
+        #            # add a new segment for this ID in this circle
+        #            segment_counter += 1
+        #            self.mask[circle_segments == i] = segment_counter
+        #self.logger.debug(f"Relabelling complete: {len(np.unique(self.mask)) - 1} segments")
         self.logger.debug("Calculate region properties")
         self.regions = pd.DataFrame(regionprops_table(
                 self.mask,
