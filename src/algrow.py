@@ -94,17 +94,8 @@ def algrow():
         fig.print()
 
     if args.alpha is None:
-        alpha = optimizealpha(np.array(args.hull_vertices))
-        update_arg(args, 'alpha', alpha)
-
-    # Output a file summarising the calibration values: selected colours, alpha and delta values
-    with open(Path(args.out_dir, "colours.conf"), 'w') as text_file:
-        circle_colour_string = f"\"{','.join([str(i) for i in args.circle_colour])}\""
-        hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in args.hull_vertices]}'.replace("'", '"')
-        text_file.write(f"circle_colour = {circle_colour_string}\n")
-        text_file.write(f"hull_vertices = {hull_vertices_string}\n")
-        text_file.write(f"alpha = {args.alpha}\n")
-        text_file.write(f"delta = {args.delta}\n")
+        # alpha = optimizealpha(np.array(args.hull_vertices))
+        update_arg(args, 'alpha', 0)
 
     # Construct alpha hull from target colours
     if args.alpha == 0:
