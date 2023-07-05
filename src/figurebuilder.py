@@ -89,15 +89,15 @@ class FigureBuilder:
             #    cbar.set_ticks(ticks)
         return pos
 
-    def plot_colours(self, target_colours, npix=10):
+    def plot_colours(self, hull_vertices, npix=10):
         self.logger.debug('Prepare colours plot')
         colour_plot = np.empty((0, 0, 3), int)
-        for l, a, b in target_colours:
+        for l, a, b in hull_vertices:
             colour_plot = np.append(colour_plot, np.tile([l, a, b], np.square(npix)).astype(float))
-        colour_plot = lab2rgb(colour_plot.reshape(npix * len(target_colours), npix, 3))
+        colour_plot = lab2rgb(colour_plot.reshape(npix * len(hull_vertices), npix, 3))
         self.add_image(colour_plot)
         self.current_axis.set_yticks(
-            np.arange(len(target_colours) * npix, step=npix) + npix / 2, labels=target_colours
+            np.arange(len(hull_vertices) * npix, step=npix) + npix / 2, labels=hull_vertices
         )
         self.current_axis.get_xaxis().set_visible(False)
 

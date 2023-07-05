@@ -111,15 +111,15 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-tc", "--target_colours",
-        help="Target colour points in Lab colourspace as comma separated floats, at least 4 points are required",
+        "-hv", "--Hull vertices",
+        help="Points in Lab colourspace that define the alpha hull, at least 4 points are required",
         type=lab,
         default=None,
         action='append'
     )
     parser.add_argument(
         "-al", "--alpha",
-        help="Alpha value used to create concave hull around points, 0 to use the convex hull",
+        help="Alpha value used to construct a hull (or hulls) around the provided hull vertices",
         type=float,
         default=0
     )
