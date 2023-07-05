@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 #
 #   sys.excepthook = excepthook  # this snippet is useful to catch exceptions from wx.Frame
 
-
 def algrow():
     argparser = options()
     args = argparser.parse_args()
@@ -60,7 +59,7 @@ def algrow():
         calibrate(image_filepaths, args)
         calculate(image_filepaths, args)
     else:
-        logger.info("No image files provide")
+        logger.info("No image files provided")
 
     if args.sample_id:
         analyse(args)

@@ -77,7 +77,8 @@ class Layout:
         for circle in self.circles:
             circle_mask = self.get_circle_mask(circle)
             if np.logical_and(circles_mask, circle_mask).any():
-                raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
+                self.logger.warning("Circles overlapping - consider trying again with a lower circle_expansion factor")
+                #raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
             circles_mask = circles_mask | circle_mask
         if self.args.debug:
             fig = FigureBuilder(self.image.filepath, self.args, "Circles mask")
