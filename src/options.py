@@ -26,7 +26,7 @@ def update_arg(args, arg, val):
     if vars(args)[arg] is None:
         logger.info(f"Setting {arg}: {val_str}")
     else:
-        logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]}")
+        logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
     vars(args).update({arg: val})
 
 
@@ -96,7 +96,7 @@ def options():
         '-spc', "--superpixel_compactness",
         help="Superpixel compactness, higher is more regular (square)",
         type=float,
-        default=1
+        default=10
     )
     parser.add_argument(
         '-sig', "--sigma",

@@ -47,8 +47,6 @@ def algrow():
             else:
                 raise FileNotFoundError
         logger.info(f"Processing {len(image_filepaths)} images")
-    if not image_filepaths:
-        logger.info(f'No images to process')
 
     # Organise output directory
     if not args.out_dir:
@@ -58,6 +56,19 @@ def algrow():
             args.out_dir = Path(args.image[0])
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
 
+    if image_filepaths:
+        calibrate(image_filepaths, args)
+        calculate(image_filepaths, args)
+    else:
+        logger.info("No image files provide")
+
+    if args.sample_id:
+        analyse(args)
+    else:
+        logger.info("No sample ID file provided")
+
+
+def calibrate(image_filepaths, args):
     # Need circle colour for layout detection, we can get this from a single image
     if not args.circle_colour:
         logger.debug("Pick circle colour")
@@ -95,8 +106,11 @@ def algrow():
 
     if args.alpha is None:
         # alpha = optimizealpha(np.array(args.hull_vertices))
+        # Todo consider: In the absence of an alpha value it probably makes more sense to set to 0 than optimise
         update_arg(args, 'alpha', 0)
 
+
+def calculate(image_filepaths, args):
     # Construct alpha hull from target colours
     if args.alpha == 0:
         # the api for alphashape is a bit strange,
@@ -106,29 +120,28 @@ def algrow():
         alpha_hull = PointCloud(args.hull_vertices).convex_hull
     else:
         alpha_hull = alphashape(np.array(args.hull_vertices), args.alpha)
-
     if len(alpha_hull.faces) == 0:
-        raise ValueError("The provided target colours and alpha value do not construct a complete hull")
+        raise ValueError("The provided vertices do not construct a complete hull with the chosen alpha parameter")
+
     # prepare output file for results
     area_out = Path(args.out_dir, args.area_file)
     area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
     logger.debug("Check file exists and if it already includes data from listed images")
     if area_out.is_file():  # if the file exists then check for any already processed images
-        while True:
-            with open(area_out) as csv_file:
-                csv_reader = reader(csv_file)
-                # Skip the header
-                try:
-                    next(csv_reader)
-                except StopIteration:
-                    logger.debug("Existing file is not more than one line")
-                    break
+        with open(area_out) as csv_file:
+            csv_reader = reader(csv_file)
+            # Skip the header
+            try:
+                next(csv_reader)
                 files_done = {Path(row[0]) for row in csv_reader}
                 files_done = set.intersection(set(image_filepaths), files_done)
                 image_filepaths = [i for i in image_filepaths if i not in files_done]
                 logger.info(
                     f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
                 )
+            except StopIteration:
+                logger.debug("Existing output file is only a single line (likely header only)")
+
     # Process images
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)
@@ -136,7 +149,7 @@ def algrow():
             csv_writer.writerow(area_header)
 
         if args.processes > 1:
-            with ProcessPoolExecutor(max_workers=args.processes,  mp_context=get_context('spawn')) as executor:
+            with ProcessPoolExecutor(max_workers=args.processes, mp_context=get_context('spawn')) as executor:
                 future_to_file = {
                     executor.submit(area_worker, filepath, alpha_hull, args): filepath for filepath in image_filepaths
                 }
@@ -161,10 +174,10 @@ def algrow():
                 else:
                     logger.info(f'{str(filepath)}: processed')
 
-    if args.sample_id:
-        area_analyser = AreaAnalyser(area_out, args.sample_id, args, area_header)
-        area_analyser.fit_all(args.fit_start, args.fit_end)
-        area_analyser.write_results(args.out_dir, group_plots=True)
-    else:
-        logger.info("No sample IDs provided")
 
+def analyse(args):
+    area_out = Path(args.out_dir, args.area_file)
+    area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+    area_analyser = AreaAnalyser(area_out, args.sample_id, args, area_header)
+    area_analyser.fit_all(args.fit_start, args.fit_end)
+    area_analyser.write_results(args.out_dir, group_plots=True)
