@@ -111,7 +111,7 @@ def options():
         default=None
     )
     parser.add_argument(
-        "-hv", "--Hull vertices",
+        "-hv", "--hull_vertices",
         help="Points in Lab colourspace that define the alpha hull, at least 4 points are required",
         type=lab,
         default=None,
