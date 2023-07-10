@@ -66,20 +66,23 @@ class Layout:
         x = circle[0]
         y = circle[1]
         radius = circle[2]
-        circle_mask = np.empty(self.dim)
+        circle_mask = np.full(self.dim, False)
         yy, xx = draw.disk((y, x), radius, shape=self.dim)
         circle_mask[yy, xx] = True
         return circle_mask.astype('bool')
 
     def _draw_mask(self):
         self.logger.debug("Draw the circles mask")
-        circles_mask = np.empty(self.dim).astype("bool")
+        circles_mask = np.full(self.dim, False).astype("bool")
+        overlapping_circles = False
         for circle in self.circles:
             circle_mask = self.get_circle_mask(circle)
             if np.logical_and(circles_mask, circle_mask).any():
-                self.logger.warning("Circles overlapping - consider trying again with a lower circle_expansion factor")
+                overlapping_circles = True
                 #raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
             circles_mask = circles_mask | circle_mask
+        if overlapping_circles:
+            self.logger.warning("Circles overlapping")
         if self.args.debug:
             fig = FigureBuilder(self.image.filepath, self.args, "Circles mask")
             fig.add_image(circles_mask)

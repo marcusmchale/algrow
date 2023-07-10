@@ -1,13 +1,15 @@
 import logging
-import argparse
 
-import numpy as np
-import pandas as pd
-from pathlib import Path
-from typing import Optional
+from typing import List, Optional
+from ..image_loading import ImageLoaded
 
 import wx
-# import wx.lib.mixins.inspection as WIT  # alternative to wx.App, provides inspectable app
+from pubsub import pub
+
+import pandas as pd
+import numpy as np
+from pathlib import Path
+
 
 from matplotlib.backends.backend_wxagg import (
     FigureCanvasWxAgg as FigureCanvas,
@@ -19,44 +21,25 @@ from matplotlib import get_data_path  # we are recycling some matplotlib icons
 from alphashape import alphashape, optimizealpha
 from trimesh import PointCloud, proximity, Trimesh
 
-from .options import update_arg
-from .figurebuilder import FigureBuilder
-from .image_segmentation import Segmentor
+
+from ..image_segmentation import Segmentor
+from ..figurebuilder import FigureBuilder
+from ..options import update_arg
+
 
 logger = logging.getLogger(__name__)
 
 
-#class Configurator(WIT.InspectableApp):  # alternative to wx.App, provides inspectable app
-class Configurator(wx.App):
+class HullPanel(wx.Panel):
 
-    # overriding init to pass in the arguments from CLI/configuration file(s)
-    def __init__(self, segmentor: Segmentor, args: argparse.Namespace = None, **kwargs):
-        logger.debug("Start configurator")
+    def __init__(self, parent, segmentor: Segmentor):
+        super().__init__(parent)
+
         self.segmentor = segmentor
-        self.frame = None
-        self.args = args or []
-        super().__init__(self, **kwargs)
+        self.images = self.segmentor.images
+        self.args = self.images[0].args
 
-    def OnInit(self):
-        logger.debug("Start app")
-        #self.Init()  # required with inspectable app
-        self.frame = CanvasFrame(self.segmentor, self.args)
-        self.frame.Show(True)
-        self.SetTopWindow(self.frame)
-        return True
-
-
-class CanvasFrame(wx.Frame):
-
-    def __init__(self, segmentor: Segmentor, args: argparse.Namespace):
-        self.segmentor = segmentor
-        super().__init__(None, -1, 'Define the alpha hull', size=(1600, 800))
-        self.image_filepaths = segmentor.image_filepaths
-
-        # Set preconfigured arguments
-        self.args = args
-
-        # Prepare an index for navigating the list of sampled images
+        # Prepare an index for navigating the list of images
         self.ind: int = 0
 
         # prepare an alpha selection object -
@@ -80,7 +63,7 @@ class CanvasFrame(wx.Frame):
         self.seg_fig = Figure()
         self.seg_fig.set_dpi(150)
         self.seg_ax = self.seg_fig.add_subplot(111)
-        self.seg_fig.suptitle('Click to select segments', fontsize=16)
+        self.seg_fig.suptitle('Select segments', fontsize=16)
         self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
         self.seg_art = None
         self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
@@ -94,7 +77,7 @@ class CanvasFrame(wx.Frame):
         self.lab_fig = Figure()
         self.lab_fig.set_dpi(100)
         self.lab_ax = self.lab_fig.add_subplot(111, projection='3d')
-        self.lab_fig.suptitle("Segment colours in Lab", fontsize=16)
+        self.lab_fig.suptitle("Segment colours", fontsize=16)
         self.lab_ax.set_zlabel('L')
         self.lab_ax.set_xlabel('a')
         self.lab_ax.set_ylabel('b')
@@ -138,21 +121,10 @@ class CanvasFrame(wx.Frame):
         ).tolist())))
         update_arg(self.args, 'delta', self.alpha_selection.delta)
 
-        # Output a file summarising the calibration values: selected colours, alpha and delta values
-        logger.debug("Write out calibration parameters")
-        with open(Path(self.args.out_dir, "colours.conf"), 'w') as text_file:
-            circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
-            hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace("'", '"')
-            text_file.write(f"circle_colour = {circle_colour_string}\n")
-            text_file.write(f"hull_vertices = {hull_vertices_string}\n")
-            text_file.write(f"alpha = {self.args.alpha}\n")
-            text_file.write(f"delta = {self.args.delta}\n")
+        pub.sendMessage("enable_btns")
 
-        # self.Close()
-        event.Skip()
-        #self.Destroy()
-
-
+        self.Destroy()
+        #event.Skip()
 
     def add_toolbar(self):
         self.toolbar = wx.ToolBar(self, id=-1, style=wx.TB_HORIZONTAL)  # | wx.TB_TEXT)
@@ -179,7 +151,7 @@ class CanvasFrame(wx.Frame):
             None
         )
         self.Bind(wx.EVT_TOOL, self.load_next, id=2)
-        self.toolbar.EnableTool(2, len(self.image_filepaths) > 0)  # enable if more than one image
+        self.toolbar.EnableTool(2, len(self.images) > 1)  # enable only if more than one image
         self.toolbar.AddSeparator()
         self.toolbar.AddTool(
             3,
@@ -230,8 +202,14 @@ class CanvasFrame(wx.Frame):
         )
         self.toolbar.ToggleTool(8, True)
         self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=8)
-        self.sizer.Add(self.toolbar, 0, wx.ALIGN_LEFT)
 
+        # add a close button
+        self.toolbar.AddSeparator()
+        self.close_btn = wx.Button(self.toolbar, 5, "Save and close")
+        self.toolbar.AddControl(self.close_btn)
+        self.close_btn.Bind(wx.EVT_BUTTON, self.on_exit)
+
+        self.sizer.Add(self.toolbar, 0, wx.ALIGN_CENTER)
         self.toolbar.Realize()
 
     def load_prev(self, _):
@@ -247,17 +225,17 @@ class CanvasFrame(wx.Frame):
 
     def load_next(self, _):
         logger.debug("Load next image")
-        if self.ind < len(self.image_filepaths) - 1:
+        if self.ind < len(self.images) - 1:
             self.ind += 1
             self.load_current_image()
             self.toolbar.EnableTool(1, True)
-        if self.ind == len(self.image_filepaths) - 1:
+        if self.ind == len(self.images) - 1:
             self.toolbar.EnableTool(2, False)
         else:
             self.toolbar.EnableTool(2, True)
 
     def load_current_image(self):
-        filepath = self.image_filepaths[self.ind]
+        filepath = self.images[self.ind].filepath
         logger.debug(f"Load image: {filepath}")
         self.seg_ax.set_title(str(filepath))
         self.draw_segments_figure()
@@ -270,8 +248,8 @@ class CanvasFrame(wx.Frame):
         self.alpha_text.SetValue(str(self.alpha_selection.alpha))
 
     def set_alpha(self, _):
-        logger.debug("Set alpha")
         value = self.alpha_text.GetValue()
+        logger.debug(f"Set alpha: {value}")
         try:
             value = float(value)
         except ValueError:
@@ -282,8 +260,8 @@ class CanvasFrame(wx.Frame):
         self.draw_lab_figure()
 
     def set_delta(self, _):  #
-        logger.debug("Set delta")
         value = self.delta_text.GetValue()
+        logger.debug(f"Set delta: {value}")
         try:
             value = float(value)
         except ValueError:
@@ -295,11 +273,11 @@ class CanvasFrame(wx.Frame):
     def on_click(self, event):
         x = event.mouseevent.xdata.astype(int)
         y = event.mouseevent.ydata.astype(int)
-        filepath = self.image_filepaths[self.ind]
-        sid = self.segmentor.filepath_to_segments[filepath].mask[y, x]
-        logger.debug(f'file: {filepath}, segment:  {sid}, x: {x}, y: {y}')
+        image = self.images[self.ind]
+        sid = self.segmentor.image_to_segments[image].mask[y, x]
+        logger.debug(f'file: {image.filepath}, segment:  {sid}, x: {x}, y: {y}')
         if sid != 0:
-            self.alpha_selection.toggle_segment(filepath, sid)
+            self.alpha_selection.toggle_segment(image.filepath, sid)
             self.draw_segments_figure()
             self.draw_hull()
 
@@ -310,33 +288,34 @@ class CanvasFrame(wx.Frame):
         show_within = self.toolbar.GetToolState(8)  # true if highlight within is selected in gui
         logger.debug(f"show within: {show_within}")
 
-        filepath = self.image_filepaths[self.ind]
-        current_file_segments = self.segmentor.filepath_to_segments[self.image_filepaths[self.ind]]
-        img = current_file_segments.boundaries.copy()
+        image = self.images[self.ind]
+        filepath = image.filepath
+        current_file_segments = self.segmentor.image_to_segments[image]
+        displayed = current_file_segments.boundaries.copy()
 
         if show_selected or show_within:
-            segments_mask = self.segmentor.filepath_to_segments[filepath].mask
+            segments_mask = self.segmentor.image_to_segments[image].mask
             if show_within:
                 self.alpha_selection.update_dist(filepath)
                 within = self.alpha_selection.dist[(self.alpha_selection.dist >= -self.alpha_selection.delta).values].index
                 within = [j for i, j in within if i == filepath]
                 logger.debug(f'within: {within}')
-                img[np.isin(segments_mask, within)] = (0, 1, 0)
+                displayed[np.isin(segments_mask, within)] = (0, 1, 0)
             if show_selected:
                 selected = [j for i, j in self.alpha_selection.selection if i == filepath]
                 logger.debug(f'selected: {selected}')
-                img[np.isin(segments_mask, selected)] = (0, 0, 1)
+                displayed[np.isin(segments_mask, selected)] = (0, 0, 1)
 
         if self.seg_art is None:
-            self.seg_art = self.seg_ax.imshow(img, picker=True)
+            self.seg_art = self.seg_ax.imshow(displayed, picker=True)
         else:
-            self.seg_art.set_data(img)
+            self.seg_art.set_data(displayed)
 
         self.seg_cv.draw_idle()
         self.seg_cv.flush_events()
 
     def draw_lab_figure(self, _=None):
-        current_file_segments = self.segmentor.filepath_to_segments[self.image_filepaths[self.ind]]
+        current_file_segments = self.segmentor.image_to_segments[self.images[self.ind]]
         elev, azim = self.lab_ax.elev, self.lab_ax.azim  # get the current view angles on lab plot to reload with
 
         if self.lab_art is not None:
@@ -431,7 +410,7 @@ class AlphaSelection:
 
     def update_hull(self):
         selected_points = self.points.loc[list(self.selection)].values
-        logger.debug(f"selected_points:{selected_points}")
+        #logger.debug(f"selected_points:{selected_points}")
         if len(selected_points) < 4:
             self.hull = None
         else:
