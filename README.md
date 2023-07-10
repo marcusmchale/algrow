@@ -201,20 +201,26 @@ The AlGrow application was developed to;
 
 # Todo
   - Add scale determination window to calibration steps
+  
+# To consider
+  - Process image filename during loading to provide date time block etc. rather than during analysis
+    - not necessary until writing out but would make more sense for this to be part of the loaded image.
   - Consider alternative grid finding methods to reduce layout parameters
   - Consider whether to revert to applying superpixel segmentation during area calculation
     - tradeoff: the time added for slic might be regained in the hull distance calculation
     - without fill/remove/blurring this may be necessary/improve results 
+    - consideration: sometimes superpixel segmentation is poor, e.g. thing whispy tissues
   - consider gaussian blurs in both calibration and area calculation
   - consider downscaling images - seems it would be useful to speed up calibration without much impact
+  - investigate issue with the wx app main loop not terminating when running remotely (X-forwarding)
 
-# To consider
   - Analysis (to consider but maybe overkill)
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
     - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
-  - Test interactive selection of colour when run on server using X forwarding.
+
+# Beyond the current scope but maybe one day
   - Consider developing image capture using libcamera2 and apscheduler - run as daemon
     - Consider not compressing to jpg
     - provide HDR (even with pi2 camera) by capturing a series of images at multiple exposures and compositing

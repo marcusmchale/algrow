@@ -25,9 +25,13 @@ def update_arg(args, arg, val):
         val_str = str(val)
     if vars(args)[arg] is None:
         logger.info(f"Setting {arg}: {val_str}")
+        vars(args).update({arg: val})
     else:
-        logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
-    vars(args).update({arg: val})
+        if vars(args)[arg] == val:
+            logger.info(f"Existing value matches the update so no change will be made {arg}: {val}")
+        else:
+            logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
+            vars(args).update({arg: val})
 
 
 # Parse command-line arguments
@@ -164,7 +168,7 @@ def options():
         "-sc",
         "--scale",
         help="pixels/unit distance for area calculation (if unit distance is mm then area will be reported in mm²)",
-        default=5.625,  # 180px = 32mm
+        default=None,
         type=float
     )
     parser.add_argument(

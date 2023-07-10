@@ -8,6 +8,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def analyse(args):
+    area_out = Path(args.out_dir, args.area_file)
+    area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+    area_analyser = AreaAnalyser(area_out, args.sample_id, args, area_header)
+    area_analyser.fit_all(args.fit_start, args.fit_end)
+    area_analyser.write_results(args.out_dir, group_plots=True)
+
+
 class AreaAnalyser:
     def __init__(self, area_csv, id_csv, args, area_header):
         self.args = args

@@ -33,3 +33,9 @@ class ImageLoaded:
             fig.add_image(self.lab[:, :, 1], "Green-Red channel (a in Lab)", color_bar=True)
             fig.add_image(self.lab[:, :, 2], "Blue-Yellow channel (b in Lab)", color_bar=True)
             fig.print()
+
+    def __hash__(self):
+        return hash(self.filepath)
+
+    def __eq__(self, other):
+        return self.filepath == other.filepath
