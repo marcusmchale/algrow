@@ -133,7 +133,7 @@ To define this polygon we construct an alpha shapes from a set of training point
 Further, the prior methodology relied on manual annotation in the ImageJ graphical interface.
 This process is time-consuming and dependent on fixed coordinate positions of the lamina disc across the image stack.
 
-# Issues specific to our prior strategy
+# Issues specific to existing strategy
 Manual adjustment of fixed thresholds for segmentation in ImageJ is time-consuming and
 can fail to identify or accurately segment across variable subject colours.
 Manual curation can also introduce operator error and biases to area quantification.
@@ -164,15 +164,92 @@ The AlGrow application was developed to;
     - This allows us to reliably identifier outlier datapoints that do not reliably estimate lamina disc area.
 
 
-## Simple steps:
+# Instructions
+## Calibration
+The calibration GUI will launch unless scale, circle colour and hull vertices are provided
+as arguments or in a configuration file. There are utilities provided to define each of these:
+### Set scale
+An internal reference with known dimensions should be included in the image. 
+This tool allows you to use this internal reference to calculate an appropriate scale
+to convert from pixels to units of physical distance and area (mm²).
 
-  # Calibration:
-    
-    1. Selection of targeting circle colour in interactive window (defines --circle_colour argument)
-    2. Selection of target alpha hull in interactive window (defines --target_colours argument)
-        2.1 Layout is determined (see description below under operation (section 1)
-        2.2 SLIC segmentation of a masked image to identify superpixels (skimage.segmentation)
-        2.2 The alpha hull is interactively defined
+Click once to start drawing a line and again to finish the line. This will provide a value in pixels (px)
+to the toolbar below. Type the physical distance (mm) for this line into the next box and press enter. 
+This will calculate a scale (px/mm). 
+
+It may help to zoom in on the image to accurately define the start and end of the line. 
+Use the navigation toolbar above to zoom and pan on the image. 
+
+Alternatively you can enter the scale manually into the box and press enter.
+Click "save and close" to accept this scale, or click "clear" to start again.
+### Circle colour
+To detect the layout of lamina discs, AlGrow requires circles surrounding each subject in a pseudo-grid layout. 
+These circles must be of a uniform colour, ideally one that is readily distinguished from the target subjects.
+
+To define this colour, a picture is loaded and an interactive "lasso" allows you to encircle part of the image 
+that contains includes this colour. As for defining the scale, you may wish to zoom in on part of the image to do so.
+Multiple areas can be selected and the median colour of these pixels will be chosen. 
+
+The selected colour is displayed in the box beside the save and close button. 
+You can always "clear" the selection and start again or "save and close" to accept the value and continue
+### Target hull
+This step takes advantage of layout detection,so it is not available if circle colour is not defined.
+It will also fail if the layout parameters are poorly defined.
+
+Launching this window will take some time so please be patient.
+The layout will be detected for a sampled set of images will be segmented (SLIC).
+Images are processed in parallel so if you have specified to use a large number of images for calibration (--num_calibration) 
+you might also consider using a similar number of processes (--processes) to speed things up.
+
+Two views are presented. 
+On the left, the image and segment boundary overlay allows you to click to select/deselect
+target segments.  Click here to select target segments, they will be highlighted (blue).
+
+On the right, the median segment colours are plotted in Lab colourspace. 
+You can click and drag on this image to change the perspective and better visualise the separation between colours.
+
+When enough segments are selected from the image on the left (>=4 while alpha = 0)
+a hull will be plotted on the right. 
+Segments whose median colour is contained within this hull, 
+or within delta of the surface will be highlighted (green) on the image on the left.
+
+You can turn on/off segment highlighting by clicking the blue/green buttons
+corresponding to the "selection" and "within" colours. It is useful to start with a higher delta value (e.g. 10) 
+then reduce this parameter slowly to identify points that are just outside the hull. 
+The objective is to efficiently select the boundary points defining our target colourspace (our hull vertices).
+Points that do not form a vertex of this hull will be discarded after calibration.
+
+You can navigate between images by clicking the prev/next buttons on the bottom toolbar. 
+When you are satisfied with the defined hull click save and close. 
+This also may take some time, particularly if the --animate option is specified and a complex hull is defined.
+A debugging image is created depicting the points from the set of sampled images in Lab colourspace
+with the defined hull overlayed.
+
+#### Advanced
+The alpha parameter is necessary to construct a concave hull, 
+which may be necessary when similar background colours are present in the image.
+When alpha is 0, the convex hull is constructed. 
+When alpha is too high, some points will be excluded.
+For a given set of selected points you can "optimise" the alpha parameter by clicking the "A" button.
+
+If SLIC segmentation is not perfect, i.e. some segments contain both subject and background, do not worry. 
+Just be sure to select segments that only contain your target. 
+However, you may choose to optimise the SLIC parameters to better suit your images.
+
+### Continue
+When all of these are complete (green) you will be able to click "continue".
+This will write out file specifying the configuration parameters into the output file. 
+You can copy this into your configuration file to avoid repeating configuration
+with similar images and to ensure consistency across multiple analyses. 
+
+
+## Configuration
+    1. Scale:
+    2. Target colour: Selection of targeting circle colour in interactive window (defines --circle_colour argument)
+    3. Hull. Selection of target alpha hull in interactive window (defines --target_colours argument)
+        3.1 Layout is determined (see description below under operation (section 1)
+        3.2 SLIC segmentation of a masked image to identify superpixels (skimage.segmentation)
+        3.3 The alpha hull is interactively defined
             - The user clicks to select/deselect target regions
             - When sufficient target points are accumulated an alpha hull is constructed and plotted
                 - A minimum of 4 points is required to construct a convex hull (alpha = 0)
@@ -198,11 +275,14 @@ The AlGrow application was developed to;
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
 
+# To explore
+ - consider how the alpha parameter can allows for multiple disconnected regions to be considered.
+   - assumes similar density in clouds but this is expected from SLIC
 
-# Todo
-  - Add scale determination window to calibration steps
-  
+
 # To consider
+
+
   - Process image filename during loading to provide date time block etc. rather than during analysis
     - not necessary until writing out but would make more sense for this to be part of the loaded image.
   - Consider alternative grid finding methods to reduce layout parameters

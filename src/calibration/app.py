@@ -17,16 +17,16 @@ from .waiting import WaitPanel
 logger = logging.getLogger(__name__)
 
 
-# this snippet is useful to catch exceptions from wx.Frame
-import sys
-import traceback
-
-def excepthook(type, value, tb):
-    message = 'Uncaught exception:\n'
-    message += ''.join(traceback.format_exception(type, value, tb))
-    logger.debug(message)
-
-sys.excepthook = excepthook
+## this snippet is useful to catch exceptions from wx.Frame
+#import sys
+#import traceback
+#
+#def excepthook(type, value, tb):
+#    message = 'Uncaught exception:\n'
+#    message += ''.join(traceback.format_exception(type, value, tb))
+#    logger.debug(message)
+#
+#sys.excepthook = excepthook
 
 
 class Calibrator(wx.App):
@@ -66,7 +66,7 @@ class TopFrame(wx.Frame):
         self.args = self.images[0].args
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
-        self.btn_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         self.scaler_btn = wx.Button(self, 1, "Set scale", size=(100, 10))
         self.scaler_btn.Bind(wx.EVT_BUTTON, self.launch_scaler)
@@ -88,6 +88,8 @@ class TopFrame(wx.Frame):
 
         pub.subscribe(self.enable_btns, 'enable_btns')
 
+        self.disable_btns()
+        self.enable_btns()
         self.update_btn_colour()
 
         self.SetSizer(self.sizer)
