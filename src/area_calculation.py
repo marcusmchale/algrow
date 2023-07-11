@@ -58,6 +58,9 @@ def calculate(args):
                 )
             except StopIteration:
                 logger.debug("Existing output file is only a single line (likely header only)")
+                image_filepaths = args.images
+    else:
+        image_filepaths = args.images
 
     # Process images
     with open(area_out, 'a+') as csv_file:

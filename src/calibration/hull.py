@@ -52,6 +52,8 @@ class HullPanel(wx.Panel):
         )
         self.alpha_text = None
         self.delta_text = None
+        self.clear_btn = None
+        self.close_btn = None
 
         # add a close button to test remote closing
         self.Bind(wx.EVT_CLOSE, self.on_exit)
@@ -203,9 +205,15 @@ class HullPanel(wx.Panel):
         self.toolbar.ToggleTool(8, True)
         self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=8)
 
+        # add a clear selection button
+        self.toolbar.AddSeparator()
+        self.clear_btn = wx.Button(self.toolbar, 10, "Clear")
+        self.toolbar.AddControl(self.clear_btn)
+        self.clear_btn.Bind(wx.EVT_BUTTON, self.clear_selection)
+
         # add a close button
         self.toolbar.AddSeparator()
-        self.close_btn = wx.Button(self.toolbar, 5, "Save and close")
+        self.close_btn = wx.Button(self.toolbar, 10, "Save and close")
         self.toolbar.AddControl(self.close_btn)
         self.close_btn.Bind(wx.EVT_BUTTON, self.on_exit)
 
@@ -374,6 +382,16 @@ class HullPanel(wx.Panel):
         )
         fig.animate()
         fig.print()
+
+    def clear_selection(self, event):
+        self.alpha_selection = AlphaSelection(
+            self.segmentor.lab,
+            set(),
+            alpha=self.args.alpha,
+            delta=self.args.delta
+        )
+        self.draw_segments_figure()
+        self.draw_hull()
 
 
 class AlphaSelection:

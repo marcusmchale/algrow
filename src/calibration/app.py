@@ -68,15 +68,15 @@ class TopFrame(wx.Frame):
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.scaler_btn = wx.Button(self, 1, "Set scale", size=(100, 10))
+        self.scaler_btn = wx.Button(self, 1, "Set scale", size=(100, 40))
         self.scaler_btn.Bind(wx.EVT_BUTTON, self.launch_scaler)
         self.btn_sizer.Add(self.scaler_btn, wx.ALIGN_CENTER)
 
-        self.circle_colour_btn = wx.Button(self, 2, "Circle colour", size=(100, 20))
+        self.circle_colour_btn = wx.Button(self, 2, "Circle colour", size=(100, 40))
         self.circle_colour_btn.Bind(wx.EVT_BUTTON, self.launch_circle_colour)
         self.btn_sizer.Add(self.circle_colour_btn, wx.ALIGN_CENTER)
 
-        self.hull_btn = wx.Button(self, 3, "Target hull", size=(100, 30))
+        self.hull_btn = wx.Button(self, 3, "Target hull", size=(100, 40))
         self.hull_btn.Bind(wx.EVT_BUTTON, self.launch_hull)
         self.btn_sizer.Add(self.hull_btn, wx.ALIGN_CENTER)
 
@@ -120,7 +120,7 @@ class TopFrame(wx.Frame):
             self.circle_colour_btn.SetBackgroundColour((0, 255, 0))
         else:
             self.circle_colour_btn.SetBackgroundColour(wx.NullColour)
-        if self.args.hull_vertices is not None:
+        if self.args.hull_vertices is not None and len(self.args.hull_vertices >= 4):
             self.hull_btn.SetBackgroundColour((0, 255, 0))
         else:
             self.hull_btn.SetBackgroundColour(wx.NullColour)
@@ -131,7 +131,11 @@ class TopFrame(wx.Frame):
             self.cont_btn.SetBackgroundColour(wx.NullColour)
 
     def done(self):
-        return all([self.args.scale is not None, self.args.circle_colour is not None, self.args.hull_vertices is not None])
+        return all([
+            self.args.scale is not None,
+            self.args.circle_colour is not None,
+            (self.args.hull_vertices is not None and len(self.args.hull_vertices >= 4))
+        ])
 
     def display_panel(self, panel):
         self.disable_btns()

@@ -243,22 +243,7 @@ You can copy this into your configuration file to avoid repeating configuration
 with similar images and to ensure consistency across multiple analyses. 
 
 
-## Configuration
-    1. Scale:
-    2. Target colour: Selection of targeting circle colour in interactive window (defines --circle_colour argument)
-    3. Hull. Selection of target alpha hull in interactive window (defines --target_colours argument)
-        3.1 Layout is determined (see description below under operation (section 1)
-        3.2 SLIC segmentation of a masked image to identify superpixels (skimage.segmentation)
-        3.3 The alpha hull is interactively defined
-            - The user clicks to select/deselect target regions
-            - When sufficient target points are accumulated an alpha hull is constructed and plotted
-                - A minimum of 4 points is required to construct a convex hull (alpha = 0)
-                - Where alpha is not 0, the number of points required to construct a closed hull will vary, however..
-                - A button is provided to automatically optimise the alpha parameter for the chosen points
-            - Selected points and those within a specified delta of the defined alpha hull are highlighted within the figure
-                - Delta parameter may also be interactively defined within this interface
-
-  # Operation
+## Target area quantification method
     1. Identify layout 
         1.1. A grayscale image is constructed reflecting the distance (delta-E) from the defined circle colour (skimage)
         1.2. Canny edge detection and Hough circle transform is applied to indentify target circles
@@ -267,7 +252,7 @@ with similar images and to ensure consistency across multiple analyses.
         1.5. A layout mask is constructed to restrict further analysis to target areas
 
     2. Determine subject area
-        1.1 A boolean mask is determined by pixel colour being within delta of the alpha hull
+        1.1 A boolean mask is determined by pixel colour being with alpha hull or within delta of its surface
         2.2 Small objects (--remove) are removed and filled (--fill) (skimage.morphology)
         2.3 Area of the mask within each circle is determined and output to a csv file.
 
@@ -275,14 +260,11 @@ with similar images and to ensure consistency across multiple analyses.
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
 
-# To explore
- - consider how the alpha parameter can allows for multiple disconnected regions to be considered.
-   - assumes similar density in clouds but this is expected from SLIC
-
+# To do
+  - calibration windows for layout
+    - consider alternatives for
 
 # To consider
-
-
   - Process image filename during loading to provide date time block etc. rather than during analysis
     - not necessary until writing out but would make more sense for this to be part of the loaded image.
   - Consider alternative grid finding methods to reduce layout parameters
@@ -300,6 +282,12 @@ with similar images and to ensure consistency across multiple analyses.
       - "block" and/or "plate"  
     - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
 
+# To explore
+ - consider how the alpha parameter can allow for multiple disconnected regions
+   - assumes similar density in clouds but this is expected from SLIC
+   - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
+
+
 # Beyond the current scope but maybe one day
   - Consider developing image capture using libcamera2 and apscheduler - run as daemon
     - Consider not compressing to jpg
@@ -311,12 +299,12 @@ with similar images and to ensure consistency across multiple analyses.
 
 # Comparisons with other tools/frameworks 
 ## plantcv2
-  - Command line application does not require customised coding
+  - Command line application does not require customised code
   - Multiplexing does not rely on a simple grid layout (we support a nested structure in rows or columns)
   - Relative rather than absolute positioning 
     - Allows movement of camera or subjects
     - Disadvantage is we require ring markers around each subject being distinguishable in the image (e.g. blue circles)
-  - Alpha hull and distance rather than fixed thresholds
+  - Alpha hull and distance rather than fixed thresholds  
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5895192/
 
 
