@@ -1,9 +1,8 @@
+import logging
 import argparse
-
 from configargparse import ArgumentParser
 from pathlib import Path
-
-import logging
+from itertools import chain
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,42 @@ def update_arg(args, arg, val):
             vars(args).update({arg: val})
 
 
+def image_path(s: str):
+    if Path(s).is_file():
+        return Path(s)
+    elif Path(s).is_dir():
+        return [p for p in Path(s).glob('**/*.jpg')]
+    else:
+        raise FileNotFoundError
+
+
+def postprocess(args):
+    # Handle multiple directories or a mix of directories and files
+    if args.images is not None:
+        args.images = list(chain(*args.images))
+
+    # Infer out dir if not specified
+    if args.out_dir is None:
+        if args.images is not None:
+            if Path(args.images[0]).is_file():
+                args.out_dir = Path(args.images[0]).parents[0]
+            else:
+                args.out_dir = Path(args.images[0])
+        elif args.id is not None:
+            args.out_dir = Path(args.id).parents[0]
+        #  else:  # should return default local director as out_dir
+        #      raise FileNotFoundError("No output directory specified")
+    return args
+
+
+def calibration_args_provided(args):
+    return all([
+        (args.hull_vertices is not None and len(args.hull_vertices) > 4),
+        args.circle_colour is not None,
+        args.scale is not None
+    ])
+
+
 # Parse command-line arguments
 def options():
     config_dir = Path(Path(__file__).parent.parent, "conf.d")
@@ -42,7 +77,13 @@ def options():
         default_config_files=config_files,
     )
     parser.add_argument("-c", "--conf", help ="Config file path", is_config_file=True)
-    parser.add_argument("-i", "--image", help="Input image file or directory", default=None, action='append')
+    parser.add_argument(
+        "-i",
+        "--images",
+        help="Input image file or directory",
+        type=image_path,
+        default=None,
+        action='append')
     parser.add_argument(
         "-id",
         "--sample_id",

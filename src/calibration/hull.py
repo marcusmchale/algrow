@@ -63,7 +63,7 @@ class HullPanel(wx.Panel):
         self.seg_fig = Figure()
         self.seg_fig.set_dpi(150)
         self.seg_ax = self.seg_fig.add_subplot(111)
-        self.seg_fig.suptitle('Select segments', fontsize=16)
+        self.seg_fig.suptitle('Click to select segments', fontsize=16)
         self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
         self.seg_art = None
         self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
@@ -77,7 +77,7 @@ class HullPanel(wx.Panel):
         self.lab_fig = Figure()
         self.lab_fig.set_dpi(100)
         self.lab_ax = self.lab_fig.add_subplot(111, projection='3d')
-        self.lab_fig.suptitle("Segment colours", fontsize=16)
+        self.lab_fig.suptitle("Inspect selection hull", fontsize=16)
         self.lab_ax.set_zlabel('L')
         self.lab_ax.set_xlabel('a')
         self.lab_ax.set_ylabel('b')

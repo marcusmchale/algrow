@@ -27,7 +27,7 @@ from .image_loading import ImageLoaded
 logger = logging.getLogger(__name__)
 
 
-def calculate(image_filepaths, args):
+def calculate(args):
     # Construct alpha hull from target colours
     if args.alpha == 0:
         # the api for alphashape is a bit strange,
@@ -51,8 +51,8 @@ def calculate(image_filepaths, args):
             try:
                 next(csv_reader)
                 files_done = {Path(row[0]) for row in csv_reader}
-                files_done = set.intersection(set(image_filepaths), files_done)
-                image_filepaths = [i for i in image_filepaths if i not in files_done]
+                files_done = set.intersection(set(args.images), files_done)
+                image_filepaths = [i for i in args.images if i not in files_done]
                 logger.info(
                     f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
                 )

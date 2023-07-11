@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from .options import options
+from .options import options, postprocess, calibration_args_provided
 from .calibration.calibration import calibrate
 from .area_calculation import calculate
 from .analysis import analyse
@@ -11,37 +11,25 @@ logger = logging.getLogger(__name__)
 
 
 def algrow():
-    argparser = options()
-    args = argparser.parse_args()
-    logger.info(f"Start with: {argparser.format_values()}")
+    arg_parser = options()
+    args = arg_parser.parse_args()
+    args = postprocess(args)
 
-    # Organise input image file(s)
-    image_filepaths = []
-    if args.image:
-        for i in args.image:
-            if Path(i).is_file():
-                image_filepaths.append(Path(i))
-            elif Path(i).is_dir():
-                image_filepaths = image_filepaths + [p for p in Path(i).glob('**/*.jpg')]
-            else:
-                raise FileNotFoundError
-        logger.info(f"Processing {len(image_filepaths)} images")
+    logger.info(f"Start with: {arg_parser.format_values()}")
 
-    # Organise output directory
-    if not args.out_dir:
-        if Path(args.image[0]).is_file():
-            args.out_dir = Path(args.image[0]).parents[0]
-        else:
-            args.out_dir = Path(args.image[0])
+    # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
 
-    if image_filepaths:
-        calibrate(image_filepaths, args)
-        calculate(image_filepaths, args)
+    if args.images is not None:
+        logger.info(f"Processing {len(args.images)} images")
+        if not calibration_args_provided(args):
+            logger.debug("Launching calibration window")
+            calibrate(args)
+        calculate(args)
     else:
         logger.info("No image files provided")
 
-    if args.sample_id:
+    if args.sample_id is not None:
         analyse(args)
     else:
         logger.info("No sample ID file provided")
