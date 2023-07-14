@@ -4,21 +4,32 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "algrow"
-version = "0.3"
+version = "0.4"
 authors = [
   { name="Marcus McHale", email="marcus.mchale@universityofgalway.ie" },
 ]
-description = "Alpha shape defined colourspace for automated growth rate determination in multiplexed images of macroalgal discs"
+description = "Alpha shape defined colourspace for automated growth rate determination in multiplexed images"
 readme = "README.md"
 license = { file="LICENSE.txt" }
-requires-python = "==3.9"
+requires-python = ">=3.9"  # tested with 3.9 and 3.10
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    ["numpy", "scipy", "scikit-image", "matplotlib", "wxpython"]
+    [
+        "configargparse",
+        "numpy",
+        "pandas",
+        "scipy",
+        "scikit-image",
+        #"scikit-learn",
+        "alphashape",
+        "matplotlib",
+        "wxpython",
+        "Pypubsub"
+    ]
 ]
 
 [project.urls]

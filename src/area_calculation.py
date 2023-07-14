@@ -1,3 +1,4 @@
+"""Identify a layout of circles then calculate the area within each circle that is within the target hull """
 import logging
 import numpy as np
 
@@ -9,7 +10,6 @@ from datetime import datetime
 from skimage.morphology import remove_small_holes, remove_small_objects, binary_dilation
 from PIL import Image, ImageDraw, ImageFont
 from matplotlib import font_manager
-"""Identify a layout of circles then calculate the area within each circle that is within the target hull """
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 def calculate(args):
+    logger.debug("Start calculations")
     # Construct alpha hull from target colours
+    if args.hull_vertices is None or len(args.hull_vertices) < 4:
+        raise ValueError("Insufficient hull vertices provided to construct a hull")
+    logger.debug("Calculate hull")
     if args.alpha == 0:
         # the api for alphashape is a bit strange,
         # it returns a shapely polygon when alpha is 0
@@ -62,6 +66,7 @@ def calculate(args):
     else:
         image_filepaths = args.images
 
+    logger.debug(f"Processing {len(image_filepaths)} images")
     # Process images
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)
@@ -150,7 +155,7 @@ class ImageProcessor:
         distance_image[~layout.mask] = 0  # set masked region as 0
 
         if self.args.debug:
-            fig = FigureBuilder(self.image.filepath, self.args, 'Alpha hull distance')
+            fig = FigureBuilder(self.image.filepath, self.args, 'Hull distance')
             fig.add_image(distance_image, color_bar=True)
             fig.print(large=True)
 

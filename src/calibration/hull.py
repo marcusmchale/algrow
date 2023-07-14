@@ -11,6 +11,7 @@ import numpy as np
 from pathlib import Path
 
 
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_wxagg import (
     FigureCanvasWxAgg as FigureCanvas,
     NavigationToolbar2WxAgg as NavigationToolbar
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 class HullPanel(wx.Panel):
+    # todo consider handling input hull vertices as starting points if provided as argument -
+    #  would need to add these to the segmentor summary - is this a good idea?
 
     def __init__(self, parent, segmentor: Segmentor):
         super().__init__(parent)
@@ -124,7 +127,7 @@ class HullPanel(wx.Panel):
         update_arg(self.args, 'delta', self.alpha_selection.delta)
 
         pub.sendMessage("enable_btns")
-
+        plt.close()
         self.Destroy()
         #event.Skip()
 

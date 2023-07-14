@@ -31,18 +31,19 @@ Features/parameters:
         - Number of plates per image can be defined (-npi) 
       - Arrangements are simple sequences within rows (default) or columns for circles within plates (-ccf) or plates within images (-pcf)
         - ID incrementation direction is customisable (-clr, -ctb, -plr, -ptb)
-- Segmentation
+- 
+- Segmentation used for calibration GUI 
   - SLIC algorithm 
     - Radhakrishna Achanta, Appu Shaji, Kevin Smith, Aurelien Lucchi, Pascal Fua, and Sabine Süsstrunk, SLIC Superpixels Compared to State-of-the-art Superpixel Methods, TPAMI, May 2012. DOI:10.1109/TPAMI.2012.120
     - https://www.epfl.ch/labs/ivrl/research/slic-superpixels/#SLICO
     - Irving, Benjamin. “maskSLIC: regional superpixel generation with application to local pathology characterisation in medical images.”, 2016, arXiv:1606.09518
-- Graph based selection of target
-  - Interactive selection of representative regions for selection of target colour(s)
-  - Nodes within colour distance (deltaE, --target_dist) of target colour are selected
-  - Adjacent nodes within colour distance (--graph_dist) are also selected
+
+- Interactive definition of alpha shape hull that specifies target colourspace.
+
 - Noise removal
   - Fill small holes
   - Remove small objects 
+
 - Analysis
   - Linear regression of log transformed values determines daily relative daily growth rate (RGR)
   - Data exported as csv files, including raw values, RGR and per group summaries
@@ -261,8 +262,7 @@ with similar images and to ensure consistency across multiple analyses.
         3.2 Rigures and reports are prepared
 
 # To do
-  - calibration windows for layout
-    - consider alternatives for
+  - calibration window for date, time, block regex
 
 # To consider
   - Process image filename during loading to provide date time block etc. rather than during analysis
@@ -286,6 +286,9 @@ with similar images and to ensure consistency across multiple analyses.
  - consider how the alpha parameter can allow for multiple disconnected regions
    - assumes similar density in clouds but this is expected from SLIC
    - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
+ - consider higher dimensional space e.g. texture features 
+   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots
+
 
 
 # Beyond the current scope but maybe one day
@@ -299,12 +302,18 @@ with similar images and to ensure consistency across multiple analyses.
 
 # Comparisons with other tools/frameworks 
 ## plantcv2
-  - Command line application does not require customised code
-  - Multiplexing does not rely on a simple grid layout (we support a nested structure in rows or columns)
-  - Relative rather than absolute positioning 
-    - Allows movement of camera or subjects
-    - Disadvantage is we require ring markers around each subject being distinguishable in the image (e.g. blue circles)
-  - Alpha hull and distance rather than fixed thresholds  
+  - Requires customised code
+  - Now has auto-grid detection...https://www.authorea.com/users/508818/articles/591710-simplifying-plantcv-workflows-with-multiple-objects
+    - Relies on a simple grid layout (we support a nested structure in rows or columns),
+    - Does not require markers, handles some missing points
+      - we could work towards a similar layout detection, not super hard to implement, but still need to provide some parameters
+
+  - A variety of thresholding methods, but nothing like the alpha hull
+
+
 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5895192/
 
 
+# TO reference:
+ - colour volume as alpha shape in Methods in Ecology and Evolution 2020  https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13398
+ - 

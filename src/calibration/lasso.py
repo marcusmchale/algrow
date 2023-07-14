@@ -106,6 +106,7 @@ class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle
             return None
 
     def on_exit(self, _=None):
+        self.selector.disconnect()
         if np.sum(self.selector.selection_array) == 0:
             colour = self.args.circle_colour
             if self.args.circle_colour is None:
@@ -114,14 +115,14 @@ class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle
                 logger.warning("No area selected - using preconfigured value")
         else:
             colour = self.get_colour()
-        self.selector.disconnect()
+
         update_arg(self.args, "circle_colour", colour)
 
         logger.debug(f"Plotting debug image for circle colour: {self.args.circle_colour}")
         fig = FigureBuilder(".", self.args, "Circle colour")
         fig.plot_colours([self.args.circle_colour])
         fig.print()
-
+        plt.close()
         pub.sendMessage("enable_btns")
         self.Destroy()
 
