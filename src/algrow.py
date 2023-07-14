@@ -23,16 +23,18 @@ def algrow():
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")
         if not calibration_args_provided(args):
-            logger.debug("Launching calibration window")
+            logger.info("Launching calibration window")
             calibrate(args)
+            logger.info("calibration complete")
+        logger.info("Calculate area for input files")
         calculate(args)
+        logger.info("Calculations complete")
     else:
         logger.info("No image files provided")
 
     if args.sample_id is not None:
+        logger.info("Analyse area file")
         analyse(args)
+        logger.info("Analysis complete")
     else:
         logger.info("No sample ID file provided")
-
-
-

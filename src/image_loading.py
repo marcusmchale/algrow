@@ -8,7 +8,7 @@ from .figurebuilder import FigureBuilder
 
 from skimage.io import imread
 from skimage.color import rgb2lab
-
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -39,3 +39,6 @@ class ImageLoaded:
 
     def __eq__(self, other):
         return self.filepath == other.filepath
+
+    def copy(self):
+        return deepcopy(self)

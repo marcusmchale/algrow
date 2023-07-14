@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='algrow',
-    version='0.3',
+    version='0.4',
     packages=['src'],
     scripts=['algrow.py'],
     url='https://github.com/marcusmchale/algrow',
@@ -16,7 +16,7 @@ setup(
         "pandas~=2.0.3",
         "scipy~=1.11.1",
         "scikit-image~=0.21.0",
-        "scikit-learn~=1.3.0",
+        #"scikit-learn~=1.3.0",
         "alphashape~=1.3.1",
         "matplotlib~=3.7.1",
         "wxPython~=4.2.1"

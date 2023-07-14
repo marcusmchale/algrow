@@ -9,7 +9,8 @@ from pubsub import pub
 from ..image_loading import ImageLoaded
 from ..image_segmentation import Segmentor
 
-from .scale import ScalePanel
+from .measure_layout import LayoutPanel
+from .measure_scale import ScalePanel
 from .hull import HullPanel
 from .lasso import LassoPanel
 from .waiting import WaitPanel
@@ -17,7 +18,7 @@ from .waiting import WaitPanel
 logger = logging.getLogger(__name__)
 
 
-## this snippet is useful to catch exceptions from wx.Frame
+# this snippet is useful to catch exceptions from wx.Frame
 #import sys
 #import traceback
 #
@@ -41,14 +42,15 @@ class Calibrator(wx.App):
 
     def OnInit(self):
         self.frame = TopFrame(self.images)
-        logger.debug("Start configuration GUI")
+        logger.info("Start configuration GUI")
         self.frame.Show(True)
         return True
 
     def OnExit(self):
         # Output a file summarising the calibration values: selected colours, alpha and delta values
-        logger.debug("Write out calibration parameters")
+        logger.info("Write out calibration parameters")
         with open(Path(self.args.out_dir, "calibration.conf"), 'w') as text_file:
+            text_file.write(f"[Colour parameters]\n")
             circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
             hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace(
                 "'", '"')
@@ -57,6 +59,21 @@ class Calibrator(wx.App):
             text_file.write(f"alpha = {self.args.alpha}\n")
             text_file.write(f"delta = {self.args.delta}\n")
             text_file.write(f"scale = {self.args.scale}\n")
+            text_file.write(f"[Layout parameters]\n")
+            text_file.write(f"circle_diameter = {self.args.circle_diameter}\n")
+            text_file.write(f"circle_expansion = {self.args.circle_expansion}\n")
+            text_file.write(f"plate_circle_separation = {self.args.plate_circle_separation}\n")
+            text_file.write(f"plate_width = {self.args.plate_width}\n")
+            text_file.write(f"circles_per_plate = {self.args.circles_per_plate}\n")
+            text_file.write(f"n_plates = {self.args.n_plates}\n")
+            text_file.write(f"plates_cols_first = {self.args.plates_cols_first}\n")
+            text_file.write(f"plates_bottom_top = {self.args.plates_bottom_top}\n")
+            text_file.write(f"plates_right_left = {self.args.plates_right_left}\n")
+            text_file.write(f"circles_cols_first = {self.args.circles_cols_first}\n")
+            text_file.write(f"circles_bottom_top = {self.args.circles_bottom_top}\n")
+            text_file.write(f"circles_right_left = {self.args.circles_right_left}\n")
+            logger.debug("Finished writing to calibration file")
+        return int(1)
 
 
 class TopFrame(wx.Frame):
@@ -68,20 +85,25 @@ class TopFrame(wx.Frame):
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.scaler_btn = wx.Button(self, 1, "Set scale", size=(100, 40))
+        self.scaler_btn = wx.Button(self, -1, "Set scale", size=(100, 40))
         self.scaler_btn.Bind(wx.EVT_BUTTON, self.launch_scaler)
         self.btn_sizer.Add(self.scaler_btn, wx.ALIGN_CENTER)
 
-        self.circle_colour_btn = wx.Button(self, 2, "Circle colour", size=(100, 40))
+        self.circle_colour_btn = wx.Button(self, -1, "Circle colour", size=(100, 40))
         self.circle_colour_btn.Bind(wx.EVT_BUTTON, self.launch_circle_colour)
         self.btn_sizer.Add(self.circle_colour_btn, wx.ALIGN_CENTER)
 
-        self.hull_btn = wx.Button(self, 3, "Target hull", size=(100, 40))
+        self.layout_btn = wx.Button(self, -1, "Define layout", size=(100, 40))
+        self.layout_btn.Bind(wx.EVT_BUTTON, self.launch_layout)
+        self.btn_sizer.Add(self.layout_btn, wx.ALIGN_CENTER)
+
+        self.hull_btn = wx.Button(self, -1, "Target hull", size=(100, 40))
         self.hull_btn.Bind(wx.EVT_BUTTON, self.launch_hull)
         self.btn_sizer.Add(self.hull_btn, wx.ALIGN_CENTER)
 
-        self.cont_btn = wx.Button(self, 3, "Continue", size=(100, 40))
+        self.cont_btn = wx.Button(self, -1, "Continue", size=(100, 40))
         self.cont_btn.Bind(wx.EVT_BUTTON, self.on_exit)
+        self.Bind(wx.EVT_CLOSE, self.on_exit)
         self.btn_sizer.Add(self.cont_btn, wx.ALIGN_CENTER)
 
         self.sizer.Add(self.btn_sizer)
@@ -90,7 +112,6 @@ class TopFrame(wx.Frame):
 
         self.disable_btns()
         self.enable_btns()
-        self.update_btn_colour()
 
         self.SetSizer(self.sizer)
         self.Show()
@@ -98,43 +119,58 @@ class TopFrame(wx.Frame):
         self.segmentor = None
 
     def enable_btns(self):
-        buttons = [self.scaler_btn, self.circle_colour_btn]
+        active_buttons = [self.scaler_btn, self.circle_colour_btn]
         if self.args.circle_colour is not None:
-            buttons.append(self.hull_btn)
+            active_buttons.append(self.layout_btn)
+        if self.layout_done():
+            active_buttons.append(self.hull_btn)
         if self.done():
-            buttons.append(self.cont_btn)
-        for b in buttons:
+            active_buttons.append(self.cont_btn)
+        for b in active_buttons:
             b.Enable()
-        self.update_btn_colour()
+        self.set_btn_colours()
+
+    def set_btn_colours(self):
+        complete_buttons = []
+        if self.args.scale is not None:
+            complete_buttons.append(self.scaler_btn)
+        if self.args.circle_colour is not None:
+            complete_buttons.append(self.circle_colour_btn)
+        if self.layout_done():
+            complete_buttons.append(self.layout_btn)
+        if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
+            complete_buttons.append(self.hull_btn)
+        if self.done():
+            complete_buttons.append(self.cont_btn)
+        for b in complete_buttons:
+            b.SetBackgroundColour((0, 255, 0))
 
     def disable_btns(self):
-        for b in [self.scaler_btn, self.circle_colour_btn, self.hull_btn, self.cont_btn]:
+        for b in [self.scaler_btn, self.circle_colour_btn, self.layout_btn, self.hull_btn, self.cont_btn]:
+            b.SetBackgroundColour(wx.NullColour)
             b.Disable()
-
-    def update_btn_colour(self):
-        if self.args.scale is not None:
-            self.scaler_btn.SetBackgroundColour((0, 255, 0))
-        else:
-            self.scaler_btn.SetBackgroundColour(wx.NullColour)
-        if self.args.circle_colour is not None:
-            self.circle_colour_btn.SetBackgroundColour((0, 255, 0))
-        else:
-            self.circle_colour_btn.SetBackgroundColour(wx.NullColour)
-        if self.args.hull_vertices is not None and len(self.args.hull_vertices >= 4):
-            self.hull_btn.SetBackgroundColour((0, 255, 0))
-        else:
-            self.hull_btn.SetBackgroundColour(wx.NullColour)
-
-        if self.done():
-            self.cont_btn.SetBackgroundColour((0, 255, 0))
-        else:
-            self.cont_btn.SetBackgroundColour(wx.NullColour)
 
     def done(self):
         return all([
             self.args.scale is not None,
+            self.layout_done(),
+            (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4)
+        ])
+
+    def layout_done(self):
+        return all([
             self.args.circle_colour is not None,
-            (self.args.hull_vertices is not None and len(self.args.hull_vertices >= 4))
+            self.args.circle_diameter is not None,
+            self.args.plate_circle_separation is not None,
+            self.args.plate_width is not None,
+            self.args.circles_per_plate is not None,
+            self.args.n_plates is not None,
+            self.args.circles_cols_first is not None,
+            self.args.circles_right_left is not None,
+            self.args.circles_bottom_top is not None,
+            self.args.plates_cols_first is not None,
+            self.args.plates_bottom_top is not None,
+            self.args.plates_right_left is not None,
         ])
 
     def display_panel(self, panel):
@@ -143,6 +179,10 @@ class TopFrame(wx.Frame):
         self.SetSizer(self.sizer)
         self.Layout()
         self.Update()
+
+    def launch_layout(self, _=None):
+        panel = LayoutPanel(self, self.images)
+        self.display_panel(panel)
 
     def launch_scaler(self, _=None):
         panel = ScalePanel(self, self.images)
@@ -166,9 +206,11 @@ class TopFrame(wx.Frame):
         self.display_panel(hull_panel)
 
     def on_exit(self, _=None):
+        logger.debug("Exit top frame")
         if not self.done():
             raise ValueError("Not all required configuration values are set")
-        self.Close()
+        logger.debug("Closing")
+        self.Destroy()
 
 
 

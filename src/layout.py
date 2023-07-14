@@ -13,6 +13,8 @@ from skimage.color import deltaE_cie76
 from .image_loading import ImageLoaded
 from .logging import CustomAdapter
 
+from PIL import Image, ImageDraw, ImageFont
+from matplotlib import font_manager
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class Layout:
         self.args = args
         self.dim = image.rgb.shape[0:2]
         self._mask = None
+        self._overlay = None
 
     @property
     def circles(self):
@@ -61,6 +64,12 @@ class Layout:
         if self._mask is None:
             self._draw_mask()
         return self._mask
+
+    @property
+    def overlay(self):
+        if self._overlay is None:
+            self._draw_overlay()
+        return self._overlay
 
     def get_circle_mask(self, circle):
         x = circle[0]
@@ -89,6 +98,27 @@ class Layout:
             fig.print()
         self._mask = circles_mask
 
+    def _draw_overlay(self):
+        self.logger.debug("Prepare annotated overlay for testing layout")
+        blended = self.image.rgb.copy()
+        annotated_image = Image.fromarray(blended)
+        draw_tool = ImageDraw.Draw(annotated_image)
+        height = self.image.rgb.shape[0]
+        font_file = font_manager.findfont(font_manager.FontProperties())
+        large_font = ImageFont.truetype(font_file, size=int(height/50), encoding="unic")
+        small_font = ImageFont.truetype(font_file, size=int(height/80), encoding="unic")
+        for p in self.plates:
+            for j, c in enumerate(p.circles):
+                unit = j + 1 + 6 * (p.id - 1)
+                # draw the outer circle
+                x = c[0]
+                y = c[1]
+                r = c[2]
+                draw_tool.text((x, y), str(unit), "blue", small_font)
+                draw_tool.ellipse((x-r, y-r, x+r, y+r), outline=(255, 255, 0), fill=None, width=5)
+            draw_tool.text(p.centroid, str(p.id), "red", large_font)
+        self._overlay = annotated_image
+
 
 class LayoutDetector:
     def __init__(
@@ -114,29 +144,34 @@ class LayoutDetector:
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
-    def find_n_circles(self, n, attempt=0, fig=None):
-        self.logger.debug(f"find {n + attempt * 10} circles")
+    def find_n_circles(self, n, attempt=0, fig=None, allowed_overlap=0.2):
+        num_circles = int(n + attempt * 10)
+        self.logger.debug(f"find {num_circles} circles")
         circle_radius_px = int(self.args.circle_diameter / 2)
         # each attempt we expand the number of radii to assess
-        hough_radii = np.arange(circle_radius_px - (3 * (attempt + 1)), circle_radius_px + (3 * (attempt + 1)), 2)
+        hough_radii = np.arange(circle_radius_px - (attempt + 1), circle_radius_px + (attempt + 1), 2)
         hough_result = self.hough_circles(self.distance, hough_radii)
+        min_distance = int(self.args.circle_diameter * (1 - allowed_overlap))
+        logger.debug(f"minimum distance between circle centers: {min_distance}")
         _accum, cx, cy, rad = hough_circle_peaks(
             hough_result,
             hough_radii,
-            min_xdistance=int(self.args.circle_diameter),
-            min_ydistance=int(self.args.circle_diameter),
-            num_peaks=n + attempt * 10  # each time we increase the target peak number
+            min_xdistance=min_distance,
+            min_ydistance=min_distance,
+            num_peaks=num_circles # each time we increase the target peak number
         )
         # circles = np.dstack((cx, cy, rad)).squeeze()
         # todo consider whether to use found circle size (above) or the known circle size (below)
         # we don't have issues with overlapping if useing found
         # note the expansion factor appplied below to increase the search area for mask/superpixels
+        logger.debug(f"mean detected circle radius: {np.around(np.mean(rad), decimals=0)}")
         circles = np.dstack(
             (cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))
         ).squeeze()
         if circles.shape[0] < n:
             self.logger.debug(f'{str(circles.shape[0])} circles found')
             raise InsufficientCircleDetection
+
         if fig:
             circle_debug = np.zeros_like(self.distance, dtype="bool")
             self.logger.debug("draw circles")
@@ -156,9 +191,16 @@ class LayoutDetector:
             f"{str(circles.shape[0])} circles found")
         return circles
 
-    def find_n_clusters(self, circles, cluster_size, n, cluster_distance_tolerance=0.2, fig=None):
+    def find_n_clusters(self, circles, cluster_size, n, attempt=0, fig=None):
         centres = np.delete(circles, 2, axis=1)
-        cut_height = int((self.args.circle_diameter + self.args.plate_circle_separation)*(1+cluster_distance_tolerance))
+        #cut_height_expansion = 1 + ((attempt+1)/2)
+        #logger.debug(f"cut height expansion: {cut_height_expansion}")
+        cut_height_expansion = 1.05
+        # todo consider cutting down the tree untill we get at least n clusters of cluster_size size, if this fails just find more circles:
+        # this would mean no need to specify circle separation... but can lead to accepting erroneous circle selections..
+        # explore other methods as the tree cut height is a bit fragile
+        cut_height = int((self.args.circle_diameter + self.args.plate_circle_separation) * cut_height_expansion)
+        self.logger.debug(f"cut height: {cut_height}")
         self.logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if fig:
@@ -188,7 +230,7 @@ class LayoutDetector:
             except InsufficientCircleDetection:
                 continue
             try:
-                clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates, fig=fig)
+                clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates, attempt=i, fig=fig)
             except InsufficientPlateDetection:
                 self.logger.debug(f"Try again with detection of more circles")
                 if fig:
@@ -204,6 +246,9 @@ class LayoutDetector:
                 ) for cluster_id in target_clusters
             ]
             return plates
+        if fig:
+            fig.print()
+        raise InsufficientPlateDetection(f"Insufficient plates detected - consider modifying the layout configuration")
 
     def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None, fig=None):
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
@@ -218,8 +263,7 @@ class LayoutDetector:
                 ax.set_title(f"Plate {plate_id}")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
-    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True, plate_width_tolerance=0.2):
-        # default is currently just what our lab is used to using, a better default would be top_bottom = True
+    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True):
         if not plates:
             return None
         if len(plates) == 1:
@@ -247,10 +291,11 @@ class LayoutDetector:
             self.args,
             f"Plate clustering by {'rows' if rows_first else 'cols'}"
         ) if self.args.debug else None
+        cut_height = self.args.plate_width * 0.5
         clusters = self.get_axis_clusters(
             axis_values,
             rows_first,
-            cut_height=(self.args.plate_width * (1 + plate_width_tolerance) * 0.5),
+            cut_height=cut_height,
             fig=fig
         )
         if fig:
@@ -327,5 +372,3 @@ class LayoutDetector:
             top_bottom=not self.args.plates_bottom_top
         )
         return Layout(plates, self.image, self.args)
-
-
