@@ -80,7 +80,8 @@ class TopFrame(wx.Frame):
     def __init__(self, images: List[ImageLoaded]):
         super().__init__(None, title="AlGrow Calibration", size=(2000, 1000))
         self.images = images
-        self.args = self.images[0].args
+        self.image = self.images[len(self.images)//2]
+        self.args = self.image.args
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -138,6 +139,7 @@ class TopFrame(wx.Frame):
             complete_buttons.append(self.circle_colour_btn)
         if self.layout_done():
             complete_buttons.append(self.layout_btn)
+        logger.debug(f"Hull vertices: {self.args.hull_vertices}")
         if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
             complete_buttons.append(self.hull_btn)
         if self.done():
@@ -181,15 +183,15 @@ class TopFrame(wx.Frame):
         self.Update()
 
     def launch_layout(self, _=None):
-        panel = LayoutPanel(self, self.images)
+        panel = LayoutPanel(self, self.image)
         self.display_panel(panel)
 
     def launch_scaler(self, _=None):
-        panel = ScalePanel(self, self.images)
+        panel = ScalePanel(self, self.image)
         self.display_panel(panel)
 
     def launch_circle_colour(self, _=None):
-        panel = LassoPanel(self, self.images)
+        panel = LassoPanel(self, self.image)
         self.display_panel(panel)
 
     def launch_hull(self, _=None):
@@ -199,9 +201,13 @@ class TopFrame(wx.Frame):
         wx.Yield()
         if self.segmentor is None:
             self.segmentor = Segmentor(self.images)
-            self.segmentor.run()
+            try:
+                self.segmentor.run()
+            except ValueError:
+                wait_panel.Close(True)
+                self.enable_btns()
         logger.debug("launch hull panel")
-        wait_panel.Destroy()
+        wait_panel.Close()
         hull_panel = HullPanel(self, self.segmentor)
         self.display_panel(hull_panel)
 

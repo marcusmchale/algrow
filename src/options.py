@@ -29,21 +29,29 @@ def lab(s: str | tuple[float|int]):
 def update_arg(args, arg, val):
     if isinstance(val, list) and isinstance(val[0], tuple):
         val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
-    elif isinstance(val, tuple):
-        val_str = f"\"{','.join([str(i) for i in val])}\""
+        for v in val:
+            # coerce to known type:
+            try:
+                v = arg_types[arg](v)
+            except ValueError:
+                logger.debug("Issue with updating arg")
+                raise
     else:
-        val_str = str(val)
-
-    # coerce to known type:
-    try:
-        val = arg_types[arg](val)
-    except ValueError:
-        logger.debug("Issue with updating arg")
-        raise
+        if isinstance(val, tuple):
+            val_str = f"\"{','.join([str(i) for i in val])}\""
+        else:
+            val_str = str(val)
+            # coerce to known type:
+        try:
+            val = arg_types[arg](val)
+        except ValueError:
+            logger.debug("Issue with updating arg")
+            raise
 
     if vars(args)[arg] is None:
         logger.info(f"Setting {arg}: {val_str}")
         vars(args).update({arg: val})
+        logger.debug(f"{arg}:{vars(args)[arg]}")
     else:
         if vars(args)[arg] == val:
             logger.info(f"Existing value matches the update so no change will be made {arg}: {val}")
@@ -82,7 +90,7 @@ def postprocess(args):
 
 def calibration_args_provided(args):
     return all([
-        (args.hull_vertices is not None and len(args.hull_vertices) > 4),
+        (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
         args.circle_colour is not None,
         args.scale is not None,
         args.circle_diameter is not None,
@@ -146,6 +154,7 @@ arg_types = {
     "circle_diameter": float,
     "circle_expansion": float,
     "plate_circle_separation": float,
+    "plate_cut_expansion": float,
     "plate_width": float,
     "circles_per_plate": int,
     "n_plates": int,
@@ -356,6 +365,15 @@ def options():
         default=None,
         type=arg_types["plate_circle_separation"]
     )
+    parser.add_argument(
+        "-pce",
+        "--plate_cut_expansion",
+        help="How much tolerance to allow for distances between circles within a plate",
+        default=1.1,
+        type=arg_types["plate_cut_expansion"]
+    )
+
+    cut_height_expansion = 1.1  # todo consider passing this up as an argument to tune
     parser.add_argument(
         "-pw",
         "--plate_width",

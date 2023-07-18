@@ -179,11 +179,12 @@ class Segmentor:   # todo consider not using layout for segmentation during cali
 
     def _process(self):
         for image in self.images:
+            adapted_logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
             try:
                 segments = self.get_segments(image)
                 self.image_to_segments[image] = segments
             except Exception as exc:
-                print('%r generated an exception: %s' % (image.filepath, exc))
+                adapted_logger.info('%r generated an exception: %s' % (image.filepath, exc))
         logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
 
     def _summarise(self):

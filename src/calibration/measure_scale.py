@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 class ScalePanel(MeasurePanel):
 
-    def __init__(self, parent, images: List[ImageLoaded]):
+    def __init__(self, parent, image: ImageLoaded):
         self.mm_text = None
         self.px_text = None
         self.scale_text = None
 
-        super().__init__(parent, images)
+        super().__init__(parent, image)
         logger.debug("Launch scale panel")
 
     def set_titles(self):
