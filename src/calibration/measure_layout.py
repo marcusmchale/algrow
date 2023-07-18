@@ -9,8 +9,11 @@ from matplotlib import get_data_path  # we are recycling some matplotlib icons
 
 from ..image_loading import ImageLoaded
 from .measure import MeasurePanel
-from ..options import layout_args_provided, update_arg
-from ..layout import LayoutDetector, Layout, ImageContentException, InsufficientPlateDetection, InsufficientCircleDetection
+from ..options import layout_args_provided
+from ..layout import LayoutDetector, Layout, InsufficientPlateDetection, ImageContentException, InsufficientCircleDetection
+from ..figurebuilder import FigureBuilder
+
+from matplotlib import pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,8 @@ logger = logging.getLogger(__name__)
 
 
 class LayoutPanel(MeasurePanel):
-    def __init__(self, parent, images: List[ImageLoaded]):
-        super().__init__(parent, images)
+    def __init__(self, parent, image: ImageLoaded):
+        super().__init__(parent, image)
         logger.debug("Launch layout panel")
 
     def set_titles(self):
@@ -58,13 +61,13 @@ class LayoutPanel(MeasurePanel):
         self.Bind(wx.EVT_TOOL, self.reset, id=1)
 
         toolbar.AddSeparator()
-        toolbar.AddControl(wx.StaticText(toolbar, label="Circle diameter"))
+        toolbar.AddControl(wx.StaticText(toolbar, label="Measure Circle diameter"))
         circle_dia_text = wx.TextCtrl(toolbar, 2, "", style=wx.TE_PROCESS_ENTER)
         toolbar.AddControl(circle_dia_text, label="Circle diameter")
         self.input_to_arg[circle_dia_text] = "circle_diameter"
         circle_dia_text.Bind(wx.EVT_SET_FOCUS, self.set_measured_input)
         circle_dia_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
-        self.measured_input = circle_dia_text  # set this for the input you want selected first
+        #self.measured_input = circle_dia_text  # set this for the input you want selected first
         self.measured_inputs.append(circle_dia_text)
 
         toolbar.AddSeparator()
@@ -75,7 +78,10 @@ class LayoutPanel(MeasurePanel):
         circle_expansion_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
 
         toolbar.AddSeparator()
-        toolbar.AddControl(wx.StaticText(toolbar, label="Circle separation\n(within plate)"))
+        toolbar.AddControl(wx.StaticText(
+            toolbar,
+            label="Measure circle separation\n(distance between edges \nwithin a plate)")
+        )
         circle_sep_text = wx.TextCtrl(toolbar, 4, "", style=wx.TE_PROCESS_ENTER)
         toolbar.AddControl(circle_sep_text, label="Circle separation")
         self.input_to_arg[circle_sep_text] = "plate_circle_separation"
@@ -83,8 +89,16 @@ class LayoutPanel(MeasurePanel):
         circle_sep_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
         self.measured_inputs.append(circle_sep_text)
 
+
         toolbar.AddSeparator()
-        toolbar.AddControl(wx.StaticText(toolbar, label="Plate width"))
+        toolbar.AddControl(wx.StaticText(toolbar, label="Plate cut-height expansion"))
+        plate_cut_expansion_text = wx.TextCtrl(toolbar, -1, "", style=wx.TE_PROCESS_ENTER)
+        toolbar.AddControl(plate_cut_expansion_text, label="Plate cut-height expansion")
+        self.input_to_arg[plate_cut_expansion_text] = "plate_cut_expansion"
+        circle_expansion_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
+
+        toolbar.AddSeparator()
+        toolbar.AddControl(wx.StaticText(toolbar, label="Measure plate width"))
         plate_width_text = wx.TextCtrl(toolbar, 5, "", style=wx.TE_PROCESS_ENTER)
         toolbar.AddControl(plate_width_text, label="Plate width")
         self.input_to_arg[plate_width_text] = "plate_width"
@@ -183,13 +197,24 @@ class LayoutPanel(MeasurePanel):
         logger.debug(self.args.plate_width)
         image = self.image.copy()  # deep copy so this doesn't share args with the main args
         done = self.save_args(image.args)  # write the current displayed args to this temporary copy for testing
+
         if done and layout_args_provided(image.args):  # todo highlight any missing parameters
+            layout_detector = LayoutDetector(image)
+            plt.close()
+            fig = FigureBuilder(self.image.filepath, self.args, "Plate detection", ncols=2)
+            fig.fig.canvas.manager.set_window_title('Error in plate detection')
             try:
-                layout: Layout = LayoutDetector(image).get_layout()
-                self.test_btn.SetBackgroundColour(wx.NullColour)
-            except (ImageContentException, InsufficientPlateDetection, InsufficientCircleDetection):
-                self.test_btn.SetBackgroundColour(wx.Colour(255, 0, 0))
-                return  # todo improve feedback on failure...
+                plates = layout_detector.find_plates(fig)
+            except (InsufficientPlateDetection, ImageContentException, InsufficientCircleDetection):
+                #self.test_btn.SetBackgroundColour(wx.Colour(255, 0, 0))
+                fig.fig.set_figwidth(4 * fig.ncols)
+                fig.fig.set_figheight(3 * fig.nrows)
+                plt.show()
+                plt.close()
+                return
+            plates = layout_detector.sort_plates(plates)
+            self.test_btn.SetBackgroundColour(wx.NullColour)
+            layout = Layout(plates, image)
             self.artist.set_data(layout.overlay)
         self.cv.draw_idle()
         self.cv.flush_events()

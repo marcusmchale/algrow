@@ -58,12 +58,12 @@ logger = logging.getLogger(__name__)
 
 
 class MeasurePanel(wx.Panel):
-    def __init__(self, parent, images: List[ImageLoaded]):
+    def __init__(self, parent, image: ImageLoaded):
         super().__init__(parent)
         logger.debug("Launch measure panel")
 
-        self.image: ImageLoaded = images[0]
-        self.args = self.image.args
+        self.image = image
+        self.args = image.args
 
         self.fig, self.ax = plt.subplots()
         self.fig.set_dpi(150)
@@ -122,7 +122,7 @@ class MeasurePanel(wx.Panel):
             self.line_start is not None,
             self.line_end is not None
         ]):
-            logger.debug(f"start: {self.line_start}, end: {self.line_end}")
+            #logger.debug(f"start: {self.line_start}, end: {self.line_end}")
             line_length = np.around(np.linalg.norm(np.array(self.line_start) - np.array(self.line_end)), decimals=1)
             self.line_px = line_length
             self.measured_input.SetValue(str(self.line_px))

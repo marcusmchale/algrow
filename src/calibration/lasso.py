@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle colour
-    def __init__(self, parent, images: List[ImageLoaded]):
+    def __init__(self, parent, image: ImageLoaded):
         logger.debug("Launch lasso panel")
         super().__init__(parent)
 
-        self.image: ImageLoaded = images[0]
+        self.image = image
         self.args = self.image.args
 
         self.fig, self.ax = plt.subplots()

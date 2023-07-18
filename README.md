@@ -263,6 +263,11 @@ with similar images and to ensure consistency across multiple analyses.
 
 # To do
   - calibration window for date, time, block regex
+  - popup window or similar with debugging output for layout detection, with:
+    - circles detected
+    - dendrogram for:
+      - plate detection
+      - rows/columns within plates
 
 # To consider
   - Process image filename during loading to provide date time block etc. rather than during analysis

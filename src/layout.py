@@ -44,13 +44,13 @@ class Plate:
 
 
 class Layout:
-    def __init__(self, plates, image, args):
+    def __init__(self, plates, image):
         self.logger = CustomAdapter(logger, {'image_filepath': str(image.filepath)})
         if plates is None:
             raise ImageContentException("The layout could not be detected")
         self.plates = plates
         self.image = image
-        self.args = args
+        self.args = image.args
         self.dim = image.rgb.shape[0:2]
         self._mask = None
         self._overlay = None
@@ -144,27 +144,25 @@ class LayoutDetector:
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
-    def find_n_circles(self, n, attempt=0, fig=None, allowed_overlap=0.2):
-        num_circles = int(n + attempt * 10)
+    def find_n_circles(self, n, attempt=0, fig=None, allowed_overlap=0.3):
+        num_circles = int(n + n * attempt)
         self.logger.debug(f"find {num_circles} circles")
         circle_radius_px = int(self.args.circle_diameter / 2)
         # each attempt we expand the number of radii to assess
-        hough_radii = np.arange(circle_radius_px - (attempt + 1), circle_radius_px + (attempt + 1), 2)
+        hough_radii = np.arange(circle_radius_px - (attempt + 1), circle_radius_px + (attempt + 1), 1)
         hough_result = self.hough_circles(self.distance, hough_radii)
         min_distance = int(self.args.circle_diameter * (1 - allowed_overlap))
-        logger.debug(f"minimum distance between circle centers: {min_distance}")
+        self.logger.debug(f"minimum distance between circle centers: {min_distance}")
         _accum, cx, cy, rad = hough_circle_peaks(
             hough_result,
             hough_radii,
             min_xdistance=min_distance,
             min_ydistance=min_distance,
-            num_peaks=num_circles # each time we increase the target peak number
+            num_peaks=num_circles  # each time we increase the target peak number by the number sought
+            # we are concurrently expanding the radii considered
         )
-        # circles = np.dstack((cx, cy, rad)).squeeze()
-        # todo consider whether to use found circle size (above) or the known circle size (below)
-        # we don't have issues with overlapping if useing found
         # note the expansion factor appplied below to increase the search area for mask/superpixels
-        logger.debug(f"mean detected circle radius: {np.around(np.mean(rad), decimals=0)}")
+        self.logger.debug(f"mean detected circle radius: {np.around(np.mean(rad), decimals=0)}")
         circles = np.dstack(
             (cx, cy, np.repeat(int((self.args.circle_diameter/2)*self.args.circle_expansion), len(cx)))
         ).squeeze()
@@ -181,7 +179,7 @@ class LayoutDetector:
                 radius = circle[2]
                 yy, xx = draw.circle_perimeter(y, x, radius, shape=circle_debug.shape)
                 circle_debug[yy, xx] = 255
-            circle_debug = binary_dilation(circle_debug, np.full((10, 10), 1, dtype="bool"))  # very slow
+            circle_debug = binary_dilation(circle_debug, np.full((10, 10), 1, dtype="bool"))  # slow
             # todo find faster way to draw thick lines
             # consider skimage.segmentation.mark_boundaries
             overlay = np.copy(self.image.rgb)
@@ -191,22 +189,18 @@ class LayoutDetector:
             f"{str(circles.shape[0])} circles found")
         return circles
 
-    def find_n_clusters(self, circles, cluster_size, n, attempt=0, fig=None):
+    def find_n_clusters(self, circles, cluster_size, n, fig=None):
         centres = np.delete(circles, 2, axis=1)
         #cut_height_expansion = 1 + ((attempt+1)/2)
         #logger.debug(f"cut height expansion: {cut_height_expansion}")
-        cut_height_expansion = 1.05
-        # todo consider cutting down the tree untill we get at least n clusters of cluster_size size, if this fails just find more circles:
-        # this would mean no need to specify circle separation... but can lead to accepting erroneous circle selections..
         # explore other methods as the tree cut height is a bit fragile
-        cut_height = int((self.args.circle_diameter + self.args.plate_circle_separation) * cut_height_expansion)
+        cut_height = int((self.args.circle_diameter + self.args.plate_circle_separation) * self.args.cut_height_expansion)
         self.logger.debug(f"cut height: {cut_height}")
         self.logger.debug("Create dendrogram of centre distances (linkage method)")
         dendrogram = hierarchy.linkage(centres)
         if fig:
             ax = fig.add_subplot()
             self.logger.debug("Output dendrogram and treecut height for circle clustering")
-            self.logger.debug("Create dendrogram")
             hierarchy.dendrogram(dendrogram, ax=ax)
             self.logger.debug("Add cut-height line")
             ax.axhline(y=cut_height, c='k')
@@ -222,21 +216,25 @@ class LayoutDetector:
             raise ImageContentException(f"More than {n} plates found")
         return clusters, target_clusters
 
-    def find_plates(self, n_plates, n_per_plate):
-        fig = FigureBuilder(self.image.filepath, self.args, "Plate detection", ncols=2) if self.args.debug else None
-        for i in range(10):  # try 10 times to find enough circles to make plates
+    def find_plates(self, fig=None):
+        for i in range(5):  # try 5 times to find enough circles to make plates
             try:
-                circles = self.find_n_circles(n_per_plate * n_plates, i, fig)
+                circles = self.find_n_circles(self.args.circles_per_plate * self.args.n_plates, i, fig)
             except InsufficientCircleDetection:
                 continue
             try:
-                clusters, target_clusters = self.find_n_clusters(circles, n_per_plate, n_plates, attempt=i, fig=fig)
+                clusters, target_clusters = self.find_n_clusters(
+                    circles,
+                    self.args.circles_per_plate,
+                    self.args.n_plates,
+                    fig=fig
+                )
             except InsufficientPlateDetection:
                 self.logger.debug(f"Try again with detection of more circles")
                 if fig:
                     fig.add_subplot_row()
                 continue
-            if fig:
+            if fig is not None:
                 fig.print()
             self.logger.debug("Collect circles from target clusters into plates")
             plates = [
@@ -246,8 +244,6 @@ class LayoutDetector:
                 ) for cluster_id in target_clusters
             ]
             return plates
-        if fig:
-            fig.print()
         raise InsufficientPlateDetection(f"Insufficient plates detected - consider modifying the layout configuration")
 
     def get_axis_clusters(self, axis_values, rows_first: bool, cut_height, plate_id=None, fig=None):
@@ -263,7 +259,11 @@ class LayoutDetector:
                 ax.set_title(f"Plate {plate_id}")
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
-    def sort_plates(self, plates, rows_first=True, left_right=True, top_bottom=True):
+    def sort_plates(self, plates):
+        rows_first = not self.args.plates_cols_first
+        left_right = not self.args.plates_right_left
+        top_bottom = not self.args.plates_bottom_top
+
         if not plates:
             return None
         if len(plates) == 1:
@@ -364,11 +364,7 @@ class LayoutDetector:
         plate.circles = clusters.circle.tolist()
 
     def get_layout(self):
-        plates = self.find_plates(self.args.n_plates,  self.args.circles_per_plate)
-        plates = self.sort_plates(
-            plates,
-            rows_first=not self.args.plates_cols_first,
-            left_right=not self.args.plates_right_left,
-            top_bottom=not self.args.plates_bottom_top
-        )
-        return Layout(plates, self.image, self.args)
+        fig = FigureBuilder(self.image.filepath, self.args, "Plate detection", ncols=2) if self.args.debug else None
+        plates = self.find_plates(fig)
+        plates = self.sort_plates(plates)
+        return Layout(plates, self.image)
