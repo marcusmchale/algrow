@@ -102,8 +102,8 @@ def calculate(args):
 
 def area_worker(filepath, alpha_hull, args):
     adapter = CustomAdapter(logger, {'image_filepath': str(filepath)})
-
     adapter.debug(f"Processing file: {filepath}")
+
     result = ImageProcessor(filepath, alpha_hull, args).get_area()
     filename = result["filename"]
     block_match = search(args.block_regex, str(filename))
