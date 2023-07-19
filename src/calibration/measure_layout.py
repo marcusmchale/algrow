@@ -89,7 +89,6 @@ class LayoutPanel(MeasurePanel):
         circle_sep_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
         self.measured_inputs.append(circle_sep_text)
 
-
         toolbar.AddSeparator()
         toolbar.AddControl(wx.StaticText(toolbar, label="Plate cut-height expansion"))
         plate_cut_expansion_text = wx.TextCtrl(toolbar, -1, "", style=wx.TE_PROCESS_ENTER)

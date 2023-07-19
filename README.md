@@ -262,23 +262,19 @@ with similar images and to ensure consistency across multiple analyses.
         3.2 Rigures and reports are prepared
 
 # To do
-  - calibration window for date, time, block regex
-  - popup window or similar with debugging output for layout detection, with:
-    - circles detected
-    - dendrogram for:
-      - plate detection
-      - rows/columns within plates
-
+  
+  
 # To consider
+  - GUI window for date, time, block regex from filename in calibration?
   - Process image filename during loading to provide date time block etc. rather than during analysis
     - not necessary until writing out but would make more sense for this to be part of the loaded image.
-  - Consider alternative grid finding methods to reduce layout parameters
-  - Consider whether to revert to applying superpixel segmentation during area calculation
+  - Consider alternative/supplementary layout detection methods
+  - Consider whether to support superpixel segmentation during area calculation
     - tradeoff: the time added for slic might be regained in the hull distance calculation
     - without fill/remove/blurring this may be necessary/improve results 
-    - consideration: sometimes superpixel segmentation is poor, e.g. thing whispy tissues
+    - consideration: sometimes superpixel segmentation performs poorly, e.g. Palmaria
   - consider gaussian blurs in both calibration and area calculation
-  - consider downscaling images - seems it would be useful to speed up calibration without much impact
+  - consider downscaling images - seems it would be useful and low impact, particularly to speed up colour calibration
   - investigate issue with the wx app main loop not terminating when running remotely (X-forwarding)
 
   - Analysis (to consider but maybe overkill)
