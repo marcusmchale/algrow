@@ -137,8 +137,7 @@ class TopFrame(wx.Frame):
         self.segmentor = None
 
     def enable_btns(self):
-        logger.debug(self.args.whole_image)
-        if self.args.whole_image is not None:
+        if self.args.whole_image:
             active_buttons = [self.scaler_btn, self.hull_btn]
         else:
             active_buttons = [self.scaler_btn, self.circle_colour_btn]
