@@ -85,7 +85,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def print(self):
+    def print(self, large=False):
         raise NotImplementedError
 
 
@@ -337,5 +337,5 @@ class FigureNone(FigureBase):
     def animate(self):
         pass
 
-    def print(self):
+    def print(self, large=False):
         pass
