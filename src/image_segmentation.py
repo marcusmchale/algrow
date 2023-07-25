@@ -71,13 +71,14 @@ class Segments:
             inplace=True
         )
         self.regions[['R', 'G', 'B']] = lab2rgb(self.lab)
-        fig = self.image.figures.new_figure("SLIC segmentation")
-        self.logger.debug("Draw average colour image")
-        fig.plot_image(label2rgb(self.mask, self.image.rgb, kind='avg'), "Labels (average)")
-        self.logger.debug("Add segment ID labels to average colour image")
-        for i, r in self.centroids.iterrows():
-            fig.add_label(str(i), (r['x'], r['y']), 1-self.rgb.loc[i], 2)
-        fig.print(large=True)
+        if self.args.image_debug_level <= 0:
+            self.logger.debug("Draw average colour image")
+            fig = self.image.figures.new_figure("SLIC segmentation")
+            fig.plot_image(label2rgb(self.mask, self.image.rgb, kind='avg'), "Labels (average)")
+            self.logger.debug("Add segment ID labels to average colour image")
+            for i, r in self.centroids.iterrows():
+                fig.add_label(str(i), (r['x'], r['y']), 1-self.rgb.loc[i], 2)
+            fig.print(large=True)
 
     def fix_duplicate_ids(self):
         if self.layout is not None:
@@ -177,6 +178,8 @@ class Segmentor:
                     self.image_to_segments[image] = segments
                 except Exception as exc:
                     image.logger.info(f'Exception occurred: {exc}')
+                else:
+                    image.logger.info(f'Successfully segmented')
         logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
 
     def _process(self):
@@ -186,6 +189,8 @@ class Segmentor:
                 self.image_to_segments[image] = segments
             except Exception as exc:
                 image.logger.info('%r generated an exception: %s' % (image.filepath, exc))
+            else:
+                image.logger.info(f'Successfully segmented')
         logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
 
     def _summarise(self):
