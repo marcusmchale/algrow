@@ -155,7 +155,7 @@ class AreaAnalyser:
             fig, ax = plt.subplots()
             summary.boxplot("RGR", by="Group", rot=90, figsize=figsize )
             plt.tight_layout()
-            plt.savefig(Path(outdir, "RGR.png"))
+            plt.savefig(Path(outdir, "Figures", "RGR.png"))
             plt.close(fig)
             # similar plot with model fit outliers removed
             fig, ax = plt.subplots()
@@ -163,10 +163,10 @@ class AreaAnalyser:
             sub_summary.boxplot("RGR", by="Group", rot=90, figsize=figsize)
             plt.title("RGR (low quality models removed)")
             plt.tight_layout()
-            plt.savefig(Path(outdir, "RGR_less_outliers.png"))
+            plt.savefig(Path(outdir, "Figures", "RGR_less_outliers.png"))
             plt.close(fig)
         if group_plots:
-            group_plot_dir = Path(outdir, "group_plots")
+            group_plot_dir = Path(outdir, "Figures", "group_plots")
             group_plot_dir.mkdir(parents=True, exist_ok=True)
             for group in set(self.df.Group):
                 #to_plot_fit = summary[(summary.Group == group) & ~summary.ModelFitOutlier].index.to_list()

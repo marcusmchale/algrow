@@ -1,5 +1,5 @@
-from .options import options
-import logging
+from pathlib import Path
+from .options.parse_args import options
 
 
 args = options().parse_args()
@@ -15,11 +15,18 @@ LOGGING_CONFIG = {
     },
     'handlers': {
         'default': {
-            'level': args.loglevel,
+            'level': args.loglevel.name,
             'formatter': 'standard',
             'class': 'logging.StreamHandler',
             'stream': 'ext://sys.stdout',  # Default is stderr
         },
+        'logfile': {
+            'level': args.loglevel.name,
+            'formatter': 'standard',
+            'class': 'logging.FileHandler',
+            'filename': Path(args.out_dir, 'algrow.log'),
+            'mode': 'a'
+        }
     },
     'loggers': {
         '': {  # root logger  # I prefer to set this as WARNING, otherwise we get debug from loaded packages as well
@@ -28,19 +35,14 @@ LOGGING_CONFIG = {
             'propagate': False
         },
         'src': {
-            'handlers': ['default'],
-            'level': args.loglevel,
+            'handlers': ['default', 'logfile'],
+            'level': args.loglevel.name,
             'propagate': False
         },
         '__main__': {  # if __name__ == '__main__'
             'handlers': ['default'],
-            'level': args.loglevel,
+            'level': args.loglevel.name,
             'propagate': False
         },
     }
 }
-
-
-class CustomAdapter(logging.LoggerAdapter):
-    def process(self, msg, kwargs):
-        return '[%s] %s' % (self.extra['image_filepath'], msg), kwargs
