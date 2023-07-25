@@ -189,7 +189,7 @@ def options():
     parser.add_argument(
         "-w",
         "--whole_image",
-        help="Run without layout definition to calculate area for the entire image field",
+        help="Run without layout definition to calculate target area for the entire image",
         action='store_true'
     )
     parser.add_argument(
