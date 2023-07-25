@@ -19,15 +19,15 @@ logger = logging.getLogger(__name__)
 
 
 # this snippet is useful to catch exceptions from wx.Frame
-#import sys
-#import traceback
-##
-#def excepthook(type, value, tb):
-#    message = 'Uncaught exception:\n'
-#    message += ''.join(traceback.format_exception(type, value, tb))
-#    logger.debug(message)
+import sys
+import traceback
 #
-#sys.excepthook = excepthook
+def excepthook(type, value, tb):
+    message = 'Uncaught exception:\n'
+    message += ''.join(traceback.format_exception(type, value, tb))
+    logger.debug(message)
+
+sys.excepthook = excepthook
 
 
 class Calibrator(wx.App):

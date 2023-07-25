@@ -190,7 +190,7 @@ class FigureMatplot(FigureBase):
         image = self._current_axes_image.get_array()
         contour = binary_dilation(mask, footprint=np.full((5, 5), 1))
         contour[mask] = False
-        image[contour] = (255, 0, 255)
+        image[contour] = (1, 0, 1)
         self._current_axes_image.set_array(image)
 
     def plot_dendrogram(self, dendrogram: np.ndarray, cut_height: float, label: str = None):

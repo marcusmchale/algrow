@@ -261,25 +261,21 @@ with similar images and to ensure consistency across multiple analyses.
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
 
-# To do
-  - consider alternatives to distance calculation
-    - especially when delta = 0, just test if within could be faster depending on the methods
-    - consider methods to "expand" the hull by delta and use points of this new hull instead of needing distance at all
-  
   
 # To consider
+  - alternatives to distance calculation
+    - especially when delta = 0, just test if within could be faster depending on the methods
+    - consider methods to "expand" the hull by delta and use points of this new hull instead of needing distance at all
   - GUI window for date, time, block regex from filename in calibration
   - Process image filename during loading to provide date time block etc. rather than at the final analysis
     - not necessary until writing out but might be useful for annotation in debugging loaded image.
-  - Consider alternative/supplementary layout detection methods
-  - Consider whether to support superpixel segmentation during area calculation (as was done in earlier versions)
+  - Alternative/supplementary layout detection methods
+  - Support superpixel segmentation during area calculation (as was done in earlier versions)
     - tradeoff: the time added for slic might be regained in the hull distance calculation
     - without fill/remove/blurring this may be necessary/improve results 
     - consideration: sometimes superpixel segmentation performs poorly, e.g. Palmaria
-  - consider downscaling images to speed up colour calibration, in particular the hull segmentation etc.
-  - investigate issue with the wx app main loop not terminating when running remotely (X-forwarding)
-
-  - Analysis (to consider but maybe overkill)
+  - Downscaling images to speed up colour calibration, in particular the hull segmentation etc.
+  - Analysis (maybe overkill)
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  

@@ -71,7 +71,7 @@ class HullPanel(wx.Panel):
         self.seg_fig = Figure()
         self.seg_fig.set_dpi(150)
         self.seg_ax = self.seg_fig.add_subplot(111)
-        self.seg_fig.suptitle('Click to select segments', fontsize=16)
+        self.seg_fig.suptitle('Left-click to select segments', fontsize=16)
         self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
         self.seg_art = None
         self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
@@ -80,12 +80,14 @@ class HullPanel(wx.Panel):
         seg_sizer.Add(self.seg_nav_toolbar, 0, wx.ALIGN_CENTER)
         seg_sizer.Add(self.seg_cv, 1, wx.EXPAND)
         self.seg_nav_toolbar.update()
-        self.click = self.seg_cv.mpl_connect('pick_event', self.on_click)
+        self.click_segments = self.seg_cv.mpl_connect('pick_event', self.on_click_segments)
 
         self.lab_fig = Figure()
         self.lab_fig.set_dpi(100)
         self.lab_ax = self.lab_fig.add_subplot(111, projection='3d')
-        self.lab_fig.suptitle("Inspect selection hull", fontsize=16)
+        # disable zoom so can use right click (button 3) for select
+        self.lab_ax.mouse_init(rotate_btn=3, pan_btn=2, zoom_btn=0)
+        self.lab_fig.suptitle("Left-click to select points\nRight click to rotate view", fontsize=16)
         self.lab_ax.set_zlabel('L')
         self.lab_ax.set_xlabel('a')
         self.lab_ax.set_ylabel('b')
@@ -94,6 +96,7 @@ class HullPanel(wx.Panel):
         self.tri_art = None
         self.lab_nav_toolbar = NavigationToolbar(self.lab_cv)
         self.lab_nav_toolbar.Realize()
+        self.click_lab = self.lab_cv.mpl_connect('pick_event', self.on_click_lab)
 
         lab_sizer = wx.BoxSizer(wx.VERTICAL)
         lab_sizer.Add(self.lab_nav_toolbar, 0, wx.ALIGN_CENTER)
@@ -284,7 +287,7 @@ class HullPanel(wx.Panel):
         self.alpha_selection.set_delta(value)
         self.draw_segments_figure()
 
-    def on_click(self, event):
+    def on_click_segments(self, event):
         x = event.mouseevent.xdata.astype(int)
         y = event.mouseevent.ydata.astype(int)
         image = self.images[self.ind]
@@ -292,6 +295,24 @@ class HullPanel(wx.Panel):
         logger.debug(f'file: {image.filepath}, segment:  {sid}, x: {x}, y: {y}')
         if sid != 0:
             self.alpha_selection.toggle_segment(image.filepath, sid)
+            self.draw_segments_figure()
+            self.draw_hull()
+
+    def on_click_lab(self, event):
+        if event.mouseevent.button == 1:
+            ind = event.ind[0]
+            x, y, z = event.artist._offsets3d
+            # caution, _offsets3d is a protected component and this behaviour might break unexpectedly
+            # but this the only way I have found to get these values
+            logger.debug(f"{x[ind], y[ind], z[ind]}")
+            image = self.images[self.ind]
+            segments = self.segmentor.image_to_segments[image]
+            selected = segments.lab.index[
+                (segments.lab['L'] == z[ind]) & (segments.lab['a'] == x[ind]) & (segments.lab['b'] == y[ind])
+            ].tolist()
+            logger.debug(f"Selected: {selected}")
+            for sid in selected:
+                self.alpha_selection.toggle_segment(image.filepath, sid)
             self.draw_segments_figure()
             self.draw_hull()
 
@@ -341,7 +362,9 @@ class HullPanel(wx.Panel):
             zs=current_file_segments.lab['L'],
             s=10,
             c=current_file_segments.rgb,
-            lw=0
+            lw=0,
+            picker=True,
+            pickradius=0.1
         )
         self.lab_ax.view_init(elev=elev, azim=azim)
         self.draw_hull()
