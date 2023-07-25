@@ -1,39 +1,45 @@
-import logging
 from pathlib import Path
+import logging
+import logging.config
 
-from .options import options, postprocess, calibration_args_provided
+from src.logging import LOGGING_CONFIG
+
+from .options.parse_args import options, postprocess
+from .options.update_and_verify import minimum_calibration, layout_defined
 from .calibration.calibration import calibrate
 from .area_calculation import calculate
 from .analysis import analyse
-
-
-logger = logging.getLogger(__name__)
 
 
 def algrow():
     arg_parser = options()
     args = arg_parser.parse_args()
     args = postprocess(args)
-
-    logger.info(f"Start with: {arg_parser.format_values()}")
-
     # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+    Path(args.out_dir, 'algrow.log').touch(exist_ok=True)
+
+    logging.config.dictConfig(LOGGING_CONFIG)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Start with: {arg_parser.format_values()}")
 
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")
-        if not calibration_args_provided(args):
+        if not (minimum_calibration(args) and (layout_defined(args) or args.whole_image)):
             logger.info("Launching calibration window")
             calibrate(args)
             logger.info("calibration complete")
+            if not minimum_calibration(args) and (layout_defined(args) or args.whole_image):
+                logger.warning("Required arguments were not provided, exiting")
+                return
         logger.info("Calculate area for input files")
         calculate(args)
         logger.info("Calculations complete")
     else:
-        logger.info("No image files provided")
+        logger.info("No image files provided, continuing to RGR analysis")
 
     if args.sample_id is not None:
-        logger.info("Analyse area file")
+        logger.info("Analyse area file to calculate RGR")
         analyse(args)
         logger.info("Analysis complete")
     else:

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # this snippet is useful to catch exceptions from wx.Frame
 #import sys
 #import traceback
-#
+##
 #def excepthook(type, value, tb):
 #    message = 'Uncaught exception:\n'
 #    message += ''.join(traceback.format_exception(type, value, tb))
@@ -50,38 +50,55 @@ class Calibrator(wx.App):
         # Output a file summarising the calibration values: selected colours, alpha and delta values
         logger.info("Write out calibration parameters")
         with open(Path(self.args.out_dir, "calibration.conf"), 'w') as text_file:
-            text_file.write(f"[Colour parameters]\n")
-            circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
-            hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace(
-                "'", '"')
-            text_file.write(f"circle_colour = {circle_colour_string}\n")
-            text_file.write(f"hull_vertices = {hull_vertices_string}\n")
-            text_file.write(f"alpha = {self.args.alpha}\n")
-            text_file.write(f"delta = {self.args.delta}\n")
-            text_file.write(f"scale = {self.args.scale}\n")
-            text_file.write(f"[Layout parameters]\n")
-            text_file.write(f"circle_diameter = {self.args.circle_diameter}\n")
-            text_file.write(f"circle_expansion = {self.args.circle_expansion}\n")
-            text_file.write(f"plate_circle_separation = {self.args.plate_circle_separation}\n")
-            text_file.write(f"plate_width = {self.args.plate_width}\n")
-            text_file.write(f"circles_per_plate = {self.args.circles_per_plate}\n")
-            text_file.write(f"n_plates = {self.args.n_plates}\n")
-            text_file.write(f"plates_cols_first = {self.args.plates_cols_first}\n")
-            text_file.write(f"plates_bottom_top = {self.args.plates_bottom_top}\n")
-            text_file.write(f"plates_right_left = {self.args.plates_right_left}\n")
-            text_file.write(f"circles_cols_first = {self.args.circles_cols_first}\n")
-            text_file.write(f"circles_bottom_top = {self.args.circles_bottom_top}\n")
-            text_file.write(f"circles_right_left = {self.args.circles_right_left}\n")
+            if self.args.whole_image:
+                text_file.write(f"[Scale]\n")
+                text_file.write(f"scale = {self.args.scale}\n")
+
+                text_file.write(f"[Colour parameters]\n")
+                hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace(
+                    "'", '"')
+                text_file.write(f"hull_vertices = {hull_vertices_string}\n")
+                text_file.write(f"alpha = {self.args.alpha}\n")
+                text_file.write(f"delta = {self.args.delta}\n")
+            else:
+                text_file.write(f"[Scale]\n")
+                text_file.write(f"scale = {self.args.scale}\n")
+
+                text_file.write(f"[Colour parameters]\n")
+                circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
+                hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace(
+                    "'", '"')
+                text_file.write(f"circle_colour = {circle_colour_string}\n")
+                text_file.write(f"hull_vertices = {hull_vertices_string}\n")
+                text_file.write(f"alpha = {self.args.alpha}\n")
+                text_file.write(f"delta = {self.args.delta}\n")
+
+                text_file.write(f"[Layout parameters]\n")
+                text_file.write(f"circle_diameter = {self.args.circle_diameter}\n")
+                text_file.write(f"circle_expansion = {self.args.circle_expansion}\n")
+                text_file.write(f"plate_circle_separation = {self.args.plate_circle_separation}\n")
+                text_file.write(f"plate_width = {self.args.plate_width}\n")
+                text_file.write(f"circles_per_plate = {self.args.circles_per_plate}\n")
+                text_file.write(f"n_plates = {self.args.n_plates}\n")
+                text_file.write(f"plates_cols_first = {self.args.plates_cols_first}\n")
+                text_file.write(f"plates_bottom_top = {self.args.plates_bottom_top}\n")
+                text_file.write(f"plates_right_left = {self.args.plates_right_left}\n")
+                text_file.write(f"circles_cols_first = {self.args.circles_cols_first}\n")
+                text_file.write(f"circles_bottom_top = {self.args.circles_bottom_top}\n")
+                text_file.write(f"circles_right_left = {self.args.circles_right_left}\n")
             logger.debug("Finished writing to calibration file")
         return int(1)
 
 
 class TopFrame(wx.Frame):
     def __init__(self, images: List[ImageLoaded]):
-        super().__init__(None, title="AlGrow Calibration", size=(2000, 1000))
+        super().__init__(None, title="AlGrow Calibration", size=(1500, 1000))
+        self.figure_counter = 0
         self.images = images
         self.image = self.images[len(self.images)//2]
         self.args = self.image.args
+
+        self.SetIcon(wx.Icon(str(Path(Path(__file__).parent, "bmp", "logo.png"))))
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -120,11 +137,15 @@ class TopFrame(wx.Frame):
         self.segmentor = None
 
     def enable_btns(self):
-        active_buttons = [self.scaler_btn, self.circle_colour_btn]
-        if self.args.circle_colour is not None:
-            active_buttons.append(self.layout_btn)
-        if self.layout_done():
-            active_buttons.append(self.hull_btn)
+        logger.debug(self.args.whole_image)
+        if self.args.whole_image is not None:
+            active_buttons = [self.scaler_btn, self.hull_btn]
+        else:
+            active_buttons = [self.scaler_btn, self.circle_colour_btn]
+            if self.args.circle_colour is not None:
+                active_buttons.append(self.layout_btn)
+            if self.layout_done():
+                active_buttons.append(self.hull_btn)
         if self.done():
             active_buttons.append(self.cont_btn)
         for b in active_buttons:
@@ -133,15 +154,20 @@ class TopFrame(wx.Frame):
 
     def set_btn_colours(self):
         complete_buttons = []
-        if self.args.scale is not None:
-            complete_buttons.append(self.scaler_btn)
-        if self.args.circle_colour is not None:
-            complete_buttons.append(self.circle_colour_btn)
-        if self.layout_done():
-            complete_buttons.append(self.layout_btn)
-        logger.debug(f"Hull vertices: {self.args.hull_vertices}")
-        if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
-            complete_buttons.append(self.hull_btn)
+        if self.args.whole_image:
+            if self.args.scale is not None:
+                complete_buttons.append(self.scaler_btn)
+            if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
+                complete_buttons.append(self.hull_btn)
+        else:
+            if self.args.scale is not None:
+                complete_buttons.append(self.scaler_btn)
+            if self.args.circle_colour is not None:
+                complete_buttons.append(self.circle_colour_btn)
+            if self.layout_done():
+                complete_buttons.append(self.layout_btn)
+            if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
+                complete_buttons.append(self.hull_btn)
         if self.done():
             complete_buttons.append(self.cont_btn)
         for b in complete_buttons:
@@ -153,11 +179,17 @@ class TopFrame(wx.Frame):
             b.Disable()
 
     def done(self):
-        return all([
-            self.args.scale is not None,
-            self.layout_done(),
-            (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4)
-        ])
+        if self.args.whole_image:
+            return all([
+                self.args.scale is not None,
+                (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4)
+            ])
+        else:
+            return all([
+                self.args.scale is not None,
+                (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4),
+                self.layout_done()
+            ])
 
     def layout_done(self):
         return all([
@@ -202,21 +234,33 @@ class TopFrame(wx.Frame):
         if self.segmentor is None:
             self.segmentor = Segmentor(self.images)
             try:
+                logger.debug("Segment images - this may take a while")
                 self.segmentor.run()
             except ValueError:
-                wait_panel.Close(True)
+                wait_panel.Destroy()
                 self.enable_btns()
+                return
         logger.debug("launch hull panel")
-        wait_panel.Close()
+        wait_panel.Destroy()
         hull_panel = HullPanel(self, self.segmentor)
         self.display_panel(hull_panel)
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")
         if not self.done():
-            raise ValueError("Not all required configuration values are set")
+            if wx.MessageBox(
+                    "Configuration is not complete... continue closing?",
+                    "Please confirm",
+                    wx.ICON_QUESTION | wx.YES_NO
+            ) != wx.YES:
+                logger.debug("Exiting without completing configuration - expect this to fail")
+                self.Destroy()
+            else:
+                logger.debug("Not all required configuration values are set")
+                return
         logger.debug("Closing")
         self.Destroy()
+        return
 
 
 

@@ -17,10 +17,9 @@ from matplotlib.widgets import LassoSelector
 from skimage.measure import regionprops
 from skimage.color import lab2rgb
 
-from ..options import update_arg
+from ..options.update_and_verify import update_arg
 
 from ..image_loading import ImageLoaded
-from ..figurebuilder import FigureBuilder
 from ..image_segmentation import Segments
 
 
@@ -87,11 +86,9 @@ class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle
                 self.selected_btn.SetBackgroundColour(wx.NullColour)
         else:
             colour_rgb = tuple((lab2rgb(colour) * 255).astype(int))
-            logger.debug(colour_rgb)
             self.selected_btn.SetBackgroundColour(colour_rgb)
 
     def get_colour(self):
-        logger.debug(np.sum(self.selector.selection_array))
         if np.sum(self.selector.selection_array) > 0:
             regions = regionprops(
                 self.selector.selection_array,
@@ -100,7 +97,7 @@ class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle
             )
             colours = [np.around(r.median_intensity, decimals=1) for r in regions]
             colours_string = f'{[",".join([str(j) for j in i]) for i in colours]}'.replace("'", '"')
-            logger.info(f'Colours selected: {colours_string}')
+            logger.debug(f'Colours selected: {colours_string}')
             return tuple(np.round(np.median(colours, axis=0), decimals=1))
         else:
             return None
@@ -119,7 +116,7 @@ class LassoPanel(wx.Panel):  # todo: add a panel showing current selected circle
         update_arg(self.args, "circle_colour", colour)
 
         logger.debug(f"Plotting debug image for circle colour: {self.args.circle_colour}")
-        fig = FigureBuilder(".", self.args, "Circle colour")
+        fig = self.image.figures.new_figure("Circle colour")
         fig.plot_colours([self.args.circle_colour])
         fig.print()
         plt.close()

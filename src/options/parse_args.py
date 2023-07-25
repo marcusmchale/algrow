@@ -1,175 +1,13 @@
-import logging
-import argparse
 from configargparse import ArgumentParser
 from pathlib import Path
 from itertools import chain
 
-logger = logging.getLogger(__name__)
-
-
-def lab(s: str | tuple[float|int]):
-    if isinstance(s, tuple):
-        if len(s) > 3:
-            raise argparse.ArgumentTypeError(f'Colour must be a tuple with 3 float or int values: {s}')
-        else:
-            try:
-                for i in s:
-                    float(i)
-            except ValueError:
-                raise argparse.ArgumentTypeError(f'Colour must be a tuple with 3 float or int values: {s}')
-        return s
-    elif isinstance(s, str):
-        try:
-            l, a, b = map(float, s.split(','))
-            return l, a, b
-        except ValueError:
-            raise argparse.ArgumentTypeError(f'Each colour must be a string with 3 comma separated float values: {s}')
-
-
-def update_arg(args, arg, val):
-    if isinstance(val, list) and isinstance(val[0], tuple):
-        val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
-        for v in val:
-            # coerce to known type:
-            try:
-                v = arg_types[arg](v)
-            except ValueError:
-                logger.debug("Issue with updating arg")
-                raise
-    else:
-        if isinstance(val, tuple):
-            val_str = f"\"{','.join([str(i) for i in val])}\""
-        else:
-            val_str = str(val)
-            # coerce to known type:
-        try:
-            val = arg_types[arg](val)
-        except ValueError:
-            logger.debug("Issue with updating arg")
-            raise
-
-    if vars(args)[arg] is None:
-        logger.info(f"Setting {arg}: {val_str}")
-        vars(args).update({arg: val})
-        logger.debug(f"{arg}:{vars(args)[arg]}")
-    else:
-        if vars(args)[arg] == val:
-            logger.info(f"Existing value matches the update so no change will be made {arg}: {val}")
-        else:
-            logger.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
-            vars(args).update({arg: val})
-
-
-def image_path(s: str):
-    if Path(s).is_file():
-        return Path(s)
-    elif Path(s).is_dir():
-        return [p for p in Path(s).glob('**/*.jpg')]
-    else:
-        raise FileNotFoundError
-
-
-def postprocess(args):
-    # Handle multiple directories or a mix of directories and files
-    if args.images is not None:
-        args.images = list(chain(*args.images))
-
-    # Infer out dir if not specified
-    if args.out_dir is None:
-        if args.images is not None:
-            if Path(args.images[0]).is_file():
-                args.out_dir = Path(args.images[0]).parents[0]
-            else:
-                args.out_dir = Path(args.images[0])
-        elif args.id is not None:
-            args.out_dir = Path(args.id).parents[0]
-        #  else:  # should return default local director as out_dir
-        #      raise FileNotFoundError("No output directory specified")
-    return args
-
-
-def calibration_args_provided(args):
-    return all([
-        (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
-        args.circle_colour is not None,
-        args.scale is not None,
-        args.circle_diameter is not None,
-        args.plate_circle_separation is not None,
-        args.plate_width is not None,
-        args.circles_per_plate is not None,
-        args.n_plates is not None,
-        args.circles_cols_first is not None,
-        args.circles_right_left is not None,
-        args.circles_bottom_top is not None,
-        args.plates_cols_first is not None,
-        args.plates_bottom_top is not None,
-        args.plates_right_left is not None
-    ])
-
-
-def layout_args_provided(args):
-    return all([
-        args.circle_colour is not None,
-        args.circle_diameter is not None,
-        args.plate_circle_separation is not None,
-        args.plate_width is not None,
-        args.circles_per_plate is not None,
-        args.n_plates is not None,
-        args.circles_cols_first is not None,
-        args.circles_right_left is not None,
-        args.circles_bottom_top is not None,
-        args.plates_cols_first is not None,
-        args.plates_bottom_top is not None,
-        args.plates_right_left is not None
-    ])
-
-
-arg_types = {
-    "conf": str,
-    "images": image_path,
-    "sample_id": str,
-    "out_dir": str,
-    "time_regex": str,
-    "time_format": str,
-    "block_regex": str,
-    "overlay": bool,
-    "animations": bool,
-    "processes": int,
-    "debug": str,
-    "loglevel": str,
-    "num_superpixels": int,
-    "superpixel_compactness": float,
-    "sigma": float,
-    "circle_colour": lab,
-    "hull_vertices": lab,
-    "alpha": float,
-    "delta": float,
-    "num_calibration": int,
-    "remove": int,
-    "fill": int,
-    "area_file": str,
-    "fit_start": float,
-    "fit_end": float,
-    "scale": float,
-    "circle_diameter": float,
-    "circle_expansion": float,
-    "plate_circle_separation": float,
-    "plate_cut_expansion": float,
-    "plate_width": float,
-    "circles_per_plate": int,
-    "n_plates": int,
-    "plates_cols_first": bool,
-    "plates_right_left": bool,
-    "plates_bottom_top": bool,
-    "circles_cols_first": bool,
-    "circles_right_left": bool,
-    "circles_bottom_top": bool
-}
+from .update_and_verify import arg_types
 
 
 # Parse command-line arguments
 def options():
-    config_dir = Path(Path(__file__).parent.parent, "conf.d")
+    config_dir = Path(Path(__file__).parent.parent.parent, "conf.d")
     config_files = config_dir.glob("*.conf")
     parser = ArgumentParser(
         default_config_files=config_files,
@@ -193,7 +31,7 @@ def options():
         "-o",
         "--out_dir",
         help="Output directory",
-        default=".",
+        default="algrow_output",
         type=arg_types["out_dir"]
     )
     parser.add_argument(
@@ -215,12 +53,6 @@ def options():
         type=arg_types["block_regex"]
     )
     parser.add_argument(
-        "-q",
-        "--overlay",
-        action='store_true',
-        help="Write out overlay for quality control"
-    )
-    parser.add_argument(
         '-an',
         "--animations",
         help="Use imagemagick to generate gif animations of 3d plots",
@@ -235,21 +67,26 @@ def options():
     )
     parser.add_argument(
         "-d",
-        "--debug",
+        "--image_debug",
         help=(
-            "Plots intermediate images for debugging/tuning"
+            "How to plot intermediate images for debugging/tuning"
         ),
         choices=["save", "plot", "both"],
-        default=None
+        default="save"
+    )
+    parser.add_argument(
+        "-dl",
+        "--image_debug_level",
+        help="Level of image debugging",
+        type=arg_types['image_debug_level'],
+        default="INFO"
     )
     parser.add_argument(
         "-l",
         "--loglevel",
-        help=(
-            "Set log-level: INFO or DEBUG"
-        ),
-        choices=["INFO", "DEBUG"],
-        default=None
+        help="Log-level",
+        type=arg_types['loglevel'],
+        default="INFO"
     )
     parser.add_argument(
         '-nsp', "--num_superpixels",
@@ -292,13 +129,20 @@ def options():
         "-de", "--delta",
         help="Maximum distance outside of target polygon to consider as target",
         type=arg_types["delta"],
-        default=0
+        default=5
     )
     parser.add_argument(
         "-nc", "--num_calibration",
         help="Number of images to use for calibration",
         type=arg_types["num_calibration"],
         default=3
+    )
+    parser.add_argument(
+        "-b",
+        "--blur",
+        help="Gaussian blur applied to image during loading",
+        type=arg_types["blur"],
+        default=1
     )
     parser.add_argument(
         "-r",
@@ -314,7 +158,6 @@ def options():
         default=100,
         type=arg_types["fill"]
     )
-
     parser.add_argument(
         "-fs",
         "--fit_start",
@@ -336,13 +179,18 @@ def options():
         type=arg_types["area_file"],
         default="area.csv"
     )
-
     parser.add_argument(
         "-sc",
         "--scale",
         help="pixels/unit distance for area calculation (if unit distance is mm then area will be reported in mm²)",
         default=None,
         type=arg_types["scale"]
+    )
+    parser.add_argument(
+        "-w",
+        "--whole_image",
+        help="Run without layout definition to calculate area for the entire image field",
+        action='store_true'
     )
     parser.add_argument(
         "-cd",
@@ -372,8 +220,6 @@ def options():
         default=1.1,
         type=arg_types["plate_cut_expansion"]
     )
-
-    cut_height_expansion = 1.1  # todo consider passing this up as an argument to tune
     parser.add_argument(
         "-pw",
         "--plate_width",
@@ -432,3 +278,22 @@ def options():
         action='store_true'
     )
     return parser
+
+
+# Processing that should happen after parsing input arguments
+def postprocess(args):
+    # Handle multiple directories or a mix of directories and files
+    if args.images is not None:
+        args.images = list(chain(*args.images))
+    # Infer out dir if not specified
+    if args.out_dir is None:
+        if args.images is not None:
+            if Path(args.images[0]).is_file():
+                args.out_dir = Path(args.images[0]).parents[0]
+            else:
+                args.out_dir = Path(args.images[0])
+        elif args.id is not None:
+            args.out_dir = Path(args.id).parents[0]
+        #  else:  # should return default local director as out_dir
+        #      raise FileNotFoundError("No output directory specified")
+    return args

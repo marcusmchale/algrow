@@ -1,8 +1,6 @@
 import logging
 import numpy as np
 
-from typing import List
-
 import wx
 from pubsub import pub
 
@@ -17,7 +15,8 @@ from matplotlib.backends.backend_wxagg import (
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
 
 from ..image_loading import ImageLoaded
-from ..options import update_arg, arg_types
+from ..options.update_and_verify import update_arg
+
 
 logger = logging.getLogger(__name__)
 
@@ -264,11 +263,14 @@ class MeasurePanel(wx.Panel):
     def save_args(self, args=None):
         if args is None:
             args = self.args
+            temporary = False
+        else:
+            temporary = True
         done = True
         for text_input, arg in self.input_to_arg.items():
             value = text_input.GetValue()
             try:
-                update_arg(args, arg, value)
+                update_arg(args, arg, value, temporary=temporary)
                 text_input.SetBackgroundColour(wx.NullColour)
             except ValueError:
                 logger.debug(f"Could not coerce {value} to float for {arg}")
@@ -276,7 +278,7 @@ class MeasurePanel(wx.Panel):
                 done = False
         for index, arg in self.index_to_arg.items():
             value = self.toolbar.GetToolState(index)
-            update_arg(args, arg, value)
+            update_arg(args, arg, value, temporary=temporary)
         return done
 
     def on_exit(self, event):

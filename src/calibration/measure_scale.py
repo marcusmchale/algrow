@@ -1,10 +1,7 @@
 import logging
 import numpy as np
 
-from typing import List
-
 import wx
-
 from pathlib import Path
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
 

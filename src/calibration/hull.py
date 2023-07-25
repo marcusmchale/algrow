@@ -1,7 +1,6 @@
 import logging
 
-from typing import List, Optional
-from ..image_loading import ImageLoaded
+from typing import Optional
 
 import wx
 from pubsub import pub
@@ -22,10 +21,12 @@ from matplotlib import get_data_path  # we are recycling some matplotlib icons
 from alphashape import alphashape, optimizealpha
 from trimesh import PointCloud, proximity, Trimesh
 
+from ..figurebuilder import FigureMatplot, FigureNone
+
 
 from ..image_segmentation import Segmentor
-from ..figurebuilder import FigureBuilder
-from ..options import update_arg
+from ..options.update_and_verify import update_arg
+from ..options.custom_types import DebugEnum
 
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,10 @@ class HullPanel(wx.Panel):
     def __init__(self, parent, segmentor: Segmentor):
         super().__init__(parent)
 
+        self.parent = parent
         self.segmentor = segmentor
         self.images = self.segmentor.images
+        logger.debug(f"{self.images}")
         self.args = self.images[0].args
 
         # Prepare an index for navigating the list of images
@@ -116,8 +119,8 @@ class HullPanel(wx.Panel):
         logger.debug("Close called")
         if self.alpha_selection.hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 points")
-        if self.args.debug:
-            self.plot_hull(".")
+
+        self.plot_hull()
 
         update_arg(self.args, 'alpha', self.alpha_selection.alpha)
         update_arg(self.args, "hull_vertices", list(map(tuple, np.round(
@@ -360,29 +363,20 @@ class HullPanel(wx.Panel):
         self.lab_cv.draw_idle()
         self.lab_cv.flush_events()
 
-    def plot_hull(self, path):
+    def plot_hull(self):
         if self.alpha_selection.hull is None:
             logger.warning("Configuration is incomplete, will not attempt to print summary figure")
             return
         logger.debug("Plotting hull in lab colourspace")
-        fig = FigureBuilder(path, self.args, 'Alpha hull')
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(
-            xs=self.segmentor.lab['a'],
-            ys=self.segmentor.lab['b'],
-            zs=self.segmentor.lab['L'],
-            s=10,
-            c=self.segmentor.rgb,
-            lw=0
-        )
 
-        ax.plot_trisurf(
-            *zip(
-                *self.alpha_selection.hull.vertices[:, [1, 2, 0]]
-            ),
-            triangles=self.alpha_selection.hull.faces[:, [1, 2, 0]],
-            color=(0, 1, 0, 0.5)
-        )
+        if DebugEnum["INFO"] >= self.args.image_debug_level:
+            self.parent.figure_counter += 1
+            fig = FigureMatplot("Hull", self.parent.figure_counter, self.args, cols=1)
+        else:
+            fig = FigureNone("Hull", self.parent.figure_counter, self.args, cols=1)
+        points = self.segmentor.lab[['a', 'b', 'L']].to_numpy()
+        labels = ("a", "b", "L")
+        fig.plot_scatter_3d(points, labels, self.segmentor.rgb.to_numpy(), self.alpha_selection.hull)
         fig.animate()
         fig.print()
 
@@ -453,6 +447,7 @@ class AlphaSelection:
     def update_dist(self, filepath):
         if self.hull is None:
             logger.debug("No hull available to calculate distance")
+            self.dist.values[:] = -np.inf
             return
 
         logger.debug(f"updating distances from hull for {filepath}")
