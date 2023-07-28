@@ -237,7 +237,7 @@ class LayoutPanel(MeasurePanel):
                     plates = layout_detector.sort_plates(plates)
                     layout = Layout(plates, image)
                     self.draw_overlay(layout)
-                    if self.args.image_debug_level <= 0:  # (i.e. debug level):
+                    if self.args.image_debug <= 0:  # (i.e. debug level):
                         fig.print()
                     return
                 except InsufficientPlateDetection:
@@ -262,5 +262,5 @@ class LayoutPanel(MeasurePanel):
             logger.info(message)
             popframe = PopFrame(message, fig)
             popframe.Show(True)
-            if self.args.image_debug_level <= 0:   # (i.e. debug level):
+            if self.args.image_debug <= 0:   # (i.e. debug level):
                 fig.print()

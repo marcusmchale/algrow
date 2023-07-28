@@ -88,9 +88,9 @@ class HullPanel(wx.Panel):
         # disable zoom so can use right click (button 3) for select
         self.lab_ax.mouse_init(rotate_btn=3, pan_btn=2, zoom_btn=0)
         self.lab_fig.suptitle("Left-click to select points\nRight click to rotate view", fontsize=16)
-        self.lab_ax.set_zlabel('L')
-        self.lab_ax.set_xlabel('a')
-        self.lab_ax.set_ylabel('b')
+        self.lab_ax.set_zlabel('L*')
+        self.lab_ax.set_xlabel('a*')
+        self.lab_ax.set_ylabel('b*')
         self.lab_cv = FigureCanvas(self, -1, self.lab_fig)
         self.lab_art = None
         self.tri_art = None
@@ -392,13 +392,13 @@ class HullPanel(wx.Panel):
             return
         logger.debug("Plotting hull in lab colourspace")
 
-        if DebugEnum["INFO"] >= self.args.image_debug_level:
+        if DebugEnum["INFO"] >= self.args.image_debug:
             self.parent.figure_counter += 1
             fig = FigureMatplot("Hull", self.parent.figure_counter, self.args, cols=1)
         else:
             fig = FigureNone("Hull", self.parent.figure_counter, self.args, cols=1)
         points = self.segmentor.lab[['a', 'b', 'L']].to_numpy()
-        labels = ("a", "b", "L")
+        labels = ("a*", "b*", "L*")
         fig.plot_scatter_3d(points, labels, self.segmentor.rgb.to_numpy(), self.alpha_selection.hull)
         fig.animate()
         fig.print()

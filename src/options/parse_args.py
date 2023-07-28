@@ -10,7 +10,7 @@ def options():
     config_dir = Path(Path(__file__).parent.parent.parent, "conf.d")
     config_files = config_dir.glob("*.conf")
     parser = ArgumentParser(
-        default_config_files=config_files,
+        default_config_files=[str(i) for i in config_files],
     )
     parser.add_argument("-c", "--conf", help="Config file path", is_config_file=True, type=arg_types["conf"])
     parser.add_argument(
@@ -68,17 +68,8 @@ def options():
     parser.add_argument(
         "-d",
         "--image_debug",
-        help=(
-            "How to plot intermediate images for debugging/tuning"
-        ),
-        choices=["save", "plot", "both"],
-        default="save"
-    )
-    parser.add_argument(
-        "-dl",
-        "--image_debug_level",
         help="Level of image debugging",
-        type=arg_types['image_debug_level'],
+        type=arg_types['image_debug'],
         default="INFO"
     )
     parser.add_argument(

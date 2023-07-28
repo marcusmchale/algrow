@@ -281,13 +281,14 @@ with similar images and to ensure consistency across multiple analyses.
       - "block" and/or "plate"  
     - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
 
+
 # To explore
  - consider how the alpha parameter can allow for multiple disconnected regions
    - assumes similar density in clouds but this is expected from SLIC
    - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
- - consider higher dimensional space e.g. texture features 
-   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots
-
+ - consider higher dimensional space e.g. texture features  
+   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
+   - maybe consider them as separate spaces/masks for target selection?
 
 
 # Beyond the current scope but maybe one day
@@ -315,4 +316,3 @@ with similar images and to ensure consistency across multiple analyses.
 
 # TO reference:
  - colour volume as alpha shape in Methods in Ecology and Evolution 2020  https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13398
- - 
