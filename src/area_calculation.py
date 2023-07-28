@@ -56,6 +56,9 @@ def calculate(args):
                 logger.info(
                     f'Area output file found, skipping the following images: {",".join([str(f) for f in files_done])}'
                 )
+                if len(image_filepaths) == 0:
+                    logger.info("No image files remain to be processed")
+                    return
             except StopIteration:
                 logger.debug("Existing output file is only a single line (likely header only)")
                 image_filepaths = args.images
@@ -63,6 +66,7 @@ def calculate(args):
         image_filepaths = args.images
 
     logger.debug(f"Processing {len(image_filepaths)} images")
+
     # Process images
     with open(area_out, 'a+') as csv_file:
         csv_writer = writer(csv_file)
