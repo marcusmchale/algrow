@@ -5,7 +5,7 @@ import logging.config
 from src.logging import LOGGING_CONFIG
 
 from .options.parse_args import options, postprocess
-from .options.update_and_verify import minimum_calibration, layout_defined
+from .options.update_and_verify import calibration_complete
 from .calibration.calibration import calibrate
 from .area_calculation import calculate
 from .analysis import analyse
@@ -25,11 +25,11 @@ def algrow():
 
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")
-        if not (minimum_calibration(args) and (layout_defined(args) or args.whole_image)):
+        if not calibration_complete(args):
             logger.info("Launching calibration window")
             calibrate(args)
             logger.info("calibration complete")
-            if not minimum_calibration(args) and (layout_defined(args) or args.whole_image):
+            if not calibration_complete(args):
                 logger.warning("Required arguments were not provided, exiting")
                 return
         logger.info("Calculate area for input files")
