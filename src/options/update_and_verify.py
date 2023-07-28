@@ -20,13 +20,12 @@ def update_arg(args, arg, val, temporary=False):
 
     if isinstance(val, list) and isinstance(val[0], tuple):
         val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
-        for v in val:
-            # coerce to known type:
-            try:
-                v = arg_types[arg](v)
-            except ValueError:
-                adapter.debug("Issue with updating arg")
-                raise
+        # coerce to known type:
+        try:
+            val = [arg_types[arg](v) for v in val]
+        except ValueError:
+            adapter.debug("Issue with updating arg")
+            raise
     else:
         if isinstance(val, tuple):
             val_str = f"\"{','.join([str(i) for i in val])}\""
@@ -40,14 +39,19 @@ def update_arg(args, arg, val, temporary=False):
             raise
 
     if vars(args)[arg] is None:
-        adapter.info(f"Setting {arg}: {val_str}")
+        if temporary:
+            adapter.debug(f"Setting {arg}: {val_str}")
+        else:
+            adapter.info(f"Setting {arg}: {val_str}")
         vars(args).update({arg: val})
         adapter.debug(f"{arg}:{vars(args)[arg]}")
     else:
         if vars(args)[arg] == val:
             adapter.debug(f"Existing value matches the update so no change will be made {arg}: {val}")
         else:
-            if not temporary:
+            if temporary:
+                adapter.debug(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
+            else:
                 adapter.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
             vars(args).update({arg: val})
 
