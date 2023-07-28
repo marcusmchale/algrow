@@ -24,5 +24,4 @@ def calibrate(args: argparse.Namespace):
 
     calibrator = Calibrator(images)
     calibrator.MainLoop()
-    logger.debug("Calibration complete")
 

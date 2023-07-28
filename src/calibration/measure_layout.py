@@ -25,7 +25,7 @@ class LayoutPanel(MeasurePanel):
 
     def set_titles(self):
         self.fig.suptitle("Define layout detection parameters")
-        self.ax.set_title("Select the box for each parameter then draw the corresponding line")
+        self.ax.set_title("To measure, select the input then click to draw a line")
 
     def add_toolbar(self):
         toolbar = wx.ToolBar(self, id=-1, style=wx.TB_VERTICAL | wx.TB_TEXT)
