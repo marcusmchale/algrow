@@ -22,8 +22,8 @@ class ScalePanel(MeasurePanel):
         logger.debug("Launch scale panel")
 
     def set_titles(self):
-        self.fig.suptitle("Define layout detection parameters")
-        self.ax.set_title("Select the box for each parameter then draw the corresponding line")
+        self.fig.suptitle("Define scale")
+        self.ax.set_title("To measure, select the input and click to draw a line")
 
     def set_measured_input(self, event):
         pass

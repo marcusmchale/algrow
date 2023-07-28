@@ -74,3 +74,14 @@ def layout_defined(args):
         args.plates_bottom_top is not None,
         args.plates_right_left is not None
     ])
+
+
+def calibration_complete(args):
+    if args.whole_image:
+        return minimum_calibration(args)
+    else:
+        return all([
+            args.scale is not None,
+            (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
+            layout_defined(args)
+        ])

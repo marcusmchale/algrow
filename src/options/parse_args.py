@@ -219,14 +219,14 @@ def options():
         type=arg_types["plate_width"]
     )
     parser.add_argument(
-        "-cpp",
+        "-cp",
         "--circles_per_plate",
         help="In plate clustering, the number of circles per plate",
         default=None,
         type=arg_types["circles_per_plate"]
     )
     parser.add_argument(
-        "-npi",
+        "-np",
         "--n_plates",
         help="In plate layout, the number of plates per image",
         default=None,

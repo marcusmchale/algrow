@@ -8,6 +8,7 @@ from pubsub import pub
 
 from ..image_loading import ImageLoaded
 from ..image_segmentation import Segmentor
+from ..options.update_and_verify import calibration_complete, layout_defined, minimum_calibration
 
 from .measure_layout import LayoutPanel
 from .measure_scale import ScalePanel
@@ -19,16 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 # this snippet is useful to catch exceptions from wx.Frame
-import sys
-import traceback
+#import sys
+#import traceback
+##
+#def excepthook(type, value, tb):
+#    message = 'Uncaught exception:\n'
+#    message += ''.join(traceback.format_exception(type, value, tb))
+#    logger.debug(message)
 #
-def excepthook(type, value, tb):
-    message = 'Uncaught exception:\n'
-    message += ''.join(traceback.format_exception(type, value, tb))
-    logger.debug(message)
-
-sys.excepthook = excepthook
-
+#sys.excepthook = excepthook
+#
 
 class Calibrator(wx.App):
     # overriding init to pass in the arguments from CLI/configuration file(s)
@@ -47,6 +48,8 @@ class Calibrator(wx.App):
         return True
 
     def OnExit(self):
+        if not calibration_complete(self.args):
+            raise ValueError("Not all calibration parameters were defined")
         # Output a file summarising the calibration values: selected colours, alpha and delta values
         logger.info("Write out calibration parameters")
         with open(Path(self.args.out_dir, "calibration.conf"), 'w') as text_file:
@@ -143,9 +146,9 @@ class TopFrame(wx.Frame):
             active_buttons = [self.scaler_btn, self.circle_colour_btn]
             if self.args.circle_colour is not None:
                 active_buttons.append(self.layout_btn)
-            if self.layout_done():
+            if layout_defined(self.args):
                 active_buttons.append(self.hull_btn)
-        if self.done():
+        if calibration_complete(self.args):
             active_buttons.append(self.cont_btn)
         for b in active_buttons:
             b.Enable()
@@ -163,11 +166,11 @@ class TopFrame(wx.Frame):
                 complete_buttons.append(self.scaler_btn)
             if self.args.circle_colour is not None:
                 complete_buttons.append(self.circle_colour_btn)
-            if self.layout_done():
+            if layout_defined(self.args):
                 complete_buttons.append(self.layout_btn)
             if self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4:
                 complete_buttons.append(self.hull_btn)
-        if self.done():
+        if calibration_complete(self.args):
             complete_buttons.append(self.cont_btn)
         for b in complete_buttons:
             b.SetBackgroundColour((0, 255, 0))
@@ -176,35 +179,6 @@ class TopFrame(wx.Frame):
         for b in [self.scaler_btn, self.circle_colour_btn, self.layout_btn, self.hull_btn, self.cont_btn]:
             b.SetBackgroundColour(wx.NullColour)
             b.Disable()
-
-    def done(self):
-        if self.args.whole_image:
-            return all([
-                self.args.scale is not None,
-                (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4)
-            ])
-        else:
-            return all([
-                self.args.scale is not None,
-                (self.args.hull_vertices is not None and len(self.args.hull_vertices) >= 4),
-                self.layout_done()
-            ])
-
-    def layout_done(self):
-        return all([
-            self.args.circle_colour is not None,
-            self.args.circle_diameter is not None,
-            self.args.plate_circle_separation is not None,
-            self.args.plate_width is not None,
-            self.args.circles_per_plate is not None,
-            self.args.n_plates is not None,
-            self.args.circles_cols_first is not None,
-            self.args.circles_right_left is not None,
-            self.args.circles_bottom_top is not None,
-            self.args.plates_cols_first is not None,
-            self.args.plates_bottom_top is not None,
-            self.args.plates_right_left is not None,
-        ])
 
     def display_panel(self, panel):
         self.disable_btns()
@@ -246,17 +220,16 @@ class TopFrame(wx.Frame):
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")
-        if not self.done():
+        if not calibration_complete(self.args):
             if wx.MessageBox(
                     "Configuration is not complete... continue closing?",
                     "Please confirm",
                     wx.ICON_QUESTION | wx.YES_NO
             ) != wx.YES:
-                logger.debug("Exiting without completing configuration - expect this to fail")
-                self.Destroy()
-            else:
-                logger.debug("Not all required configuration values are set")
                 return
+            else:
+                logger.warning("Not all required configuration values are set")
+                self.Destroy()
         logger.debug("Closing")
         self.Destroy()
         return
