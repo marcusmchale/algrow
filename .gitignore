@@ -4,3 +4,4 @@ venv/
 sample_images/
 build/
 algrow.egg-info/
+/publication/

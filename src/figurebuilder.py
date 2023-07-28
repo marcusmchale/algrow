@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from skimage.color import lab2rgb
-from matplotlib import pyplot as plt, gridspec, colors, animation
+from matplotlib import gridspec, colors, animation
 from matplotlib.figure import Figure, Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
@@ -237,7 +237,7 @@ class FigureMatplot(FigureBase):
 
     def animate(self):
 
-        if self.args.image_debug == "plot" or not self.args.animations:
+        if not self.args.animations:
             return
 
         def rotate(ii, ax):
@@ -271,28 +271,16 @@ class FigureMatplot(FigureBase):
             ))
 
     def print(self, large=False):
-
-        if self.args.image_debug in ["save", "both"]:
-            self.logger.debug(f"Save figure")
-            if large:
-                self._fig.set_figheight(12 * self._shape[0])
-                self._fig.set_figwidth(16 * self._shape[1])
-            else:
-                self._fig.set_figheight(3 * self._shape[0])
-                self._fig.set_figwidth(4 * self._shape[1])
-            out_path = self._get_filepath()
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            self._fig.savefig(str(out_path), dpi=300)
-
-        if self.args.image_debug in ["plot", "both"]:
-            self.logger.debug(f"Display figure")
-            self._fig.set_figwidth(4 * self._shape[1])
+        self.logger.debug(f"Save figure")
+        if large:
+            self._fig.set_figheight(12 * self._shape[0])
+            self._fig.set_figwidth(16 * self._shape[1])
+        else:
             self._fig.set_figheight(3 * self._shape[0])
-            self._fig.set_dpi(100)
-            plt.show()
-            ## todo, might prefer to use segment_fig.show but that requires a managed event loop
-            # or all the figures are rendered at the end when multiprocessing
-        plt.close()
+            self._fig.set_figwidth(4 * self._shape[1])
+        out_path = self._get_filepath()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fig.savefig(str(out_path), dpi=300)
 
 
 class FigureNone(FigureBase):

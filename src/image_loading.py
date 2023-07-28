@@ -31,16 +31,8 @@ class ImageFigureBuilder:
         self.logger = ImageFilepathAdapter(logger, {"image_filepath": image_filepath})
         self.logger.debug("Creating figure builder object")
 
-        if self.args.processes > 1:
-            if self.args.image_debug in ["plot", "both"]:
-                self.logger.warning("Interactive plotting is not available in multi-processing mode")
-                if self.args.image_debug == "both":
-                    self.args.image_debug = "save"
-                else:
-                    self.args.image_debug = None
-
     def new_figure(self, name, cols=1, level="DEBUG") -> FigureBase:
-        if DebugEnum[level] >= self.args.image_debug_level:
+        if DebugEnum[level] >= self.args.image_debug:
             self.counter += 1
             return FigureMatplot(name, self.counter, self.args, cols=cols, image_filepath=self.image_filepath)
         else:

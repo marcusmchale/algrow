@@ -1,4 +1,3 @@
-import argparse
 import logging
 
 import numpy as np
@@ -8,13 +7,10 @@ from skimage import draw
 from skimage.feature import canny
 from skimage.transform import hough_circle, hough_circle_peaks
 
-from skimage.morphology import binary_dilation
 from skimage.color import deltaE_cie76
 from .image_loading import ImageLoaded, ImageFilepathAdapter
 from .figurebuilder import FigureBase
 
-from PIL import Image, ImageDraw, ImageFont
-from matplotlib import font_manager
 
 logger = logging.getLogger(__name__)
 

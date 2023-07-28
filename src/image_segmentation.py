@@ -9,7 +9,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
 
 from skimage.segmentation import slic, mark_boundaries
-from skimage.color import deltaE_cie76, lab2rgb, label2rgb
+from skimage.color import lab2rgb, label2rgb
 from skimage.measure import regionprops_table
 
 
@@ -71,7 +71,7 @@ class Segments:
             inplace=True
         )
         self.regions[['R', 'G', 'B']] = lab2rgb(self.lab)
-        if self.args.image_debug_level <= 0:
+        if self.args.image_debug <= 0:
             self.logger.debug("Draw average colour image")
             fig = self.image.figures.new_figure("SLIC segmentation")
             fig.plot_image(label2rgb(self.mask, self.image.rgb, kind='avg'), "Labels (average)")
@@ -132,15 +132,15 @@ class Segments:
     def centroids(self):
         return self.regions[['x', 'y']]
 
-    def distances(self, reference_colours):
-        reference_colours = np.array(reference_colours)
-        distances = pd.DataFrame(
-            data=np.array([deltaE_cie76(self.image.lab, r) for r in reference_colours]).transpose(),
-            # todo consider replacing deltaE_cie76 with np.linalg.norm, both are just Euclidean distance in Lab?
-            index=self.image.lab.index,
-            columns=[str(r) for r in reference_colours]
-        )
-        return distances
+    #def distances(self, reference_colours):
+    #    reference_colours = np.array(reference_colours)
+    #    distances = pd.DataFrame(
+    #        data=np.array([deltaE_cie76(self.image.lab, r) for r in reference_colours]).transpose(),
+    #        # todo consider replacing deltaE_cie76 with np.linalg.norm, both are just Euclidean distance in Lab?
+    #        index=self.image.lab.index,
+    #        columns=[str(r) for r in reference_colours]
+    #    )
+    #    return distances
 
 
 # The Segmentor handles  multiprocessing of segmentation which is used during calibration from multiple images.
