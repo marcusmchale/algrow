@@ -202,47 +202,58 @@ class LayoutDetector:
         raise InsufficientPlateDetection(f"Insufficient plates detected - consider modifying the layout configuration")
 
     def get_axis_clusters(self, axis_values, cut_height, fig, plate_id=None):
+        logger.debug(axis_values.shape)
+        logger.debug(axis_values)
+
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         fig.plot_dendrogram(dendrogram, cut_height, label=f"Plate: {plate_id}" if plate_id else None)
         return hierarchy.cut_tree(dendrogram, height=cut_height)
 
     def sort_plates(self, plates):
-        self.logger.debug("Sort plates")
-
-        # First the plates themselves
         rows_first = not self.args.plates_cols_first
         left_right = not self.args.plates_right_left
         top_bottom = not self.args.plates_bottom_top
-        axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
-        plate_clustering_fig = self.image.figures.new_figure(f"Plate {'row' if rows_first else 'col'} clustering")
-        cut_height = self.args.plate_width * 0.5
-        clusters = self.get_axis_clusters(axis_values, cut_height, plate_clustering_fig)
-        plate_clustering_fig.print()
-        clusters = DataFrame(
-            {
-                "cluster": clusters.flatten(),
-                "plate": plates,
-                "primary_axis": [p.centroid[int(rows_first)] for p in plates],
-                "secondary_axis": [p.centroid[int(not rows_first)] for p in plates]
-            }
-        )
-        clusters = clusters.sort_values(
-            "primary_axis", ascending=top_bottom if rows_first else left_right
-        ).groupby("cluster", sort=False, group_keys=True).apply(
-            lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
-        )
-        plates = clusters.plate.values
 
-        # Now for within plates
-        rows_first = not self.args.circles_cols_first
-        left_right = not self.args.circles_right_left
-        top_bottom = not self.args.circles_bottom_top
-        within_plate_fig = self.image.figures.new_figure(f"Within plate {'row' if rows_first else 'col'} clustering")
-        for i, p in enumerate(plates):
-            p.id = i + 1
-            self.sort_circles(p, within_plate_fig, rows_first, left_right, top_bottom)
-        within_plate_fig.print()
-        return plates.tolist()
+        if len(plates) > 1:
+            self.logger.debug("Sort plates")
+
+            # First the plates themselves
+
+            axis_values = np.array([p.centroid[int(rows_first)] for p in plates])
+            plate_clustering_fig = self.image.figures.new_figure(f"Plate {'row' if rows_first else 'col'} clustering")
+            cut_height = self.args.plate_width * 0.5
+            clusters = self.get_axis_clusters(axis_values, cut_height, plate_clustering_fig)
+            plate_clustering_fig.print()
+            clusters = DataFrame(
+                {
+                    "cluster": clusters.flatten(),
+                    "plate": plates,
+                    "primary_axis": [p.centroid[int(rows_first)] for p in plates],
+                    "secondary_axis": [p.centroid[int(not rows_first)] for p in plates]
+                }
+            )
+            clusters = clusters.sort_values(
+                "primary_axis", ascending=top_bottom if rows_first else left_right
+            ).groupby("cluster", sort=False, group_keys=True).apply(
+                lambda x: x.sort_values("secondary_axis", ascending=left_right if rows_first else top_bottom)
+            )
+            plates = clusters.plate.values
+
+            # Now for within plates
+            rows_first = not self.args.circles_cols_first
+            left_right = not self.args.circles_right_left
+            top_bottom = not self.args.circles_bottom_top
+            within_plate_fig = self.image.figures.new_figure(f"Within plate {'row' if rows_first else 'col'} clustering")
+            for i, p in enumerate(plates):
+                p.id = i + 1
+
+            within_plate_fig.print()
+            return plates.tolist()
+        else:
+            plates[0].id = 1
+            within_plate_fig = self.image.figures.new_figure(f"Within plate {'row' if rows_first else 'col'} clustering")
+            self.sort_circles(plates[0], within_plate_fig, rows_first, left_right, top_bottom)
+            return plates
 
     def sort_circles(self, plate, fig: FigureBase, rows_first=True, left_right=True, top_bottom=True):
         self.logger.debug(f"sort circles for plate {plate.id}")

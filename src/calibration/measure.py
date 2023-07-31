@@ -20,42 +20,6 @@ from ..options.update_and_verify import update_arg
 
 logger = logging.getLogger(__name__)
 
-"""
-- calibration window for date, time, block regex
-  - calibration window for layout
-    - circle diameter, circle separation and plate width similar to scale.
-    - enter text fields for circle expansion, circles per plate, n_plates
-    - checkbox for ID increment fields
-    - provide a "test layout" button to ensure detection 
-      - display dendrograms in side window, click through each of them
-
-          "--circle_diameter",
-          help="Diameter of surrounding circles in pixels",
-          "--circle_expansion",
-          help="Optional expansion factor for circles (increases radius to search, circles must not overlap)",
-          "--plate_circle_separation",
-          help="Distance between edges of circles within a plate (px)",
-          "--plate_width",
-          help="Length of shortest edge of plate (px)",
-          "--circles_per_plate",
-          help="In plate clustering, the number of circles per plate",
-          "--n_plates",
-          help="In plate layout, the number of plates per image",
-          "--circles_cols_first",
-          help="In circle ID layout, increment by columns first",
-          "--circles_right_left",
-          help="In circle ID layout, increment right to left",
-          "--circles_bottom_top",
-          help="In circle ID layout, increment from bottom to top)",
-          "--plates_cols_first",
-          help="In plate ID layout, increment by columns first",
-          "--plates_right_left",
-          help="In plate ID layout, increment from right to left",
-          "--plates_bottom_top",
-          help="In plate ID layout, increment from bottom to top"
-"""
-
-
 class MeasurePanel(wx.Panel):
     def __init__(self, parent, image: ImageLoaded):
         super().__init__(parent)
@@ -105,11 +69,6 @@ class MeasurePanel(wx.Panel):
         self.cv.draw_idle()
         self.cv.flush_events()
 
-    def set_focus_float_input(self, event):
-        focus = self.FindFocus()
-        if focus in self.measured_inputs:
-            self.measured_input = focus
-
     def set_measured_input(self, event):
         focus = self.FindFocus()
         if focus in self.measured_inputs:
@@ -139,7 +98,7 @@ class MeasurePanel(wx.Panel):
 
     def on_click(self, click_event):
         coords = (click_event.xdata, click_event.ydata) if click_event.xdata is not None else None
-        if coords is None:
+        if coords is None or self.measured_input is None:
             return
         if self.line_start is None:
             self.line_start = coords
@@ -157,6 +116,7 @@ class MeasurePanel(wx.Panel):
             self.cv.draw_idle()
             self.line_start = None
             self.line_end = None
+            self.measured_input = None
 
     def update_line(self, mouse_event):
         if self.line_start and self.line_end:

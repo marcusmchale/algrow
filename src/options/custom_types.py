@@ -40,7 +40,9 @@ def image_path(s: str):
     if Path(s).is_file():
         return [Path(s)]
     elif Path(s).is_dir():
-        return [p for p in Path(s).glob('**/*.jpg')]
+        jpg = [p for p in Path(s).glob('**/*.jpg')]
+        png = [p for p in Path(s).glob('**/*.png')]
+        return jpg + png
     else:
         raise FileNotFoundError
 

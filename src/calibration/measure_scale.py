@@ -25,9 +25,6 @@ class ScalePanel(MeasurePanel):
         self.fig.suptitle("Define scale")
         self.ax.set_title("To measure, select the input and click to draw a line")
 
-    def set_measured_input(self, event):
-        pass
-
     def add_toolbar(self):
         toolbar = wx.ToolBar(self, id=-1, style=wx.TB_VERTICAL | wx.TB_TEXT)
         # start again button
@@ -44,20 +41,21 @@ class ScalePanel(MeasurePanel):
         self.Bind(wx.EVT_TOOL, self.reset, id=1)
 
         toolbar.AddSeparator()
-        toolbar.AddControl(wx.StaticText(toolbar, label="Line length (px)"))
+        toolbar.AddControl(wx.StaticText(toolbar, label="Measured line (px)"))
         px_text = wx.TextCtrl(toolbar, 2, "", style=wx.TE_PROCESS_ENTER)
-        toolbar.AddControl(px_text, label="Line length")
+        toolbar.AddControl(px_text, label="Measured line")
         px_text.Bind(wx.EVT_SET_FOCUS, self.set_measured_input)
+
         px_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
         self.measured_input = px_text
         self.measured_inputs.append(px_text)
 
         # Distance text input
         toolbar.AddSeparator()
-        toolbar.AddControl(wx.StaticText(toolbar, label="Measured distance (mm)"))
+        toolbar.AddControl(wx.StaticText(toolbar, label="Physical distance (mm)"))
         mm_text = wx.TextCtrl(toolbar, 3, "", style=wx.TE_PROCESS_ENTER)
         mm_text.Bind(wx.EVT_TEXT_ENTER, self.check_text_is_float)
-        toolbar.AddControl(mm_text, label="Measured distance")
+        toolbar.AddControl(mm_text, label="Physical distance")
         self.measured_inputs.append(mm_text)
 
         # Scale text output
