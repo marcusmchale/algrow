@@ -261,11 +261,14 @@ with similar images and to ensure consistency across multiple analyses.
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
 
+
+# todo
+  - alternatives to distance calculation, the "contains" approach is far faster
+    - consider methods to buffer the hull by delta and use points of this new hull
+
   
 # To consider
-  - alternatives to distance calculation
-    - especially when delta = 0, just test if within could be faster depending on the methods
-    - consider methods to "expand" the hull by delta and use points of this new hull instead of needing distance at all
+  - multiple target circle colours (easy to implement with distance calculation)
   - GUI window for date, time, block regex from filename in calibration
   - Process image filename during loading to provide date time block etc. rather than at the final analysis
     - not necessary until writing out but might be useful for annotation in debugging loaded image.

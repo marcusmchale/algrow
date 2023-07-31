@@ -15,6 +15,7 @@ def algrow():
     arg_parser = options()
     args = arg_parser.parse_args()
     args = postprocess(args)
+
     # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     Path(args.out_dir, 'algrow.log').touch(exist_ok=True)

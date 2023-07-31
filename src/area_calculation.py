@@ -142,38 +142,43 @@ class ImageProcessor:
         else:
             layout = LayoutDetector(self.image).get_layout()
 
-        # break up the masked image into chunks of points as the signed_distance calculation gives OOM otherwise
         if layout is None:
             masked_lab = self.image.lab.reshape(-1, self.image.lab.shape[-1])
         else:
             masked_lab = self.image.lab[layout.mask]
-        ind = np.linspace(0, len(masked_lab), num=int(len(masked_lab)/1e5), dtype=int, endpoint=False)[1:]
 
-        self.logger.debug("Calculate distance from hull")
-        distances = list()
-        for c in np.split(masked_lab, ind):
-            dist_c = proximity.signed_distance(self.alpha_hull, c)
-            distances.append(dist_c)
-
-        distances_array = np.concatenate(distances)
-
-        if layout is None:
-            distance_image = np.negative(distances_array).reshape(self.image.lab.shape[0:2])
+        if self.args.delta == 0:
+            inside = self.alpha_hull.contains(masked_lab)
         else:
-            distance_image = np.empty(self.image.lab.shape[0:2])
-            distance_image[layout.mask] = np.negative(distances_array)
-            distance_image[~layout.mask] = 0  # set masked region as 0
+            # break up the masked image into chunks of points as the signed_distance calculation gives OOM otherwise
+            ind = np.linspace(0, len(masked_lab), num=int(len(masked_lab)/1e5), dtype=int, endpoint=False)[1:]
+            self.logger.debug("Calculate distance from hull")
+            distances = list()
+            for c in np.split(masked_lab, ind):
+                dist_c = proximity.signed_distance(self.alpha_hull, c)
+                distances.append(dist_c)
 
-        hull_distance_figure = self.image.figures.new_figure('Hull distance')
-        if hull_distance_figure is not None:
-            hull_distance_figure.plot_image(distance_image, color_bar=True)
-            hull_distance_figure.print()
+            distances_array = np.concatenate(distances)
+            inside = np.negative(distances_array) < self.args.delta
+
+            if self.args.image_debug <= 0:
+                # we create a debug for distance if using delta value and at debug level for image debug
+                if layout is None:
+                    distance_image = np.negative(distances_array).reshape(self.image.lab.shape[0:2])
+                else:
+                    distance_image = np.empty(self.image.lab.shape[0:2])
+                    distance_image[layout.mask] = np.negative(distances_array)
+                    distance_image[~layout.mask] = 0  # set masked region as 0
+                hull_distance_figure = self.image.figures.new_figure('Hull distance')
+                hull_distance_figure.plot_image(distance_image, color_bar=True)
+                hull_distance_figure.print()
 
         self.logger.debug("Create mask from distance threshold")
         if layout is None:
-            target_mask = (distance_image < self.args.delta)
+            target_mask = inside
         else:
-            target_mask = (distance_image < self.args.delta) & layout.mask
+            target_mask = layout.mask.copy()
+            target_mask[target_mask] = inside
 
         fill_mask_figure = self.image.figures.new_figure("Fill mask")
         fill_mask_figure.plot_image(target_mask, "Raw mask")
@@ -203,14 +208,14 @@ class ImageProcessor:
         else:
             for p in layout.plates:
                 self.logger.debug(f"Processing plate {p.id}")
-                overlay_figure.add_label(str(p.id), p.centroid, "red", 10)
+                overlay_figure.add_label(str(p.id), p.centroid, "white", 10)
                 for j, c in enumerate(p.circles):
                     unit += 1
                     circle_mask = layout.get_circle_mask(c)
                     circle_target = circle_mask & target_mask
                     pixels = np.count_nonzero(circle_target)
                     result["units"].append((p.id, unit, pixels))
-                    overlay_figure.add_label(str(unit), (c[0], c[1]), "blue", 5)
+                    overlay_figure.add_label(str(unit), (c[0], c[1]), "white", 5)
                     overlay_figure.add_circle((c[0], c[1]), c[2], "white")
 
         overlay_figure.print()

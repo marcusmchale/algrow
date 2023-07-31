@@ -187,10 +187,10 @@ class LayoutPanel(MeasurePanel):
         logger.debug("Annotate canvas with layout")
         for p in layout.plates:
             logger.debug(f"Processing plate {p.id}")
-            self.add_label(str(p.id), p.centroid, "red", 10)
+            self.add_label(str(p.id), p.centroid, "white", 10)
             for j, c in enumerate(p.circles):
                 unit += 1
-                self.add_label(str(unit), (c[0], c[1]), "blue", 5)
+                self.add_label(str(unit), (c[0], c[1]), "white", 5)
                 self.add_circle((c[0], c[1]), c[2], "white")
         self.cv.draw_idle()
         self.cv.flush_events()
