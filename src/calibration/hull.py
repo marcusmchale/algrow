@@ -18,6 +18,7 @@ from matplotlib.backends.backend_wxagg import (
 from matplotlib.figure import Figure
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
 
+from skimage.color import lab2rgb
 from alphashape import alphashape, optimizealpha
 from trimesh import PointCloud, proximity, Trimesh
 
@@ -38,24 +39,25 @@ class HullPanel(wx.Panel):
 
     def __init__(self, parent, segmentor: Segmentor):
         super().__init__(parent)
-
         self.parent = parent
         self.segmentor = segmentor
         self.images = self.segmentor.images
         logger.debug(f"{self.images}")
         self.args = self.images[0].args
 
+        args_index = [("args", i) for i in range(1, len(self.args.hull_vertices) + 1)]
+        args_lab_points = pd.DataFrame(np.array(self.args.hull_vertices), columns=["L", "a", "b"], index=args_index)
+        self.segmentor.lab = pd.concat([self.segmentor.lab, args_lab_points])
+
+        args_rgb_points = pd.DataFrame(lab2rgb(np.array(self.args.hull_vertices)), columns=["R", "G", "B"], index=args_index)
+        self.segmentor.rgb = pd.concat([self.segmentor.rgb, args_rgb_points])
+
         # Prepare an index for navigating the list of images
         self.ind: int = 0
 
         # prepare an alpha selection object -
         # this uses the selected points to describe a hull and decide which points are within it
-        self.alpha_selection = AlphaSelection(
-            self.segmentor.lab,
-            set(),
-            alpha=self.args.alpha,
-            delta=self.args.delta
-        )
+        self.alpha_selection = None
         self.alpha_text = None
         self.delta_text = None
         self.clear_btn = None
@@ -115,8 +117,13 @@ class HullPanel(wx.Panel):
         self.toolbar = None
         self.add_toolbar()
 
+        self.reset_selection(None)
         # load the first image
+        self.alpha_selection.toggle_args_vertices()
+        self.toolbar.ToggleTool(11, True)
+
         self.load_current_image()
+
 
     def on_exit(self, event):
         logger.debug("Close called")
@@ -130,7 +137,12 @@ class HullPanel(wx.Panel):
             self.alpha_selection.hull.vertices,
             decimals=1
         ).tolist())))
+
         update_arg(self.args, 'delta', self.alpha_selection.delta)
+
+        # drop the previously stored arguments from the segmentor (the new args will be loaded if we open again)
+        self.segmentor.lab = self.segmentor.lab.drop(index="args")
+        self.segmentor.rgb = self.segmentor.rgb.drop(index="args")
 
         pub.sendMessage("enable_btns")
         plt.close()
@@ -218,11 +230,25 @@ class HullPanel(wx.Panel):
         self.toolbar.AddSeparator()
         self.clear_btn = wx.Button(self.toolbar, 10, "Clear")
         self.toolbar.AddControl(self.clear_btn)
-        self.clear_btn.Bind(wx.EVT_BUTTON, self.clear_selection)
+        self.clear_btn.Bind(wx.EVT_BUTTON, self.reset_selection)
+
+        if self.args.hull_vertices:
+            # add button to toggle using the hull vertices supplied as args
+            self.toolbar.AddSeparator()
+            self.toolbar.AddCheckTool(
+                11,
+                "args",
+                wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+                wx.NullBitmap,
+                "Include hull vertices supplied as arguments",
+                "Include supplied hull vertices"
+            )
+            self.toolbar.ToggleTool(11, False)
+            self.Bind(wx.EVT_TOOL, self.toggle_args_vertices, id=11)
 
         # add a close button
         self.toolbar.AddSeparator()
-        self.close_btn = wx.Button(self.toolbar, 10, "Save and close")
+        self.close_btn = wx.Button(self.toolbar, 12, "Save and close")
         self.toolbar.AddControl(self.close_btn)
         self.close_btn.Bind(wx.EVT_BUTTON, self.on_exit)
 
@@ -297,6 +323,11 @@ class HullPanel(wx.Panel):
             self.alpha_selection.toggle_segment(image.filepath, sid)
             self.draw_segments_figure()
             self.draw_hull()
+
+    def toggle_args_vertices(self, event=None):
+        self.alpha_selection.toggle_args_vertices()
+        self.draw_segments_figure()
+        self.draw_hull()
 
     def on_click_lab(self, event):
         if event.mouseevent.button == 1:
@@ -403,20 +434,23 @@ class HullPanel(wx.Panel):
         fig.animate()
         fig.print()
 
-    def clear_selection(self, event):
+    def reset_selection(self, event):
         self.alpha_selection = AlphaSelection(
             self.segmentor.lab,
             set(),
             alpha=self.args.alpha,
             delta=self.args.delta
         )
+        self.toolbar.ToggleTool(11, False)
         self.draw_segments_figure()
         self.draw_hull()
+
 
 
 class AlphaSelection:
     def __init__(self, points: pd.DataFrame, selection: set[tuple[Path, int]], alpha: float, delta: float):
         self.points = points  # a pandas dataframe with filename and segment ID as index for points in Lab colourspace
+        # filename "args" is a special entry describing the input hull vertices supplied as arguments
         self.selection = selection  # a set of indices for the points dataframe
         self.alpha = alpha  # the alpha parameter for hull construction
         self.delta = delta  # the distance from the hull surface to consider a point within the hull
@@ -444,6 +478,15 @@ class AlphaSelection:
             self.selection.remove((filepath, sid))
         else:
             self.selection.add((filepath, sid))
+        self.update_hull()
+
+    def toggle_args_vertices(self):
+        args_indices = {("args", i) for i in self.dist.loc["args"].index}
+        if args_indices & self.selection:
+            self.selection = self.selection - args_indices
+        else:
+            self.selection = self.selection.union(args_indices)
+        logger.debug(self.selection)
         self.update_hull()
 
     def update_hull(self):

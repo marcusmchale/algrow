@@ -201,13 +201,13 @@ class Segmentor:
             logger.warning("No images were segmented, this is likely due to a failure to detect the layout")
             raise ValueError("Could not complete calibration")
         # Prepare some summary dataframes for the segment colours in rgb and lab colourspaces
-        self.rgb = pd.concat(
-            {image.filepath: seg.rgb for image, seg in self.image_to_segments.items()},
+        self.lab = pd.concat(
+            {image.filepath: seg.lab for image, seg in self.image_to_segments.items()},
             axis=0,
             names=['filepath', 'sid']
         )
-        self.lab = pd.concat(
-            {image.filepath: seg.lab for image, seg in self.image_to_segments.items()},
+        self.rgb = pd.concat(
+            {image.filepath: seg.rgb for image, seg in self.image_to_segments.items()},
             axis=0,
             names=['filepath', 'sid']
         )

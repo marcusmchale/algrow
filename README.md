@@ -262,12 +262,19 @@ with similar images and to ensure consistency across multiple analyses.
         3.2 Rigures and reports are prepared
 
 
-# todo
+# todo 
   - alternatives to distance calculation, the "contains" approach is far faster
     - consider methods to buffer the hull by delta and use points of this new hull
-
+  - detect layout on one image then recycle it in cases where subjects do not move
+    - will speed up processing and
+    - allow detection for e.g. overgrown arabidopsis pots
+  - progress updates during segmentation for hull
+    - this takes a long times so progress would be good
+   
   
 # To consider
+  - for land plants it would be useful to include outside layout mask if contiguous with something inside layout mask
+    - this would mean processing the whole image for distance first
   - multiple target circle colours (easy to implement with distance calculation)
   - GUI window for date, time, block regex from filename in calibration
   - Process image filename during loading to provide date time block etc. rather than at the final analysis
