@@ -26,7 +26,7 @@ def algrow():
 
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")
-        if not calibration_complete(args):
+        if not calibration_complete(args) or args.force_calibration:
             logger.info("Launching calibration window")
             calibrate(args)
             logger.info("calibration complete")
