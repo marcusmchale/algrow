@@ -203,6 +203,7 @@ class TopFrame(wx.Frame):
         logger.debug("launch wait panel")
         wait_panel = WaitPanel(self)
         self.display_panel(wait_panel)
+        self.Update()
         wx.Yield()
         if self.segmentor is None:
             self.segmentor = Segmentor(self.images)
