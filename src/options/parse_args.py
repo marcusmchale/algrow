@@ -123,6 +123,11 @@ def options():
         default=5
     )
     parser.add_argument(
+        "-fc", "--force_calibration",
+        help="Force calibration window to load, even if all parameters are defined",
+        action='store_true'
+    )
+    parser.add_argument(
         "-nc", "--num_calibration",
         help="Number of images to use for calibration",
         type=arg_types["num_calibration"],
