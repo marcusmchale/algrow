@@ -262,12 +262,15 @@ with similar images and to ensure consistency across multiple analyses.
         3.2 Rigures and reports are prepared
 
 
-# todo 
-  - alternatives to distance calculation, the "contains" approach is far faster
-    - consider methods to buffer the hull by delta and use points of this new hull
-  - detect layout on one image then recycle it in cases where subjects do not move
+# todo
+  - detect layout on one image then recycle layout mask in cases where subjects do not move
     - will speed up processing and
     - allow detection for e.g. overgrown arabidopsis pots
+    - should just need to store the "plates" definition.
+
+  - alternatives to distance calculation, the "contains" approach is far faster
+    - consider methods to buffer the hull by delta and use points of this new hull
+  
   - progress updates during segmentation for hull
     - this takes a long times so progress would be good
    
