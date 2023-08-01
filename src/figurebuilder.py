@@ -9,7 +9,7 @@ from matplotlib import gridspec, colors, animation, patheffects
 from matplotlib.figure import Figure, Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
-from skimage.morphology import binary_dilation
+from skimage.morphology import binary_dilation, binary_erosion
 
 logger = logging.getLogger(__name__)
 
@@ -187,10 +187,17 @@ class FigureMatplot(FigureBase):
         self._colorbars.append(None)
 
     def add_outline(self, mask: np.ndarray):
+        mask = mask.copy()  # we mutate this here, I don't think it is used again but maybe one day so just in case
         image = self._current_axes_image.get_array()
-        contour = binary_dilation(mask, footprint=np.full((5, 5), 1))
-        contour[mask] = False
-        image[contour] = (1, 0, 1)
+        contour_dilate = binary_dilation(mask, footprint=np.full((5, 5), 1))
+
+        contour_dilate[mask] = False
+        image[contour_dilate] = (1, 1, 1)
+
+        contour_erode = binary_erosion(mask, footprint=np.full((5, 5), 1))
+        mask[contour_erode] = False
+        image[mask] = (1, 1, 1)
+
         self._current_axes_image.set_array(image)
 
     def plot_dendrogram(self, dendrogram: np.ndarray, cut_height: float, label: str = None):

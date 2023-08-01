@@ -39,7 +39,7 @@ def algrow():
     else:
         logger.info("No image files provided, continuing to RGR analysis")
 
-    if args.sample_id is not None:
+    if args.samples is not None:
         logger.info("Analyse area file to calculate RGR")
         analyse(args)
         logger.info("Analysis complete")
