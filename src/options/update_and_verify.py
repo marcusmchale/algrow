@@ -64,7 +64,7 @@ def minimum_calibration(args):
 
 
 def layout_defined(args):
-    return all([
+    return args.fixed_layout is not None or all([
         args.circle_colour is not None,
         args.circle_diameter is not None,
         args.plate_circle_separation is not None,

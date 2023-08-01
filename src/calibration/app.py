@@ -143,8 +143,11 @@ class TopFrame(wx.Frame):
         if self.args.whole_image:
             active_buttons = [self.scaler_btn, self.hull_btn]
         else:
-            active_buttons = [self.scaler_btn, self.circle_colour_btn]
-            if self.args.circle_colour is not None:
+            if self.args.fixed_layout is not None:
+                active_buttons = [self.scaler_btn]
+            else:
+                active_buttons = [self.scaler_btn, self.circle_colour_btn]
+            if self.args.circle_colour is not None and self.args.fixed_layout is None:
                 active_buttons.append(self.layout_btn)
             if layout_defined(self.args):
                 active_buttons.append(self.hull_btn)

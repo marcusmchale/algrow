@@ -189,6 +189,13 @@ def options():
         action='store_true'
     )
     parser.add_argument(
+        "-fl",
+        "--fixed_layout",
+        help="Path to a plate layout definition file (generated during calibration by setting fixed layout)",
+        default=None,
+        type=arg_types["fixed_layout"]
+    )
+    parser.add_argument(
         "-cd",
         "--circle_diameter",
         help="Diameter of surrounding circles in pixels",

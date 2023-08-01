@@ -1,6 +1,7 @@
 import logging
 
 import numpy as np
+import pandas as pd
 from pandas import DataFrame
 from scipy.cluster import hierarchy
 from skimage import draw
@@ -32,11 +33,14 @@ class OverlappingCircles(Exception):
 
 
 class Plate:
-    def __init__(self, cluster_id, circles):
+    def __init__(self, cluster_id, circles, plate_id=None, centroid=None):
         self.cluster_id: int = cluster_id
         self.circles = circles
-        self.centroid = tuple(np.uint16(self.circles[:, 0:2].mean(axis=0)))
-        self.plate_id = None
+        if centroid is None:
+            self.centroid = tuple(np.uint16(self.circles[:, 0:2].mean(axis=0)))
+        else:
+            self.centroid = centroid
+        self.id = plate_id
 
 
 class Layout:
@@ -136,7 +140,7 @@ class LayoutDetector:
 
         fig.plot_image(self.image.rgb, f"Atempt: {attempt +1}")
         for c in circles:
-            fig.add_circle((c[0], c[1]), c[2], "white")
+            fig.add_circle((c[0], c[1]), c[2])
 
         if circles.shape[0] < n:
             self.logger.debug(f'{str(circles.shape[0])} circles found')
@@ -280,4 +284,37 @@ class LayoutDetector:
     def get_layout(self):
         plates = self.find_plates()
         plates = self.sort_plates(plates)
+        return Layout(plates, self.image)
+
+
+class LayoutLoader:
+    def __init__(
+            self,
+            image: ImageLoaded
+    ):
+        self.image = image
+        self.args = image.args
+
+        self.logger = ImageFilepathAdapter(logger, {"image_filepath": image.filepath})
+        self.logger.debug(f"Load layout for: {self.image.filepath}")
+
+    def get_layout(self):
+        layout_path = self.args.fixed_layout
+        df = pd.read_csv(layout_path, index_col=["plate_id", "circle_id"])
+        df.sort_index(ascending=True)
+        plates = list()
+        for plate_id in df.index.get_level_values("plate_id").unique():
+            plates.append(
+                Plate(
+                    cluster_id=plate_id,
+                    circles=list(
+                        df.loc[plate_id][["circle_x", "circle_y", "circle_radius"]].itertuples(index=False, name=None)
+                    ),
+                    plate_id=plate_id,
+                    centroid=tuple(df.loc[plate_id,1][["plate_x", "plate_y"]].values)
+                )
+            )
+        #fig = self.image.figures.new_figure("Loaded layout")
+        #fig.plot_image(self.distance, "ΔE from circle colour", color_bar=True)
+        #fig.print() #  todo add figure for loaded layout, maybe just the mask?
         return Layout(plates, self.image)
