@@ -14,7 +14,7 @@ from skimage.measure import regionprops_table
 
 
 from .image_loading import ImageLoaded, ImageFilepathAdapter
-from .layout import LayoutDetector, Layout
+from .layout import LayoutDetector, Layout, LayoutLoader
 
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,8 @@ class Segmentor:
         logger.info(f"Segment image: {image.filepath}")
         if self.args.whole_image:
             layout = None
+        elif self.args.fixed_layout is not None:
+            layout: Layout = LayoutLoader(image).get_layout()
         else:
             layout: Layout = LayoutDetector(image).get_layout()
         segments: Segments = Segments(image, layout).get_segments()

@@ -16,7 +16,7 @@ from trimesh import proximity
 from alphashape import alphashape
 from trimesh import PointCloud
 
-from .layout import LayoutDetector
+from .layout import LayoutDetector, LayoutLoader
 from .image_loading import ImageFilepathAdapter, ImageLoaded
 
 
@@ -139,6 +139,8 @@ class ImageProcessor:
     def get_area(self):
         if self.args.whole_image:
             layout = None
+        elif self.args.fixed_layout is not None:
+            layout = LayoutLoader(self.image).get_layout()
         else:
             layout = LayoutDetector(self.image).get_layout()
 
@@ -208,17 +210,17 @@ class ImageProcessor:
         else:
             for p in layout.plates:
                 self.logger.debug(f"Processing plate {p.id}")
-                overlay_figure.add_label(str(p.id), p.centroid, "white", 10)
+                overlay_figure.add_label(str(p.id), p.centroid, "black", 10)
                 for j, c in enumerate(p.circles):
                     unit += 1
                     circle_mask = layout.get_circle_mask(c)
                     circle_target = circle_mask & target_mask
                     pixels = np.count_nonzero(circle_target)
                     result["units"].append((p.id, unit, pixels))
-                    overlay_figure.add_label(str(unit), (c[0], c[1]), "white", 5)
-                    overlay_figure.add_circle((c[0], c[1]), c[2], "white")
+                    overlay_figure.add_label(str(unit), (c[0], c[1]), "black", 5)
+                    overlay_figure.add_circle((c[0], c[1]), c[2])
 
-        overlay_figure.print()
+        overlay_figure.print(large=True)
 
         return result
 

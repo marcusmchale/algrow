@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from skimage.color import lab2rgb
-from matplotlib import gridspec, colors, animation
+from matplotlib import gridspec, colors, animation, patheffects
 from matplotlib.figure import Figure, Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
@@ -61,7 +61,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def add_circle(self, coords, radius, color):
+    def add_circle(self, coords, radius):
         raise NotImplementedError
 
     @abstractmethod
@@ -203,10 +203,25 @@ class FigureMatplot(FigureBase):
         self._colorbars.append(None)
 
     def add_label(self, text, coords, color, size):
-        self._current_axis.annotate(text, coords, color=color, size=size, ha='center', va='center')
+        self._current_axis.annotate(
+            text,
+            coords,
+            color=color,
+            size=size,
+            ha='center',
+            va='center',
+            path_effects=[patheffects.withStroke(linewidth=1, foreground='white')]
+        )
 
-    def add_circle(self, coords, radius, color):
-        self._current_axis.add_patch(Circle(coords, radius, color=color, fill=False))
+    def add_circle(self, coords, radius):
+        self._current_axis.add_patch(
+            Circle(
+                coords,
+                radius,
+                color="white",
+                fill=False
+            )
+        )
 
     def plot_colours(self, colours, npix=10):
         self.logger.debug('Plot colours')
@@ -310,7 +325,7 @@ class FigureNone(FigureBase):
     def add_outline(self, mask: np.ndarray):
         pass
 
-    def add_circle(self, coords, radius, color):
+    def add_circle(self, coords, radius):
         pass
 
     def plot_dendrogram(self, dendrogram: np.ndarray, cut_height: float, label: str = None):

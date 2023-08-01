@@ -1,15 +1,25 @@
 import logging
 
 import wx
+
+import pandas as pd
 from pathlib import Path
 
-from matplotlib import get_data_path  # we are recycling some matplotlib icons
+
+from matplotlib import get_data_path, patheffects
 from matplotlib.patches import Circle
 
 from ..image_loading import ImageLoaded
 from .measure import MeasurePanel
-from ..options.update_and_verify import layout_defined
-from ..layout import LayoutDetector, Plate, Layout, InsufficientPlateDetection, ImageContentException, InsufficientCircleDetection
+from ..options.update_and_verify import layout_defined, update_arg
+from ..layout import (
+    LayoutDetector,
+    Plate,
+    Layout,
+    InsufficientPlateDetection,
+    ImageContentException,
+    InsufficientCircleDetection
+)
 from .popframe import PopFrame
 
 from matplotlib import pyplot as plt
@@ -19,9 +29,11 @@ logger = logging.getLogger(__name__)
 
 class LayoutPanel(MeasurePanel):
     def __init__(self, parent, image: ImageLoaded):
+        self.plates = None
         super().__init__(parent, image)
         logger.debug("Launch layout panel")
         self.annotations = list()
+
 
     def set_titles(self):
         self.fig.suptitle("Define layout detection parameters")
@@ -163,8 +175,22 @@ class LayoutPanel(MeasurePanel):
         toolbar.AddControl(self.test_btn)
         self.test_btn.Bind(wx.EVT_BUTTON, self.test_layout)
 
+        checkbox_toolbar.AddSeparator()
+        checkbox_toolbar.AddCheckTool(
+            15,
+            "Fixed layout",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "fixed_layout.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            "Fixed layout",
+            'Fixed layout'
+        )
+        #"fixed_layout" is disabled until test layout has run successfully and self.plates is not None
+        if self.plates is None:
+            checkbox_toolbar.EnableTool(15, False)
+
+
         toolbar.AddSeparator()
-        close_btn = wx.Button(toolbar, 15, "Save and close")
+        close_btn = wx.Button(toolbar, 16, "Save and close")
         toolbar.AddControl(close_btn)
         close_btn.Bind(wx.EVT_BUTTON, self.on_exit)
 
@@ -174,12 +200,53 @@ class LayoutPanel(MeasurePanel):
         checkbox_toolbar.Realize()
         self.toolbar = checkbox_toolbar
 
+    def write_plates(self):
+        if self.plates is None:
+            raise ValueError("No plate specification defined - must generate test layout first")
+
+        circles_dicts = list()
+        for i, p in enumerate(self.plates):
+            for j, c in enumerate(p.circles):
+                circles_dicts.append({
+                    "plate_id": i + 1,
+                    "plate_x": p.centroid[0],
+                    "plate_y": p.centroid[1],
+                    "circle_id": j + 1,
+                    "circle_x": c[0],
+                    "circle_y": c[1],
+                    "circle_radius": c[2]
+                })
+        df = pd.DataFrame.from_records(circles_dicts)
+        outfile = Path(self.args.out_dir, "plate_layout.csv")
+        df.to_csv(outfile, index=False)
+        update_arg(self.args, "fixed_layout", outfile)
+
+    def on_exit(self, event):
+        if self.toolbar.GetToolState(15):
+            self.write_plates()
+        super().on_exit(event)
+
     def add_label(self, text, coords, color, size):
-        an = self.ax.annotate(text, coords, color=color, size=size, ha='center', va='center')
+        an = self.ax.annotate(
+            text,
+            coords,
+            color=color,
+            size=size,
+            ha='center',
+            va='center',
+            path_effects=[patheffects.withStroke(linewidth=2, foreground='white')]
+        )
         self.annotations.append(an)
 
-    def add_circle(self, coords, radius, color):
-        an = self.ax.add_patch(Circle(coords, radius, color=color, fill=False))
+    def add_circle(self, coords, radius):
+        an = self.ax.add_patch(
+            Circle(
+                coords,
+                radius,
+                color="white",
+                fill=False
+            )
+        )
         self.annotations.append(an)
 
     def draw_overlay(self, layout):
@@ -187,11 +254,11 @@ class LayoutPanel(MeasurePanel):
         logger.debug("Annotate canvas with layout")
         for p in layout.plates:
             logger.debug(f"Processing plate {p.id}")
-            self.add_label(str(p.id), p.centroid, "white", 10)
+            self.add_label(str(p.id), p.centroid, "black", 10)
             for j, c in enumerate(p.circles):
                 unit += 1
-                self.add_label(str(unit), (c[0], c[1]), "white", 5)
-                self.add_circle((c[0], c[1]), c[2], "white")
+                self.add_label(str(unit), (c[0], c[1]), "black", 5)
+                self.add_circle((c[0], c[1]), c[2])
         self.cv.draw_idle()
         self.cv.flush_events()
 
@@ -235,6 +302,8 @@ class LayoutPanel(MeasurePanel):
                         ) for cluster_id in target_clusters
                     ]
                     plates = layout_detector.sort_plates(plates)
+                    self.plates = plates
+                    self.toolbar.EnableTool(15, True)
                     layout = Layout(plates, image)
                     self.draw_overlay(layout)
                     if self.args.image_debug <= 0:  # (i.e. debug level):
@@ -260,6 +329,8 @@ class LayoutPanel(MeasurePanel):
             elif len(plates) > image.args.n_plates:
                 message = f"Too many plates detected: {len(plates)}"
             logger.info(message)
+            self.plates = None
+            self.toolbar.EnableTool(15, False)
             popframe = PopFrame(message, fig)
             popframe.Show(True)
             if self.args.image_debug <= 0:   # (i.e. debug level):

@@ -41,10 +41,19 @@ def image_path(s: str):
         return [Path(s)]
     elif Path(s).is_dir():
         jpg = [p for p in Path(s).glob('**/*.jpg')]
+        jpeg = [p for p in Path(s).glob('**/*.jpeg')]
         png = [p for p in Path(s).glob('**/*.png')]
-        return jpg + png
+        bmp = [p for p in Path(s).glob('**/*.bmp')]
+        return jpg + jpeg + png + bmp
     else:
         raise FileNotFoundError
+
+
+def layout_path(s: str):
+    if Path(s).is_file():
+        return Path(s)
+    else:
+        raise ValueError("Layout file not found")
 
 
 arg_types = {
@@ -74,6 +83,7 @@ arg_types = {
     "fit_start": float,
     "fit_end": float,
     "scale": float,
+    "fixed_layout": layout_path,
     "circle_diameter": float,
     "circle_expansion": float,
     "plate_circle_separation": float,
