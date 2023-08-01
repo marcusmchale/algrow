@@ -37,8 +37,8 @@ class Segments:
         self.mask: np.ndarray = slic(
             self.image.rgb,
             mask=self.layout.mask if self.layout is not None else None,
-            n_segments=self.args.num_superpixels,
-            compactness=self.args.superpixel_compactness,
+            n_segments=self.args.superpixels,
+            compactness=self.args.compactness,
             sigma=self.args.sigma,
             max_num_iter=10,  # todo do we want to consider passing this up as an arg?
             start_label=1,  # segments start at 1 so that we can differentiate these from mask background

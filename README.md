@@ -266,15 +266,18 @@ with similar images and to ensure consistency across multiple analyses.
 
   - alternatives to distance calculation, the "contains" approach is far faster
     - consider methods to buffer the hull by delta and use points of this new hull
-  
   - progress updates during segmentation for hull
     - this takes a long times so progress would be good
+  - support scrolling through all loaded calibration images for scale, layout detection etc.
    
   
 # To consider
-  - for land plants it would be useful to include outside layout mask if contiguous with something inside layout mask
+  - for land plants it can be useful to include outside layout mask if contiguous with something inside layout mask
     - this would mean processing the whole image for distance first
-  - multiple target circle colours (easy to implement with distance calculation)
+  - multiple target circle colours
+    - should be easy to implement with simple min distance calculation
+    - this was previously done when I had simple target colours, just need to reimplement for target circle
+    - probably not worth doing the whole hull distance procedure here.
   - GUI window for date, time, block regex from filename in calibration
   - Process image filename during loading to provide date time block etc. rather than at the final analysis
     - not necessary until writing out but might be useful for annotation in debugging loaded image.
@@ -283,7 +286,7 @@ with similar images and to ensure consistency across multiple analyses.
     - tradeoff: the time added for slic might be regained in the hull distance calculation
     - without fill/remove/blurring this may be necessary/improve results 
     - consideration: sometimes superpixel segmentation performs poorly, e.g. Palmaria
-  - Downscaling images to speed up colour calibration, in particular the hull segmentation etc.
+  - Downscaling images to speed up calibration, in particular the hull segmentation etc.
   - Analysis (maybe overkill)
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
@@ -308,20 +311,3 @@ with similar images and to ensure consistency across multiple analyses.
     - Motorised IR cut camera (supplier pimoroni is on agresso but not willing to supply)
       - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
     - Note: IR didn't work well in testing with a fixed camera - very high background reflection from the water surface and plates/frames
-
-# Comparisons with other tools/frameworks 
-## plantcv2
-  - Requires customised code
-  - Now has auto-grid detection...https://www.authorea.com/users/508818/articles/591710-simplifying-plantcv-workflows-with-multiple-objects
-    - Relies on a simple grid layout (we support a nested structure in rows or columns),
-    - Does not require markers, handles some missing points
-      - we could work towards a similar layout detection, not super hard to implement, but still need to provide some parameters
-
-  - A variety of thresholding methods, but nothing like the alpha hull
-
-
-# https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5895192/
-
-
-# TO reference:
- - colour volume as alpha shape in Methods in Ecology and Evolution 2020  https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.13398

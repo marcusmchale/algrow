@@ -217,7 +217,7 @@ class LayoutPanel(MeasurePanel):
                     "circle_radius": c[2]
                 })
         df = pd.DataFrame.from_records(circles_dicts)
-        outfile = Path(self.args.out_dir, "plate_layout.csv")
+        outfile = Path(self.args.out_dir, "layout.csv")
         df.to_csv(outfile, index=False)
         update_arg(self.args, "fixed_layout", outfile)
 
