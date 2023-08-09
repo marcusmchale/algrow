@@ -3,26 +3,26 @@ import logging
 import numpy as np
 import pandas as pd
 from collections import defaultdict
-from typing import List, Optional
+from typing import List, Optional, Callable
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import get_context
+import multiprocessing
+import threading
+from concurrent.futures import ProcessPoolExecutor
 
-from skimage.segmentation import slic, mark_boundaries
+from skimage.segmentation import slic, felzenszwalb, find_boundaries, mark_boundaries
 from skimage.color import lab2rgb, label2rgb
 from skimage.measure import regionprops_table
 
-
 from .image_loading import ImageLoaded, ImageFilepathAdapter
 from .layout import LayoutDetector, Layout, LayoutLoader
-
+from .logging import worker_log_configurer, logger_thread
 
 logger = logging.getLogger(__name__)
 
 
 class Segments:
 
-    def __init__(self, image: ImageLoaded, layout: Optional[Layout]):
+    def __init__(self, image: ImageLoaded, layout: Optional[Layout] = None):
         self.logger = ImageFilepathAdapter(logger, {"image_filepath": str(image.filepath)})
         self.logger.debug(f"Segment")
         self.image = image
@@ -33,23 +33,35 @@ class Segments:
         self.regions = None
 
     def segment(self):
-        self.logger.debug(f"Perform SLIC for superpixel identification")
-        self.mask: np.ndarray = slic(
-            self.image.rgb,
-            mask=self.layout.mask if self.layout is not None else None,
-            n_segments=self.args.superpixels,
-            compactness=self.args.compactness,
-            sigma=self.args.sigma,
-            max_num_iter=10,  # todo do we want to consider passing this up as an arg?
-            start_label=1,  # segments start at 1 so that we can differentiate these from mask background
-            # enforce_connectivity=True,  # todo investigate this - doesn't seem to prevent segments spanning circles
-            # this slic implementation has broken behaviour when using the existing lab image
-            # just allowing this function to redo conversion from rgb
-            # todo work out what this is doing differently when using the already converted lab image
-            # could it be scaling - some rgb is 1 to 255 but here i think is 0-1?
-            convert2lab=True  # see above
-        )
-        self.logger.debug(f"SLIC complete: {len(np.unique(self.mask)) -1} segments")
+        if self.args.superpixels:
+            self.logger.debug(f"Perform SLIC for superpixel identification")
+            self.mask: np.ndarray = slic(
+                self.image.rgb,
+                mask=self.layout.mask if self.layout is not None else None,
+                n_segments=self.args.superpixels,
+                compactness=self.args.compactness if self.args.compactness >= 0 else -self.args.compactness,
+                sigma=self.args.sigma,
+                slic_zero=True if self.args.compactness < 0 else False,
+                max_num_iter=self.args.slic_iter,
+                start_label=1,  # segments start at 1 so that we can differentiate these from mask background
+                enforce_connectivity=True,
+                # this slic implementation has broken behaviour when using the existing lab image
+                # just allowing this function to redo conversion from rgb
+                # todo work out what this is doing differently when using the already converted lab image
+                # could it be scaling - some rgb is 1 to 255 but here i think is 0-1?
+                convert2lab=True  # see above
+            )
+        else:
+            self.logger.debug(f"Perform Felzenszwalb superpixel identification")
+            masked_image = self.image.lab.copy()
+            self.mask: np.ndarray = felzenszwalb(masked_image, scale=10000, sigma=self.args.sigma)
+            # we do the felzenszwalb on the whole image as it is reasonably fast and behaves strangely on a masked image
+            # then we can just
+
+            self.mask += 1
+            self.mask[~self.layout.mask] = 0
+
+        self.logger.debug(f"Segmentation complete: {len(np.unique(self.mask)) -1} segments")
         self.fix_duplicate_ids()
         self.logger.debug("Calculate region properties for each segment")
         self.regions = pd.DataFrame(regionprops_table(
@@ -73,11 +85,11 @@ class Segments:
         self.regions[['R', 'G', 'B']] = lab2rgb(self.lab)
         if self.args.image_debug <= 0:
             self.logger.debug("Draw average colour image")
-            fig = self.image.figures.new_figure("SLIC segmentation")
+            fig = self.image.figures.new_figure("Unsupervised segmentation")
             fig.plot_image(label2rgb(self.mask, self.image.rgb, kind='avg'), "Labels (average)")
-            self.logger.debug("Add segment ID labels to average colour image")
-            for i, r in self.centroids.iterrows():
-                fig.add_label(str(i), (r['x'], r['y']), 1-self.rgb.loc[i], 2)
+            #self.logger.debug("Add segment ID labels to average colour image")
+            #for i, r in self.centroids.iterrows():
+            #    fig.add_label(str(i), (r['x'], r['y']), 1-self.rgb.loc[i], 2)
             fig.print(large=True)
 
     def fix_duplicate_ids(self):
@@ -106,14 +118,16 @@ class Segments:
 
     def get_segments(self):
         self.segment()
+        self.set_boundaries()
         return self
 
-    def mark_boundaries(self):
+    def set_boundaries(self):
         if self.mask is None:
             self.logger.debug("Cannot mark boundaries without first segmenting, running segmentation first")
             self.segment()
         self.logger.debug("Create boundary image")
-        self.boundaries = mark_boundaries(self.image.rgb, self.mask, background_label=0, color=(1, 0, 1))
+        self.boundaries = find_boundaries(self.mask)
+        #self.boundaries = mark_boundaries(self.image.rgb, self.mask, background_label=0, color=(1, 1, 1))
 
     @staticmethod
     def median_intensity(mask, array):
@@ -132,16 +146,6 @@ class Segments:
     def centroids(self):
         return self.regions[['x', 'y']]
 
-    #def distances(self, reference_colours):
-    #    reference_colours = np.array(reference_colours)
-    #    distances = pd.DataFrame(
-    #        data=np.array([deltaE_cie76(self.image.lab, r) for r in reference_colours]).transpose(),
-    #        # todo consider replacing deltaE_cie76 with np.linalg.norm, both are just Euclidean distance in Lab?
-    #        index=self.image.lab.index,
-    #        columns=[str(r) for r in reference_colours]
-    #    )
-    #    return distances
-
 
 # The Segmentor handles  multiprocessing of segmentation which is used during calibration from multiple images.
 class Segmentor:
@@ -151,49 +155,65 @@ class Segmentor:
         self.image_to_segments = dict()
         self.rgb, self.lab = None, None
 
-    def run(self):
-        if self.args.processes > 1:
-            self._multiprocess()
-        else:
-            self._process()
+    def run(self, progress_callback: Callable):
+        self._multiprocess(progress_callback)
         self._summarise()
 
-    def get_segments(self, image: ImageLoaded):
-        logger.info(f"Segment image: {image.filepath}")
+    def get_segments(self, image: ImageLoaded, log_queue=None):
+        if log_queue is not None:
+            worker_log_configurer(log_queue)
+
         if self.args.whole_image:
             layout = None
         elif self.args.fixed_layout is not None:
             layout: Layout = LayoutLoader(image).get_layout()
         else:
             layout: Layout = LayoutDetector(image).get_layout()
-        segments: Segments = Segments(image, layout).get_segments()
-        segments.mark_boundaries()
-        return segments
+        try:
+            segments: Segments = Segments(image, layout).get_segments()
+            return segments
+        except Exception as exc:
+            logger.info('%r generated an exception: %s' % (image.filepath, exc))
 
-    def _multiprocess(self):
-        with ProcessPoolExecutor(max_workers=self.args.processes, mp_context=get_context('spawn')) as executor:
-            future_to_image = {executor.submit(self.get_segments, image): image for image in self.images}
-            for future in as_completed(future_to_image):
-                image = future_to_image[future]
+    def _multiprocess(self, progress_callback: Callable):
+        with multiprocessing.Manager() as manager:
+            log_queue = manager.Queue(-1)
+            lp = threading.Thread(target=logger_thread, args=(log_queue,))
+            lp.start()
+
+            executor = ProcessPoolExecutor(
+                    max_workers=self.args.processes,
+                    mp_context=multiprocessing.get_context('spawn')
+            )
+            future_to_image = {
+                executor.submit(
+                    self.get_segments, image=image, log_queue=log_queue): image for image in self.images
+            }
+
+            while True:
+                num_completed = sum([future.done() for future in future_to_image.keys()])
+                num_total = len(future_to_image.keys())
+                complete_percent = int(num_completed/num_total * 100)
+                #logger.debug(f"Working {complete_percent}% complete")
+                if complete_percent == 100:
+                    progress_callback(complete_percent)
+                    break
+                progress_callback(complete_percent)
+                #sleep(0.1)
+
+            for future, image in future_to_image.items():
                 try:
-                    segments = future.result()
-                    self.image_to_segments[image] = segments
+                    self.image_to_segments[image] = future.result()
                 except Exception as exc:
-                    image.logger.info(f'Exception occurred: {exc}')
+                    image.logger.info(f"Exception occurred: {exc}")
                 else:
-                    image.logger.info(f'Successfully segmented')
-        logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
+                    image.logger.info(f"Successfully segmented")
 
-    def _process(self):
-        for image in self.images:
-            try:
-                segments = self.get_segments(image)
-                self.image_to_segments[image] = segments
-            except Exception as exc:
-                image.logger.info('%r generated an exception: %s' % (image.filepath, exc))
-            else:
-                image.logger.info(f'Successfully segmented')
-        logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
+            executor.shutdown()
+            log_queue.put(None)
+            lp.join()
+
+            logger.debug(f"images processed: {len(self.image_to_segments.keys())}")
 
     def _summarise(self):
         if len(list(self.image_to_segments.keys())) != len(self.images):

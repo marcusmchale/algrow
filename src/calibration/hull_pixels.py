@@ -1,11 +1,10 @@
 import logging
 
-from typing import Optional
+from typing import List, Optional
 
 import wx
 from pubsub import pub
 
-import pandas as pd
 import numpy as np
 from pathlib import Path
 
@@ -17,20 +16,19 @@ from matplotlib.backends.backend_wxagg import (
 )
 from matplotlib.figure import Figure
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
+from matplotlib.patches import Circle
 
 from skimage.color import lab2rgb
 from alphashape import alphashape, optimizealpha
 from trimesh import (
     PointCloud,
-    #proximity,
     Trimesh
 )
 import open3d as o3d
 
+from ..image_loading import ImageLoaded
 from ..figurebuilder import FigureMatplot, FigureNone
 
-
-from ..image_segmentation import Segmentor
 from ..options.update_and_verify import update_arg
 from ..options.custom_types import DebugEnum
 
@@ -40,20 +38,35 @@ logger = logging.getLogger(__name__)
 
 class HullPanel(wx.Panel):
 
-    def __init__(self, parent, segmentor: Segmentor):
+    def __init__(self, parent, images: List[ImageLoaded]):
         super().__init__(parent)
         self.parent = parent
-        self.segmentor = segmentor
-        self.images = self.segmentor.images
+        self.images = images
         self.args = self.images[0].args
-
+        self.lab = {image.filepath: image.lab.reshape(-1, 3) for image in self.images}  # note these are references
+        self.rgb = {image.filepath: image.rgb.reshape(-1, 3) for image in self.images}
         if self.args.hull_vertices is not None:
-            args_index = [("args", i) for i in range(1, len(self.args.hull_vertices) + 1)]
-            args_lab_points = pd.DataFrame(np.array(self.args.hull_vertices), columns=["L", "a", "b"], index=args_index)
-            self.segmentor.lab = pd.concat([self.segmentor.lab, args_lab_points])
+            self.lab["args"] = np.array(self.args.hull_vertices)
+            self.rgb["args"] = lab2rgb(self.lab["args"])
 
-            args_rgb_points = pd.DataFrame(lab2rgb(np.array(self.args.hull_vertices)), columns=["R", "G", "B"], index=args_index)
-            self.segmentor.rgb = pd.concat([self.segmentor.rgb, args_rgb_points])
+        self.lab_unique = dict()
+        self.lab_inv = dict()
+        self.lab_sizes = dict()
+        self.rgb_unique = dict()
+        nearest = 2  # round to nearest 5
+        for fp, lab in self.lab.items():
+            lab_round = np.around(lab/nearest, decimals=0)*nearest
+            uni, inv, counts = np.unique(lab_round, axis=0, return_inverse=True, return_counts=True)
+            logger.debug(f"{uni.shape}")
+            self.lab_unique[fp] = uni
+            self.lab_inv[fp] = inv
+            scaled_counts = counts / np.median(counts)  # so that most are centered on 1
+            scaled_counts[scaled_counts <= 0.1] = 0.1  # rare points should still be visible
+            scaled_counts[scaled_counts >= 10] = 10  # and overrepresented shouldn't mask others
+            self.lab_sizes[fp] = scaled_counts * 10
+            self.rgb_unique[fp] = lab2rgb(uni)
+
+
 
         # Prepare an index for navigating the list of images
         self.ind: int = 0
@@ -65,6 +78,7 @@ class HullPanel(wx.Panel):
         self.delta_text = None
         self.clear_btn = None
         self.close_btn = None
+        self.patches = []
 
         # add a close button to test remote closing
         self.Bind(wx.EVT_CLOSE, self.on_exit)
@@ -76,7 +90,7 @@ class HullPanel(wx.Panel):
         self.seg_fig = Figure()
         self.seg_fig.set_dpi(150)
         self.seg_ax = self.seg_fig.add_subplot(111)
-        self.seg_fig.suptitle('Left-click to select segments\nRight-click to select pixels', fontsize=10)
+        self.seg_fig.suptitle('Left-click to select', fontsize=10)
         self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
         self.seg_art = None
         self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
@@ -89,10 +103,10 @@ class HullPanel(wx.Panel):
 
         self.lab_fig = Figure()
         self.lab_fig.set_dpi(100)
-        self.lab_ax = self.lab_fig.add_subplot(111, projection='3d')
-        # disable zoom so can use right click (button 3) for select
+        self.lab_ax = self.lab_fig.add_subplot(111, projection='3d', facecolor='grey')
+        # disable zoom so can use left click (button 1) for select
         self.lab_ax.mouse_init(rotate_btn=3, pan_btn=2, zoom_btn=0)
-        self.lab_fig.suptitle("Left-click to select points\nRight click to rotate view", fontsize=16)
+        self.lab_fig.suptitle("Left-click to select\nRight click to rotate", fontsize=16)
         self.lab_ax.set_zlabel('L*')
         self.lab_ax.set_xlabel('a*')
         self.lab_ax.set_ylabel('b*')
@@ -116,7 +130,6 @@ class HullPanel(wx.Panel):
         self.SetSizer(self.sizer)
         #self.Fit()
 
-        self.all_points = None
         self.navigation_toolbar = None
         self.toolbar = None
         self.add_toolbar()
@@ -124,6 +137,7 @@ class HullPanel(wx.Panel):
         self.reset_selection(None)
         #self.toggle_args_vertices()
         self.load_current_image()
+        logger.debug("init complete")
 
     def on_exit(self, event):
         logger.debug("Close called")
@@ -132,13 +146,8 @@ class HullPanel(wx.Panel):
 
         self.plot_hull()
 
-        if self.args.hull_vertices is not None:
-            self.segmentor.lab = self.segmentor.lab.drop(index="args", level=0)
-            self.segmentor.rgb = self.segmentor.rgb.drop(index="args", level=0)
-
-        if "pixel" in self.segmentor.lab.index:
-            self.segmentor.lab = self.segmentor.lab.drop(index="pixel", level=0)
-            self.segmentor.rgb = self.segmentor.rgb.drop(index="pixel", level=0)
+        self.lab.pop("args", None)
+        self.rgb.pop("args", None)
 
         update_arg(self.args, 'alpha', self.alpha_selection.alpha)
         update_arg(self.args, "hull_vertices", list(map(tuple, np.round(
@@ -216,31 +225,31 @@ class HullPanel(wx.Panel):
             wx.Image(str(Path(Path(__file__).parent, "bmp", "selected.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
             "Highlight selected",
-            'Highlight selected segments'
+            'Highlight selected pixels'
         )
         self.toolbar.ToggleTool(7, True)
-        self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=7)
+        self.Bind(wx.EVT_TOOL, self.draw_image_figure, id=7)
         self.toolbar.AddCheckTool(
             8,
             "within",
             wx.Image(str(Path(Path(__file__).parent, "bmp", "within.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
             "Highlight within",
-            'Highlight segments within alpha shape'
+            'Highlight pixels within delta of alpha shape'
         )
         self.toolbar.ToggleTool(8, True)
-        self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=8)
+        self.Bind(wx.EVT_TOOL, self.draw_image_figure, id=8)
 
-        self.toolbar.AddCheckTool(
-            9,
-            "boundaries",
-            wx.Image(str(Path(Path(__file__).parent, "bmp", "boundaries.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
-            wx.NullBitmap,
-            "Display boundaries",
-            'Display segment boundaries'
-        )
-        self.toolbar.ToggleTool(9, True)
-        self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=9)
+        #self.toolbar.AddCheckTool(
+        #    9,
+        #    "boundaries",
+        #    wx.Image(str(Path(Path(__file__).parent, "bmp", "boundaries.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+        #    wx.NullBitmap,
+        #    "Display boundaries",
+        #    'Display segment boundaries'
+        #)
+        #self.toolbar.ToggleTool(9, True)
+        #self.Bind(wx.EVT_TOOL, self.draw_segments_figure, id=9)
 
         # add a clear selection button
         self.toolbar.AddSeparator()
@@ -275,7 +284,6 @@ class HullPanel(wx.Panel):
             "Display points from all images (and arguments)"
         )
         self.toolbar.ToggleTool(12, False)
-        self.all_points = False
         self.Bind(wx.EVT_TOOL, self.toggle_all_points, id=12)
 
         # add a close button
@@ -313,12 +321,12 @@ class HullPanel(wx.Panel):
         filepath = self.images[self.ind].filepath
         logger.debug(f"Load image: {filepath}")
         self.seg_ax.set_title(str(filepath), y=-0.01, size=5)
-        self.draw_segments_figure()
+        self.draw_image_figure()
         self.draw_lab_figure()
 
     def optimise_alpha(self, _):
         self.alpha_selection.update_alpha()
-        self.draw_segments_figure()
+        self.draw_image_figure()
         self.draw_lab_figure()
         self.alpha_text.SetValue(str(self.alpha_selection.alpha))
 
@@ -331,7 +339,7 @@ class HullPanel(wx.Panel):
             logger.debug(f"Alpha input could not be coerced to float: {value}")
             self.alpha_text.SetValue(str(self.args.alpha))
         self.alpha_selection.update_alpha(value)
-        self.draw_segments_figure()
+        self.draw_image_figure()
         self.draw_lab_figure()
 
     def set_delta(self, _):  #
@@ -343,89 +351,77 @@ class HullPanel(wx.Panel):
             logger.debug(f"Delta input could not be coerced to float: {value}")
             self.delta_text.SetValue(self.args.alpha)
         self.alpha_selection.set_delta(value)
-        self.draw_segments_figure()
+        self.draw_image_figure()
+
+    def coord_to_index(self, x, y):
+        x_length = self.images[self.ind].lab.shape[1]
+        return (y * x_length) + x
+
+    def index_to_coord(self, index):
+        x_length = self.images[self.ind].lab.shape[1]
+        return index % x_length, int(np.floor(index/x_length))
+
+    def coord_index_to_unique(self, coord_index, filepath):
+        unique_index = self.lab_inv[filepath][coord_index]
+        return unique_index
+
+    def unique_index_to_coord_indices(self, filepath, unique_index):
+        coord_indices = np.flatnonzero(self.lab_inv[filepath] == unique_index)
+        return coord_indices
 
     def on_click_segments(self, event):
         x = event.mouseevent.xdata.astype(int)
         y = event.mouseevent.ydata.astype(int)
         image = self.images[self.ind]
-
-        # handle left click for segments, right click for pixels
-        if event.mouseevent.button == 1:  # left click
-            logger.debug("Add segment to selection")
-            sid = self.segmentor.image_to_segments[image].mask[y-1, x-1]  # assume these are 1 based x and y
-            logger.debug(f'file: {image.filepath}, segment:  {sid}, x: {x}, y: {y}')
-            if sid != 0:
-                self.alpha_selection.toggle_segment(image.filepath, sid)
-                self.draw_segments_figure()
-                self.draw_hull()
-
-        elif event.mouseevent.button == 3:  # right click
-            colour_lab = image.lab[y-1, x-1]  # assume these are 1 based x and y # todo test this
-            pixel_id = (y * (self.segmentor.lab.shape[0] - 1) + x)
-            logger.debug(f"Add pixel to selection: {pixel_id}, {colour_lab}")
-            self.segmentor.lab.loc[("pixel", pixel_id), :] = colour_lab
-            self.segmentor.rgb.loc[("pixel", pixel_id), :] = lab2rgb(colour_lab)
-            self.alpha_selection.toggle_segment("pixel", pixel_id)
-            self.draw_lab_figure()
-            self.draw_segments_figure()
+        coord_index = self.coord_to_index(x, y)
+        unique_index = self.coord_index_to_unique(coord_index, image.filepath)
+        # Left click only
+        if event.mouseevent.button == 1:
+            self.alpha_selection.toggle_colour(image.filepath, unique_index)
+            self.draw_image_figure()
+            self.draw_hull()
 
     def toggle_args_vertices(self, event=None):
         if self.args.hull_vertices is not None:
-            self.alpha_selection.toggle_args_vertices()
-            self.draw_segments_figure()
+            show_args = self.toolbar.GetToolState(11)  # true if show args is selected in gui
+            self.alpha_selection.toggle_args_vertices(show_args)
+            self.draw_image_figure()
             self.draw_hull()
 
     def toggle_all_points(self, event=None):
-        self.all_points = not self.all_points
         self.draw_lab_figure()
 
     def on_click_lab(self, event):
+        # Left click only (right click can be used to rotate view)
         if event.mouseevent.button == 1:
-            ind = event.ind[0]
-            x, y, z = event.artist._offsets3d
-            # caution, _offsets3d is a protected component and this behaviour might break unexpectedly
-            # but this the only way I have found to get these values
-            logger.debug(f"{x[ind], y[ind], z[ind]}")
-            selected = self.segmentor.lab.index[
-                (self.segmentor.lab['L'] == z[ind]) & (self.segmentor.lab['a'] == x[ind]) & (self.segmentor.lab['b'] == y[ind])
-            ].tolist()
-            logger.debug(f"Selected: {selected}")
-            for filepath, sid in selected:
-                self.alpha_selection.toggle_segment(filepath, sid)
-            self.draw_segments_figure()
+            unique_index = event.ind[0]
+            image = self.images[self.ind]
+            self.alpha_selection.toggle_colour(image.filepath, unique_index)
+            self.draw_image_figure()
             self.draw_hull()
 
-    def draw_segments_figure(self, _=None):
-        logger.debug("Draw segments with highlighting")
+    def draw_image_figure(self, _=None):
+        logger.debug("Draw image with highlighting")
         show_selected = self.toolbar.GetToolState(7)  # true if highlight selection is selected in gui
         logger.debug(f"show selected: {show_selected}")
         show_within = self.toolbar.GetToolState(8)  # true if highlight within is selected in gui
         logger.debug(f"show within: {show_within}")
 
         image = self.images[self.ind]
-        filepath = image.filepath
-        current_file_segments = self.segmentor.image_to_segments[image]
+        inv = self.lab_inv[image.filepath]
         displayed = image.rgb.copy()
 
-        show_boundaries = self.toolbar.GetToolState(9)
-        logger.debug(f"show boundaries: {show_within}")
-        if show_boundaries:
-            displayed[current_file_segments.boundaries] = (255, 255, 255)
+        if show_selected:
+            selected = [(i, j) for i, j in self.alpha_selection.selection if i == image.filepath]
+            selected_real = [i for j in selected for i in self.unique_index_to_coord_indices(*j)]
+            displayed.reshape(-1, 3)[selected_real, :] = (1, 1, 1)
 
-        if show_selected or show_within:
-            segments_mask = self.segmentor.image_to_segments[image].mask
-            if show_within:
-                self.alpha_selection.update_dist(filepath)
-                within = self.alpha_selection.dist[(self.alpha_selection.dist <= self.alpha_selection.delta).values].index
-                within = [j for i, j in within if i == filepath]
-                displayed[np.isin(segments_mask, within)] = (0, 255, 0)
-            if show_selected:
-                selected = [j for i, j in self.alpha_selection.selection if i == filepath]
-                displayed[np.isin(segments_mask, selected)] = (0, 0, 255)
-        if self.alpha_selection.last_selected is not None and self.alpha_selection.last_selected[0] == filepath:
-            segments_mask = self.segmentor.image_to_segments[image].mask
-            displayed[segments_mask == self.alpha_selection.last_selected[1]] = (255, 0, 0)
+        if show_within:
+            self.alpha_selection.update_dist(image.filepath)
+            dist = self.alpha_selection.dist[image.filepath]
+            within = dist <= self.alpha_selection.delta
+            within_real = within[inv].reshape(-1)
+            displayed.reshape(-1, 3)[within_real, :] = (1, 1, 1)  # todo make these colours variables, either as arguments or some other method
 
         if self.seg_art is None:
             self.seg_art = self.seg_ax.imshow(displayed, picker=True)
@@ -436,38 +432,42 @@ class HullPanel(wx.Panel):
         self.seg_cv.flush_events()
 
     def draw_lab_figure(self, _=None):
-
-        current_image_filepath = self.images[self.ind].filepath
-        if self.all_points:
-            lab = self.segmentor.lab
-            rgb = self.segmentor.rgb
+        logger.debug("Draw lab figure")
+        show_all = self.toolbar.GetToolState(12)
+        image = self.images[self.ind]
+        if show_all:
+            lab = np.concatenate(list(self.lab.values()))  # todo handle these for uniqueness also including indices
+            rgb = np.concatenate(list(self.rgb.values()))
+            sizes = np.concatenate(list(self.lab_sizes.values()))
         else:
-            lab = self.segmentor.lab.loc[current_image_filepath]
-            rgb = self.segmentor.rgb.loc[current_image_filepath]
+            lab = self.lab_unique[image.filepath]
+            rgb = self.rgb_unique[image.filepath]
+            sizes = self.lab_sizes[image.filepath]
 
-        elev, azim = self.lab_ax.elev, self.lab_ax.azim  # get the current view angles on lab plot to reload with
-
-        #self.lab_ax.set_xlim3d(min(self.segmentor.lab['a']), max(self.segmentor.lab['a']))
-        #self.lab_ax.set_ylim3d(min(self.segmentor.lab['b']), max(self.segmentor.lab['b']))
-        #self.lab_ax.set_zlim3d(min(self.segmentor.lab['L']), max(self.segmentor.lab['L']))
+        # get the current view angles on lab plot to reload with after redraw
+        elev, azim = self.lab_ax.elev, self.lab_ax.azim
 
         if self.lab_art is not None:
             self.lab_art.remove()
             self.lab_art = None
         self.lab_art = self.lab_ax.scatter(
-            xs=lab['a'],
-            ys=lab['b'],
-            zs=lab['L'],
-            s=10,
+            xs=lab[:, 1],
+            ys=lab[:, 2],
+            zs=lab[:, 0],
+            #s=10,
+            s=sizes,
             c=rgb,
+            alpha = 0.5,
             lw=0,
             picker=True,
             pickradius=0.1
         )
         self.lab_ax.view_init(elev=elev, azim=azim)
         self.draw_hull()
+        logger.debug("draw lab figure complete")
 
     def draw_hull(self):
+        logger.debug("Draw hull")
         if self.tri_art is not None:
             logger.debug("remove existing alpha hull from plot")
             self.tri_art.remove()
@@ -478,11 +478,13 @@ class HullPanel(wx.Panel):
             self.tri_art = self.lab_ax.plot_trisurf(
                 *zip(*self.alpha_selection.hull.vertices[:, [1, 2, 0]]),
                 triangles=self.alpha_selection.hull.faces[:, [1, 2, 0]],
-                color=(0, 1, 0, 0.5)
+                color=(1, 0, 1, 0.5)
             )
-
+        logger.debug("draw hull complete")
         self.lab_cv.draw_idle()
+        logger.debug("draw idle complete")
         self.lab_cv.flush_events()
+        logger.debug("flush complete")
 
     def plot_hull(self):
         if self.alpha_selection.hull is None:
@@ -495,43 +497,53 @@ class HullPanel(wx.Panel):
             fig = FigureMatplot("Hull", self.parent.figure_counter, self.args, cols=1)
         else:
             fig = FigureNone("Hull", self.parent.figure_counter, self.args, cols=1)
-        points = self.segmentor.lab[['a', 'b', 'L']].to_numpy()
+
+        abl = np.concatenate(list(self.lab.values()))[:, [1, 2, 0]]
+        rgb = np.concatenate(list(self.rgb.values()))
         labels = ("a*", "b*", "L*")
-        fig.plot_scatter_3d(points, labels, self.segmentor.rgb.to_numpy(), self.alpha_selection.hull)
+        fig.plot_scatter_3d(abl, labels, rgb, self.alpha_selection.hull)
         fig.animate()
         fig.print()
 
-    def reset_selection(self, event):
+    def reset_selection(self, event=None):
         self.alpha_selection = AlphaSelection(
-            self.segmentor.lab,
+            self.lab_unique,
             set(),
             alpha=self.args.alpha,
             delta=self.args.delta
         )
-        if "pixel" in self.segmentor.lab.index:
-            self.segmentor.lab.drop(index="pixel", level=0)
-            self.segmentor.rgb.drop(index="pixel", level=0)
         self.toolbar.ToggleTool(11, False)
-        self.draw_segments_figure()
+        self.draw_image_figure()
         self.draw_hull()
 
 
 class AlphaSelection:
-    def __init__(self, points: pd.DataFrame, selection: set[tuple[Path, int]], alpha: float, delta: float):
-        self.points = points  # a pandas dataframe with filename and segment ID as index for points in Lab colourspace
-        # filename "args" is a special entry describing the input hull vertices supplied as arguments
-        self.selection = selection  # a set of indices for the points dataframe
+    def __init__(
+            self,
+            points,
+            selection: set[tuple[Path, int]],
+            alpha: float,
+            delta: float
+    ):
+        self.points = points
+        # points is a dict with image filepath as key, value is ndarray of images reshaped to (-1,3)
+        # filepath "args" is a special entry describing the input hull vertices supplied as arguments
+
+        self.selection = selection  # a set of (filepath, index) for the points dataframe
         self.last_selected = None
         self.alpha = alpha  # the alpha parameter for hull construction
         self.delta = delta  # the distance from the hull surface to consider a point within the hull
-        self.dist: pd.DataFrame = pd.DataFrame(np.full(points.shape[0], np.inf), index=points.index)
+
+        self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.points.items()}
+
         self.hull: Optional[Trimesh] = None
 
     def update_alpha(self, alpha: float = None):
         if alpha is None:
             if len(self.selection) >= 4:
                 logger.debug(f"optimising alpha")
-                self.alpha = round(optimizealpha(self.points.loc[list(self.selection)].values), ndigits=3)
+                selected = [self.points[fp][ind].values for fp, ind in self.selection]
+                self.alpha = round(optimizealpha(selected), ndigits=3)
                 logger.info(f"optimised alpha: {self.alpha}")
             else:
                 logger.debug(f"Insufficient points selected")
@@ -543,27 +555,28 @@ class AlphaSelection:
         logger.debug(f"Set delta: {delta}")
         self.delta = delta
 
-    def toggle_segment(self, filepath, sid):
-        if (filepath, sid) in self.selection:
-            self.selection.remove((filepath, sid))
+    def toggle_colour(self, filepath, index):
+        if (filepath, index) in self.selection:
+            self.selection.remove((filepath, index))
             self.last_selected = None
         else:
-            self.selection.add((filepath, sid))
-            self.last_selected = (filepath, sid)
+            self.selection.add((filepath, index))
+            self.last_selected = (filepath, index)
         self.update_hull()
 
-    def toggle_args_vertices(self):
-        args_indices = {("args", i) for i in self.dist.loc["args"].index}
-        if args_indices & self.selection:
-            self.selection = self.selection - args_indices
-        else:
-            self.selection = self.selection.union(args_indices)
+    def toggle_args_vertices(self, on=True):
+        if "args" in self.points:
+            args_indices = {("args", i) for i in self.points["args"]}
+            if on:
+                self.selection = self.selection.union(args_indices)
+            else:
+                self.selection = self.selection - args_indices
         logger.debug(self.selection)
         self.update_hull()
 
     def update_hull(self):
-        selected_points = self.points.loc[list(self.selection)].values
-        #logger.debug(f"selected_points:{selected_points}")
+        selected_points = [self.points[filepath][index] for filepath, index in self.selection]
+        # logger.debug(f"selected_points:{selected_points}")
         if len(selected_points) < 4:
             self.hull = None
         else:
@@ -585,7 +598,7 @@ class AlphaSelection:
     def update_dist(self, filepath):
         if self.hull is None:
             logger.debug("No hull available to calculate distance")
-            self.dist.values[:] = -np.inf
+            self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.points.items()}
             return
 
         logger.debug(f"updating distances from hull for {filepath}")
@@ -596,11 +609,10 @@ class AlphaSelection:
         scene = o3d.t.geometry.RaycastingScene()
         scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(self.hull.as_open3d))
 
-        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(self.points.loc[filepath].to_numpy(dtype=np.float32))).numpy()
+        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(self.points[filepath].astype(dtype=np.float32))).numpy()
         logger.debug(distances_array.shape)
-        self.dist.loc[filepath] = distances_array.reshape(-1, 1)
+        self.dist[filepath] = distances_array.reshape(-1, 1)
 
-        #self.dist.loc[filepath] = proximity.signed_distance(self.hull, self.points.loc[filepath]).reshape(-1, 1)
 
 
 

@@ -46,8 +46,6 @@ class FigureBase(ABC):
             img: np.array,
             label: str = None,
             color_bar=False,
-            diverging=False,
-            midpoint=None,
             picker=None
     ):
         raise NotImplementedError
@@ -151,34 +149,19 @@ class FigureMatplot(FigureBase):
             img: np.array,
             label: str = None,
             color_bar=False,
-            diverging=False,
-            midpoint=None,
             picker=None
     ):
         self.logger.debug("Add image")
         ax: Axes = self._add_plot()
         if label:
             ax.set_title(label, loc="left")
-        if diverging and midpoint is not None:
-            axes_image = ax.imshow(img, cmap='RdBu_r', norm=colors.TwoSlopeNorm(vcenter=midpoint), picker=picker)
-        elif diverging:
-            axes_image = ax.imshow(img, cmap='RdBu_r', picker=picker)
-        else:
-            axes_image = ax.imshow(img, picker=picker)
+        axes_image = ax.imshow(img, picker=picker)
         if color_bar:
             cb_ax = self._fig.colorbar(axes_image, ax=ax)
-            # todo add the midpoint to the axis ticks - the below was failing
-            #  but haven't tested since the refactoring of figures
-            #cbar = self.segment_fig.colorbar(axes_image, ax=axis)
-            #if midpoint is not None:
-            #    ticks = cbar.get_ticks()
-            #    if midpoint not in ticks:
-            #        ticks = np.insert(ticks, np.searchsorted(ticks, midpoint), midpoint)
-            #    cbar.set_ticks(ticks)
             self._colorbars.append(cb_ax)
         else:
             self._colorbars.append(None)
-        self._axes_images.append(axes_image)  # todo refactor to avoid needing to return this to better implement abc
+        self._axes_images.append(axes_image)
 
     def plot_text(self, text):
         self.logger.debug("Add text as plot")
@@ -189,14 +172,16 @@ class FigureMatplot(FigureBase):
     def add_outline(self, mask: np.ndarray):
         mask = mask.copy()  # we mutate this here, I don't think it is used again but maybe one day so just in case
         image = self._current_axes_image.get_array()
-        contour_dilate = binary_dilation(mask, footprint=np.full((5, 5), 1))
 
-        contour_dilate[mask] = False
-        image[contour_dilate] = (1, 1, 1)
+        # better without dilation as it highlights small isolated areas
+        #contour_dilate = binary_dilation(mask, footprint=np.full((5, 5), 1))
+        #contour_dilate[mask] = False
+        #image[contour_dilate] = (1, 1, 1)
 
+        # erode is better as it only shows the selected areas.
         contour_erode = binary_erosion(mask, footprint=np.full((5, 5), 1))
         mask[contour_erode] = False
-        image[mask] = (1, 1, 1)
+        image[mask] = (1, 0, 1)
 
         self._current_axes_image.set_array(image)
 
@@ -317,8 +302,6 @@ class FigureNone(FigureBase):
             img: np.array,
             label: str = None,
             color_bar=False,
-            diverging=False,
-            midpoint=None,
             picker=None
     ):
         pass

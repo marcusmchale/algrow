@@ -6,15 +6,20 @@ from pathlib import Path
 import wx
 from pubsub import pub
 
+import multiprocessing
+import threading
+import time
+
+from concurrent.futures import ProcessPoolExecutor
+
 from ..image_loading import ImageLoaded
 from ..image_segmentation import Segmentor
 from ..options.update_and_verify import calibration_complete, layout_defined, minimum_calibration
 
 from .measure_layout import LayoutPanel
 from .measure_scale import ScalePanel
-from .hull import HullPanel
+from .hull_pixels import HullPanel
 from .lasso import LassoPanel
-from .waiting import WaitPanel
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +148,11 @@ class TopFrame(wx.Frame):
         if self.args.whole_image:
             active_buttons = [self.scaler_btn, self.hull_btn]
         else:
-            if self.args.fixed_layout is not None:
-                active_buttons = [self.scaler_btn]
-            else:
-                active_buttons = [self.scaler_btn, self.circle_colour_btn]
-            if self.args.circle_colour is not None and self.args.fixed_layout is None:
+            #if self.args.fixed_layout is not None:
+            #    active_buttons = [self.scaler_btn]
+            #else:
+            active_buttons = [self.scaler_btn, self.circle_colour_btn]
+            if self.args.circle_colour is not None:  # and self.args.fixed_layout is None:
                 active_buttons.append(self.layout_btn)
             if layout_defined(self.args):
                 active_buttons.append(self.hull_btn)
@@ -184,10 +189,15 @@ class TopFrame(wx.Frame):
             b.Disable()
 
     def display_panel(self, panel):
+        logger.debug("set button availability")
         self.disable_btns()
+        logger.debug("add panel to sizer")
         self.sizer.Add(panel)
+        logger.debug("set sizer")
         self.SetSizer(self.sizer)
+        logger.debug("calculate layout")
         self.Layout()
+        logger.debug("Update")
         self.Update()
 
     def launch_layout(self, _=None):
@@ -202,25 +212,33 @@ class TopFrame(wx.Frame):
         panel = LassoPanel(self, self.image)
         self.display_panel(panel)
 
+
     def launch_hull(self, _=None):
-        logger.debug("launch wait panel")
-        wait_panel = WaitPanel(self)
-        self.display_panel(wait_panel)
-        self.Update()
+        dialog = wx.ProgressDialog(
+            "Loading...",
+            "Please wait",
+            maximum=100,
+            parent=self,
+            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
+        )
+        def progress_callback(complete: int):  # complete as percentage
+            dialog.Update(complete)
+            wx.Yield()
+
         wx.Yield()
-        if self.segmentor is None:
-            self.segmentor = Segmentor(self.images)
-            try:
-                logger.debug("Segment images - this may take a while")
-                self.segmentor.run()
-            except ValueError:
-                wait_panel.Destroy()
-                self.enable_btns()
-                return
         logger.debug("launch hull panel")
-        wait_panel.Destroy()
-        hull_panel = HullPanel(self, self.segmentor)
-        self.display_panel(hull_panel)
+        try:
+            hull_panel = HullPanel(self, self.images, progress_callback)
+            self.display_panel(hull_panel)
+            queue.put(None)
+            wait_thread.join()
+
+        except Exception as e:
+            logger.debug(f"Exception: {e}")
+            self.enable_btns()
+            return
+
+
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")

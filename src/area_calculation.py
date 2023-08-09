@@ -1,6 +1,10 @@
-"""Identify a layout of circles then calculate the area within each circle that is within the target hull """
+"""Identify a layout then calculate the area that is within the target hull for each target region"""
 import logging
 import numpy as np
+
+import multiprocessing
+import threading
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from pathlib import Path
 from csv import reader, writer
@@ -9,16 +13,14 @@ from datetime import datetime
 
 from skimage.morphology import remove_small_holes, remove_small_objects
 
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import get_context
-
-from trimesh import proximity
+#from trimesh import proximity
 from alphashape import alphashape
 from trimesh import PointCloud
+import open3d as o3d
 
 from .layout import LayoutDetector, LayoutLoader
-from .image_loading import ImageFilepathAdapter, ImageLoaded
-
+from .image_loading import ImageLoaded
+from .logging import ImageFilepathAdapter, logger_thread, worker_log_configurer
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +76,13 @@ def calculate(args):
             csv_writer.writerow(area_header)
 
         if args.processes > 1:
-            with ProcessPoolExecutor(max_workers=args.processes, mp_context=get_context('spawn')) as executor:
+            queue = multiprocessing.Manager().Queue(-1)
+            lp = threading.Thread(target=logger_thread, args=(queue,))
+            lp.start()
+
+            with ProcessPoolExecutor(max_workers=args.processes, mp_context=multiprocessing.get_context('spawn')) as executor:
                 future_to_file = {
-                    executor.submit(area_worker, filepath, alpha_hull, args): filepath for filepath in image_filepaths
+                    executor.submit(area_worker, filepath, alpha_hull, args, queue=queue): filepath for filepath in image_filepaths
                 }
                 for future in as_completed(future_to_file):
                     fp = future_to_file[future]
@@ -88,6 +94,10 @@ def calculate(args):
                         logger.info(f'{str(fp)} generated an exception: {exc}')
                     else:
                         logger.info(f'{str(fp)}: processed')
+
+            queue.put(None)
+            lp.join()
+
         else:
             for filepath in image_filepaths:
                 try:
@@ -100,8 +110,11 @@ def calculate(args):
                     logger.info(f'{str(filepath)}: processed')
 
 
-def area_worker(filepath, alpha_hull, args):
-    adapter = ImageFilepathAdapter(logger, {'image_filepath': str(filepath)})
+def area_worker(filepath, alpha_hull, args, queue=None):
+    if queue is not None:
+        worker_log_configurer(queue)
+
+    adapter = ImageFilepathAdapter(logging.getLogger(__name__), {'image_filepath': str(filepath)})
     adapter.debug(f"Processing file: {filepath}")
 
     result = ImageProcessor(filepath, alpha_hull, args).get_area()
@@ -149,31 +162,24 @@ class ImageProcessor:
         else:
             masked_lab = self.image.lab[layout.mask]
 
-        if self.args.delta == 0:
-            inside = self.alpha_hull.contains(masked_lab)
-        else:
-            # break up the masked image into chunks of points as the signed_distance calculation gives OOM otherwise
-            ind = np.linspace(0, len(masked_lab), num=int(len(masked_lab)/1e5), dtype=int, endpoint=False)[1:]
-            self.logger.debug("Calculate distance from hull")
-            distances = list()
-            for c in np.split(masked_lab, ind):
-                dist_c = proximity.signed_distance(self.alpha_hull, c)
-                distances.append(dist_c)
+        # see https://github.com/mikedh/trimesh/issues/1116
+        # todo keep an eye on this as the alphashape package is likely to change around this
+        scene = o3d.t.geometry.RaycastingScene()
+        scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(self.alpha_hull.as_open3d))
+        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(masked_lab.astype(np.float32))).numpy()
+        inside = distances_array < self.args.delta
 
-            distances_array = np.concatenate(distances)
-            inside = np.negative(distances_array) < self.args.delta
-
-            if self.args.image_debug <= 0:
-                # we create a debug for distance if using delta value and at debug level for image debug
-                if layout is None:
-                    distance_image = np.negative(distances_array).reshape(self.image.lab.shape[0:2])
-                else:
-                    distance_image = np.empty(self.image.lab.shape[0:2])
-                    distance_image[layout.mask] = np.negative(distances_array)
-                    distance_image[~layout.mask] = 0  # set masked region as 0
-                hull_distance_figure = self.image.figures.new_figure('Hull distance')
-                hull_distance_figure.plot_image(distance_image, color_bar=True)
-                hull_distance_figure.print()
+        if self.args.image_debug <= 0:
+            # we create a debug for distance if using delta value and at debug level for image debug
+            if layout is None:
+                distance_image = distances_array.reshape(self.image.lab.shape[0:2])
+            else:
+                distance_image = np.empty(self.image.lab.shape[0:2])
+                distance_image[layout.mask] = distances_array
+                distance_image[~layout.mask] = 0  # set masked region as 0
+            hull_distance_figure = self.image.figures.new_figure('Hull distance')
+            hull_distance_figure.plot_image(distance_image, color_bar=True)
+            hull_distance_figure.print()
 
         self.logger.debug("Create mask from distance threshold")
         if layout is None:
