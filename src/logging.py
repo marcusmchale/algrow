@@ -1,8 +1,32 @@
 from pathlib import Path
 from .options.parse_args import options
+import logging
+import logging.config
+import logging.handlers
 
 
 args = options().parse_args()
+
+
+def worker_log_configurer(queue):
+    logging.config.dictConfig(LOGGING_CONFIG)
+    h = logging.handlers.QueueHandler(queue)  # Just the one handler needed
+    root = logging.getLogger()
+    root.addHandler(h)
+
+
+def logger_thread(queue):
+    while True:
+        record = queue.get()
+        if record is None:
+            break
+        named_logger = logging.getLogger(record.name)
+        named_logger.handle(record)
+
+
+class ImageFilepathAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['image_filepath'], msg), kwargs
 
 
 LOGGING_CONFIG = {

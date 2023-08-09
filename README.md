@@ -263,31 +263,44 @@ with similar images and to ensure consistency across multiple analyses.
 
 
 # todo
-
-  - alternatives to distance calculation, the "contains" approach is far faster
-    - consider methods to buffer the hull by delta and use points of this new hull
-  - progress updates during segmentation for hull
-    - this takes a long times so progress would be good
+  - if layout defined then mask for hull
+  - alternative to right-click for lab rotate view (navigation bar?)
   - support scrolling through all loaded calibration images for scale, layout detection etc.
    
   
 # To consider
-  - for land plants it can be useful to include outside layout mask if contiguous with something inside layout mask
-    - this would mean processing the whole image for distance first
+  - during hull definition, allow click to include a pixel value rather than just segment means?
+    - can we skip/simplify segmentation, e.g. just make a grid of regions with median colour for lab plot 
+ 
   - multiple target circle colours
     - should be easy to implement with simple min distance calculation
     - this was previously done when I had simple target colours, just need to reimplement for target circle
     - probably not worth doing the whole hull distance procedure here.
-  - GUI window for date, time, block regex from filename in calibration
-  - Process image filename during loading to provide date time block etc. rather than at the final analysis
+
+  - Process image filename during loading to provide date time block etc. rather than at the end
     - not necessary until writing out but might be useful for annotation in debugging loaded image.
+    - useful to ensure representative sampling across blocks, and times during calibration
+    
+  - GUI window for date, time, block regex from filename in calibration
+
+  - display hull vertices as colors in a panel for easy removal/addition to hull
+    - useful when refining and colours are supplied only as args for example 
+    - this would be a similar function to the existing include args button, just allowing more flexibility
+    
   - Alternative/supplementary layout detection methods
+    - grid c.f. circles
+      - could find circles then build a grid for rectangular ROI definition
+    - for land plants it can be useful to include outside layout mask if contiguous with something inside layout mask
+      - this would mean processing the whole image for distance first
+  
   - Support superpixel segmentation during area calculation (as was done in earlier versions)
     - tradeoff: the time added for slic might be regained in the hull distance calculation
     - without fill/remove/blurring this may be necessary/improve results 
     - consideration: sometimes superpixel segmentation performs poorly, e.g. Palmaria
+  
   - Downscaling images to speed up calibration, in particular the hull segmentation etc.
-  - Analysis (maybe overkill)
+
+  - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  

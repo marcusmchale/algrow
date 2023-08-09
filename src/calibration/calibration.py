@@ -10,7 +10,6 @@ from ..image_loading import ImageLoader
 
 logger = logging.getLogger(__name__)
 
-
 def calibrate(args: argparse.Namespace):
 
     # calibrate on a subset of images only

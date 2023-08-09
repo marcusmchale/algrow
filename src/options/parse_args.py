@@ -86,13 +86,24 @@ def options():
         "--superpixels",
         help="The number of superpixels to find in image",
         type=arg_types["superpixels"],
-        default=1000
+        default=None
+    )
+    parser.add_argument(
+        "--slic_iter",
+        help="The maximum number of iterations for SLIC clustering",
+        type=arg_types["slic_iter"],
+        default=10
     )
     parser.add_argument(
         "--compactness",
-        help="Superpixel compactness, higher is more regular (square)",
+        help=(
+            "Superpixel compactness, higher values is more more weight to distance than colour."
+            " Positive values will be fixed, negative values will run run slic_zero"
+            " (a locally adaptive compactness parameter)"
+            " with the absolute of the provided value being the starting point"
+        ),
         type=arg_types["compactness"],
-        default=10
+        default=-.1
     )
     parser.add_argument(
         "--sigma",
@@ -126,12 +137,12 @@ def options():
         default=5
     )
     parser.add_argument(
-        "-fc", "--force_calibration",
+        "--force_calibration",
         help="Force calibration window to load, even if all parameters are defined",
         action='store_true'
     )
     parser.add_argument(
-        "-nc", "--num_calibration",
+        "--num_calibration",
         help="Number of images to use for calibration",
         type=arg_types["num_calibration"],
         default=3
@@ -141,6 +152,12 @@ def options():
         "--blur",
         help="Gaussian blur applied to image during loading",
         type=arg_types["blur"],
+        default=1
+    )
+    parser.add_argument(
+        "--downscale",
+        help="Downscale by this factor",
+        type=arg_types["downscale"],
         default=1
     )
     parser.add_argument(
@@ -157,7 +174,6 @@ def options():
         default=100,
         type=arg_types["fill"]
     )
-
     parser.add_argument(
         "--area_file",
         help="Disc area filename for analysis (must be in the output directory)",

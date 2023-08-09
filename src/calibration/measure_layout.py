@@ -216,9 +216,11 @@ class LayoutPanel(MeasurePanel):
                     "circle_y": c[1],
                     "circle_radius": c[2]
                 })
-        df = pd.DataFrame.from_records(circles_dicts)
+        df = pd.DataFrame.from_records(circles_dicts, index=["plate_id", "circle_id"])
+        if self.args.downscale != 1:
+            df = df.multiply(self.args.downscale)
         outfile = Path(self.args.out_dir, "layout.csv")
-        df.to_csv(outfile, index=False)
+        df.to_csv(outfile, index=True)
         update_arg(self.args, "fixed_layout", outfile)
 
     def on_exit(self, event):

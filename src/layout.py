@@ -85,7 +85,7 @@ class Layout:
                 # raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
             circles_mask = circles_mask | circle_mask
         if overlapping_circles:
-            self.logger.warning("Circles overlapping")
+            self.logger.info("Circles overlapping")
         fig = self.image.figures.new_figure("Circles mask")
         fig.plot_image(circles_mask)
         fig.print()
@@ -301,6 +301,8 @@ class LayoutLoader:
     def get_layout(self):
         layout_path = self.args.fixed_layout
         df = pd.read_csv(layout_path, index_col=["plate_id", "circle_id"])
+        if self.args.downscale != 1:
+            df = df.divide(self.args.downscale)
         df.sort_index(ascending=True)
         plates = list()
         for plate_id in df.index.get_level_values("plate_id").unique():
