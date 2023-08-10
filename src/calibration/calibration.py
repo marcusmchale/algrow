@@ -18,10 +18,6 @@ def calibrate(args: argparse.Namespace):
     sample_image_paths = list(np.unique(np.array(args.images)[idx]))
     logger.info(f"Sample {min(args.num_calibration, len(sample_image_paths))} images for calibration")
 
-    image_loader = ImageLoader(sample_image_paths, args)
-    image_loader.run()
-    images = image_loader.images
-
-    calibrator = Calibrator(images)
+    calibrator = Calibrator(sample_image_paths, args)
     calibrator.MainLoop()
 
