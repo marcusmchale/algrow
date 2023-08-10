@@ -1,5 +1,5 @@
 import logging
-
+import argparse
 from typing import List
 from pathlib import Path
 
@@ -7,18 +7,15 @@ import wx
 from pubsub import pub
 
 import multiprocessing
-import threading
 import time
 
-from concurrent.futures import ProcessPoolExecutor
 
-from ..image_loading import ImageLoaded
-from ..image_segmentation import Segmentor
-from ..options.update_and_verify import calibration_complete, layout_defined, minimum_calibration
+from ..image_loading import ImageLoader, ImageLoaded
+from ..options.update_and_verify import calibration_complete, layout_defined
 
 from .measure_layout import LayoutPanel
 from .measure_scale import ScalePanel
-from .hull_pixels import HullPanel
+from .hull_pixels import HullPanel, Points
 from .lasso import LassoPanel
 
 logger = logging.getLogger(__name__)
@@ -34,20 +31,62 @@ logger = logging.getLogger(__name__)
 #    logger.debug(message)
 #
 #sys.excepthook = excepthook
-#
+
 
 class Calibrator(wx.App):
     # overriding init to pass in the arguments from CLI/configuration file(s)
-    def __init__(self, images: List[ImageLoaded], **kwargs):
+    def __init__(self, image_filepaths: List[Path], args: argparse.Namespace, **kwargs):
         logger.debug("Start Calibration App")
-        self.images = images
-        self.args = images[0].args
+        self.image_filepaths = image_filepaths
+        self.args = args
+
+        self.images = None
+        self.points = None
         self.frame = None
 
+        logger.info("Loading: please wait")
         super().__init__(self, **kwargs)
 
+    def set_points(self, queue):
+        logger.debug("Process points from images")
+        points = Points(self.images)
+        queue.put(points)
+
     def OnInit(self):
-        self.frame = TopFrame(self.images)
+        with multiprocessing.Manager() as manager:
+            # now calculate the uniq_points but load a wait dialog as it takes a bit of time
+            dialog = wx.ProgressDialog(
+                "Algrow Calibration",
+                "Please wait...",
+                maximum=100,
+                parent=None,
+                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
+            )
+            wx.Yield()
+
+            def progress_callback(complete: int = None, message: str = ""):
+                if complete is None:
+                    dialog.Pulse(message)
+                else:
+                    dialog.Update(complete, message)
+                wx.Yield()
+                time.sleep(0.1)
+
+            dialog.Pulse("Loading images")
+            image_loader = ImageLoader(self.image_filepaths, self.args)
+            image_loader.run(progress_callback)
+            self.images: List[ImageLoaded] = image_loader.images
+
+            points = Points(self.images)
+            points.calculate(progress_callback)
+            dialog.Pulse()
+            self.points = points
+
+            dialog.Update(100)
+            dialog.Close()
+            wx.Yield()
+
+        self.frame = TopFrame(self.images, self.points, self.args)
         logger.info("Start configuration GUI")
         self.frame.Show(True)
         return True
@@ -99,12 +138,15 @@ class Calibrator(wx.App):
 
 
 class TopFrame(wx.Frame):
-    def __init__(self, images: List[ImageLoaded]):
+    def __init__(self, images: List[ImageLoaded], points: Points, args: argparse.Namespace):
         super().__init__(None, title="AlGrow Calibration", size=(1500, 1000))
         self.figure_counter = 0
         self.images = images
-        self.image = self.images[len(self.images)//2]
-        self.args = self.image.args
+        self.points = points
+        self.args = args
+
+        # a single image for some calibration windows, taken from the middle
+        self.image = self.images[len(self.images) // 2]
 
         self.SetIcon(wx.Icon(str(Path(Path(__file__).parent, "bmp", "logo.png"))))
 
@@ -212,33 +254,10 @@ class TopFrame(wx.Frame):
         panel = LassoPanel(self, self.image)
         self.display_panel(panel)
 
-
     def launch_hull(self, _=None):
-        dialog = wx.ProgressDialog(
-            "Loading...",
-            "Please wait",
-            maximum=100,
-            parent=self,
-            style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
-        )
-        def progress_callback(complete: int):  # complete as percentage
-            dialog.Update(complete)
-            wx.Yield()
-
-        wx.Yield()
         logger.debug("launch hull panel")
-        try:
-            hull_panel = HullPanel(self, self.images, progress_callback)
-            self.display_panel(hull_panel)
-            queue.put(None)
-            wait_thread.join()
-
-        except Exception as e:
-            logger.debug(f"Exception: {e}")
-            self.enable_btns()
-            return
-
-
+        hull_panel = HullPanel(self, self.images, self.points)
+        self.display_panel(hull_panel)
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")

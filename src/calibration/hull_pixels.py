@@ -1,4 +1,8 @@
 import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import threading
+import time
 
 from typing import List, Optional
 
@@ -16,7 +20,7 @@ from matplotlib.backends.backend_wxagg import (
 )
 from matplotlib.figure import Figure
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
-from matplotlib.patches import Circle
+
 
 from skimage.color import lab2rgb
 from alphashape import alphashape, optimizealpha
@@ -28,52 +32,120 @@ import open3d as o3d
 
 from ..image_loading import ImageLoaded
 from ..figurebuilder import FigureMatplot, FigureNone
-
 from ..options.update_and_verify import update_arg
 from ..options.custom_types import DebugEnum
-
+from ..logging import logger_thread, worker_log_configurer
 
 logger = logging.getLogger(__name__)
 
 
-class HullPanel(wx.Panel):
-
-    def __init__(self, parent, images: List[ImageLoaded]):
-        super().__init__(parent)
-        self.parent = parent
+class Points:
+    def __init__(self, images: List[ImageLoaded]):
         self.images = images
         self.args = self.images[0].args
-        self.lab = {image.filepath: image.lab.reshape(-1, 3) for image in self.images}  # note these are references
-        self.rgb = {image.filepath: image.rgb.reshape(-1, 3) for image in self.images}
-        if self.args.hull_vertices is not None:
-            self.lab["args"] = np.array(self.args.hull_vertices)
-            self.rgb["args"] = lab2rgb(self.lab["args"])
+        self.nearest = 10  # affects rounding used to reduce lab uniq_points # todo pass up as argument
 
+        self.lab = None
+        self.rgb = None
         self.lab_unique = dict()
         self.lab_inv = dict()
         self.lab_sizes = dict()
         self.rgb_unique = dict()
-        nearest = 2  # round to nearest 5
-        for fp, lab in self.lab.items():
-            lab_round = np.around(lab/nearest, decimals=0)*nearest
-            uni, inv, counts = np.unique(lab_round, axis=0, return_inverse=True, return_counts=True)
-            logger.debug(f"{uni.shape}")
-            self.lab_unique[fp] = uni
-            self.lab_inv[fp] = inv
-            scaled_counts = counts / np.median(counts)  # so that most are centered on 1
-            scaled_counts[scaled_counts <= 0.1] = 0.1  # rare points should still be visible
-            scaled_counts[scaled_counts >= 10] = 10  # and overrepresented shouldn't mask others
-            self.lab_sizes[fp] = scaled_counts * 10
-            self.rgb_unique[fp] = lab2rgb(uni)
+
+    def calculate(self, progress_callback):
+        logger.debug("build dictionary of lab/rgb for images ")
+        self.lab = {image.filepath: image.lab.reshape(-1, 3) for image in self.images}  # note these are references
+        self.rgb = {image.filepath: image.rgb.reshape(-1, 3) for image in self.images}
+
+        if self.args.hull_vertices is not None:
+            logger.debug("append args")
+            self.lab["args"] = np.array(self.args.hull_vertices)
+            self.rgb["args"] = lab2rgb(self.lab["args"])
+
+        logger.debug(f"Compress the uniq_points to unique per {self.nearest}")
+
+        log_queue = multiprocessing.Manager().Queue(-1)
+        lp = threading.Thread(target=logger_thread, args=(log_queue,))
+        lp.start()
+
+        with ProcessPoolExecutor(
+                max_workers=self.args.processes,
+                mp_context=multiprocessing.get_context('spawn')
+        ) as executor:
+            futures = [executor.submit(self.process, key=image.filepath, log_queue=log_queue) for image in self.images]
+
+            progress_callback(complete=0, message="Preparing colour summaries")
+
+            while True:
+                num_completed = sum([future.done() for future in futures])
+                num_total = len(futures)
+                complete_percent = int(num_completed/num_total * 100)
+                if complete_percent == 100:
+                    logger.debug(f"completed all")
+                    break
+                time.sleep(0.1)
+                progress_callback(complete=complete_percent)
+
+            for future in futures:
+                try:
+                    progress_callback()
+                    record = future.result()
+                    self.lab_unique[record["key"]] = record["lab_unique"]
+                    self.lab_inv[record["key"]] = record["lab_inv"]
+                    self.lab_sizes[record["key"]] = record["lab_sizes"]
+                    self.rgb_unique[record["key"]] = record["rgb_unique"]
+                    logger.debug(f"Calculated points for {record['key']}")
+                except Exception as exc:
+                    logger.info(f'Exception occurred during points calculation: {exc}')
+
+    def process(self, key, log_queue=None):
+        logger.info(f"Calculate points summary for : {key}")
+        if log_queue is not None:
+            worker_log_configurer(log_queue)
+
+        lab = self.lab[key]
+        logger.debug(f"rounding lab for {key}")
+        lab_round = np.around(lab/self.nearest, decimals=0)*self.nearest
+        logger.debug(f"getting unique for {key}")
+        uni, inv, counts = np.unique(lab_round, axis=0, return_inverse=True, return_counts=True)
+        # todo consider filtering out if only found 1 time,
+        #  this would require a definite index rather than relative, consider pandas
+        #logger.debug(f"deleting singletons for {key}")
+        #singleton = np.argwhere(counts == 1)
+        #uni = np.delete(uni, singleton, axis=0)
+        #counts = np.delete(counts, singleton, axis=0)
+        #
+        ##inv =
+
+        logger.debug(f"scaling sizes for {key}")
+        scaled_counts = counts / np.median(counts)  # so that most are centered on 1
+        scaled_counts[scaled_counts <= 0.1] = 0.1  # rare uniq_points should still be visible (and clickable)
+        scaled_counts[scaled_counts >= 10] = 10  # and overrepresented colours shouldn't mask others
+        return {
+            'key': key,
+            "lab_unique": uni,
+            "lab_inv": inv,
+            "lab_sizes": scaled_counts * 10,
+            "rgb_unique": lab2rgb(uni)
+        }
 
 
+class HullPanel(wx.Panel):
+
+    def __init__(self, parent, images: List[ImageLoaded], points: Points):
+        super().__init__(parent)
+        self.parent = parent
+        self.images = images
+        self.args = self.images[0].args
+        self.points = points
 
         # Prepare an index for navigating the list of images
         self.ind: int = 0
 
         # prepare an alpha selection object -
-        # this uses the selected points to describe a hull and decide which points are within it
+        # this uses the selected uniq_points to describe a hull and decide which uniq_points are within it
         self.alpha_selection = None
+
         self.alpha_text = None
         self.delta_text = None
         self.clear_btn = None
@@ -142,12 +214,9 @@ class HullPanel(wx.Panel):
     def on_exit(self, event):
         logger.debug("Close called")
         if self.alpha_selection.hull is None:
-            raise ValueError("Calibration not complete - please start again and select more than 4 points")
+            raise ValueError("Calibration not complete - please start again and select more than 4 uniq_points")
 
         self.plot_hull()
-
-        self.lab.pop("args", None)
-        self.rgb.pop("args", None)
 
         update_arg(self.args, 'alpha', self.alpha_selection.alpha)
         update_arg(self.args, "hull_vertices", list(map(tuple, np.round(
@@ -161,7 +230,6 @@ class HullPanel(wx.Panel):
         pub.sendMessage("enable_btns")
         plt.close()
         self.Destroy()
-        #event.Skip()
 
     def add_toolbar(self):
         self.toolbar = wx.ToolBar(self, id=-1, style=wx.TB_HORIZONTAL)  # | wx.TB_TEXT)
@@ -265,8 +333,8 @@ class HullPanel(wx.Panel):
             "args",
             wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
-            "Include points supplied as arguments in collection",
-            "Include points supplied as arguments in collection"
+            "Include uniq_points supplied as arguments in collection",
+            "Include uniq_points supplied as arguments in collection"
         )
         self.toolbar.ToggleTool(11, False)
         self.Bind(wx.EVT_TOOL, self.toggle_args_vertices, id=11)
@@ -274,17 +342,17 @@ class HullPanel(wx.Panel):
             self.toolbar.EnableTool(11, False)
 
         # add button to toggle using the hull vertices supplied as args
-        self.toolbar.AddSeparator()
-        self.toolbar.AddCheckTool(
-            12,
-            "all_points",
-            wx.Image(str(Path(Path(__file__).parent, "bmp", "all_points.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
-            wx.NullBitmap,
-            "Display points from all images, (and arguments)",
-            "Display points from all images (and arguments)"
-        )
-        self.toolbar.ToggleTool(12, False)
-        self.Bind(wx.EVT_TOOL, self.toggle_all_points, id=12)
+        #self.toolbar.AddSeparator()
+        #self.toolbar.AddCheckTool(
+        #    12,
+        #    "all_points",
+        #    wx.Image(str(Path(Path(__file__).parent, "bmp", "all_points.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+        #    wx.NullBitmap,
+        #    "Display uniq_points from all images, (and arguments)",
+        #    "Display uniq_points from all images (and arguments)"
+        #)
+        #self.toolbar.ToggleTool(12, False)
+        #self.Bind(wx.EVT_TOOL, self.toggle_all_points, id=12)
 
         # add a close button
         self.toolbar.AddSeparator()
@@ -362,16 +430,17 @@ class HullPanel(wx.Panel):
         return index % x_length, int(np.floor(index/x_length))
 
     def coord_index_to_unique(self, coord_index, filepath):
-        unique_index = self.lab_inv[filepath][coord_index]
+        unique_index = self.points.lab_inv[filepath][coord_index]
         return unique_index
 
     def unique_index_to_coord_indices(self, filepath, unique_index):
-        coord_indices = np.flatnonzero(self.lab_inv[filepath] == unique_index)
+        coord_indices = np.flatnonzero(self.points.lab_inv[filepath] == unique_index)
         return coord_indices
 
     def on_click_segments(self, event):
-        x = event.mouseevent.xdata.astype(int)
-        y = event.mouseevent.ydata.astype(int)
+        x = int(np.around(event.mouseevent.xdata, decimals=0))
+        y = int(np.around(event.mouseevent.ydata, decimals=0))
+        logger.debug(f"x:{event.mouseevent.xdata} = {x}, y:{event.mouseevent.ydata} = {y}")
         image = self.images[self.ind]
         coord_index = self.coord_to_index(x, y)
         unique_index = self.coord_index_to_unique(coord_index, image.filepath)
@@ -408,7 +477,7 @@ class HullPanel(wx.Panel):
         logger.debug(f"show within: {show_within}")
 
         image = self.images[self.ind]
-        inv = self.lab_inv[image.filepath]
+        inv = self.points.lab_inv[image.filepath]
         displayed = image.rgb.copy()
 
         if show_selected:
@@ -433,16 +502,16 @@ class HullPanel(wx.Panel):
 
     def draw_lab_figure(self, _=None):
         logger.debug("Draw lab figure")
-        show_all = self.toolbar.GetToolState(12)
+        #show_all = self.toolbar.GetToolState(12)
         image = self.images[self.ind]
-        if show_all:
-            lab = np.concatenate(list(self.lab.values()))  # todo handle these for uniqueness also including indices
-            rgb = np.concatenate(list(self.rgb.values()))
-            sizes = np.concatenate(list(self.lab_sizes.values()))
-        else:
-            lab = self.lab_unique[image.filepath]
-            rgb = self.rgb_unique[image.filepath]
-            sizes = self.lab_sizes[image.filepath]
+        #if show_all:
+        #    lab = np.concatenate(list(self.points.lab_unique.values()))  # todo handle these for uniqueness also including indices
+        #    rgb = np.concatenate(list(self.points.rgb_unique.values()))
+        #    sizes = np.concatenate(list(self.points.lab_sizes.values()))
+        #else:
+        lab = self.points.lab_unique[image.filepath]
+        rgb = self.points.rgb_unique[image.filepath]
+        sizes = self.points.lab_sizes[image.filepath]
 
         # get the current view angles on lab plot to reload with after redraw
         elev, azim = self.lab_ax.elev, self.lab_ax.azim
@@ -456,8 +525,9 @@ class HullPanel(wx.Panel):
             zs=lab[:, 0],
             #s=10,
             s=sizes,
-            c=rgb,
-            alpha = 0.5,
+            edgecolor=(0,0,0),
+            facecolor=rgb,
+            alpha=0.9,
             lw=0,
             picker=True,
             pickradius=0.1
@@ -478,7 +548,7 @@ class HullPanel(wx.Panel):
             self.tri_art = self.lab_ax.plot_trisurf(
                 *zip(*self.alpha_selection.hull.vertices[:, [1, 2, 0]]),
                 triangles=self.alpha_selection.hull.faces[:, [1, 2, 0]],
-                color=(1, 0, 1, 0.5)
+                color=(0, 0, 0, 1)
             )
         logger.debug("draw hull complete")
         self.lab_cv.draw_idle()
@@ -498,8 +568,8 @@ class HullPanel(wx.Panel):
         else:
             fig = FigureNone("Hull", self.parent.figure_counter, self.args, cols=1)
 
-        abl = np.concatenate(list(self.lab.values()))[:, [1, 2, 0]]
-        rgb = np.concatenate(list(self.rgb.values()))
+        abl = np.concatenate(list(self.points.lab.values()))[:, [1, 2, 0]]
+        rgb = np.concatenate(list(self.points.rgb.values()))
         labels = ("a*", "b*", "L*")
         fig.plot_scatter_3d(abl, labels, rgb, self.alpha_selection.hull)
         fig.animate()
@@ -507,7 +577,7 @@ class HullPanel(wx.Panel):
 
     def reset_selection(self, event=None):
         self.alpha_selection = AlphaSelection(
-            self.lab_unique,
+            self.points.lab_unique,
             set(),
             alpha=self.args.alpha,
             delta=self.args.delta
@@ -525,16 +595,16 @@ class AlphaSelection:
             alpha: float,
             delta: float
     ):
-        self.points = points
-        # points is a dict with image filepath as key, value is ndarray of images reshaped to (-1,3)
+        self.uniq_points = points
+        # uniq_points is a dict with image filepath as key, value is ndarray of images reshaped to (-1,3)
         # filepath "args" is a special entry describing the input hull vertices supplied as arguments
 
-        self.selection = selection  # a set of (filepath, index) for the points dataframe
+        self.selection = selection  # a set of (filepath, index) for the uniq_points dataframe
         self.last_selected = None
         self.alpha = alpha  # the alpha parameter for hull construction
         self.delta = delta  # the distance from the hull surface to consider a point within the hull
 
-        self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.points.items()}
+        self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.uniq_points.items()}
 
         self.hull: Optional[Trimesh] = None
 
@@ -542,11 +612,11 @@ class AlphaSelection:
         if alpha is None:
             if len(self.selection) >= 4:
                 logger.debug(f"optimising alpha")
-                selected = [self.points[fp][ind].values for fp, ind in self.selection]
+                selected = [self.uniq_points[fp][ind].values for fp, ind in self.selection]
                 self.alpha = round(optimizealpha(selected), ndigits=3)
                 logger.info(f"optimised alpha: {self.alpha}")
             else:
-                logger.debug(f"Insufficient points selected")
+                logger.debug(f"Insufficient uniq_points selected")
         else:
             self.alpha = alpha
         self.update_hull()
@@ -565,17 +635,17 @@ class AlphaSelection:
         self.update_hull()
 
     def toggle_args_vertices(self, on=True):
-        if "args" in self.points:
-            args_indices = {("args", i) for i in self.points["args"]}
+        if "args" in self.uniq_points:
+            args_indices = {("args", i) for i in np.ndindex(self.uniq_points["args"].shape[0])}
             if on:
                 self.selection = self.selection.union(args_indices)
             else:
                 self.selection = self.selection - args_indices
-        logger.debug(self.selection)
+        #logger.debug(self.selection)
         self.update_hull()
 
     def update_hull(self):
-        selected_points = [self.points[filepath][index] for filepath, index in self.selection]
+        selected_points = [self.uniq_points[filepath][index] for filepath, index in self.selection]
         # logger.debug(f"selected_points:{selected_points}")
         if len(selected_points) < 4:
             self.hull = None
@@ -592,13 +662,13 @@ class AlphaSelection:
                 logger.debug("creating alpha shape")
                 self.hull = alphashape(np.array(selected_points), self.alpha)
                 if len(self.hull.faces) == 0:
-                    logger.debug("More points required for a complete hull with current alpha value")
+                    logger.debug("More uniq_points required for a complete hull with current alpha value")
                     self.hull = None
 
     def update_dist(self, filepath):
         if self.hull is None:
             logger.debug("No hull available to calculate distance")
-            self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.points.items()}
+            self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.uniq_points.items()}
             return
 
         logger.debug(f"updating distances from hull for {filepath}")
@@ -609,7 +679,7 @@ class AlphaSelection:
         scene = o3d.t.geometry.RaycastingScene()
         scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(self.hull.as_open3d))
 
-        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(self.points[filepath].astype(dtype=np.float32))).numpy()
+        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(self.uniq_points[filepath].astype(dtype=np.float32))).numpy()
         logger.debug(distances_array.shape)
         self.dist[filepath] = distances_array.reshape(-1, 1)
 

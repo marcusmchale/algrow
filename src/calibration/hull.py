@@ -38,6 +38,8 @@ from ..options.custom_types import DebugEnum
 logger = logging.getLogger(__name__)
 
 
+
+
 class HullPanel(wx.Panel):
 
     def __init__(self, parent, segmentor: Segmentor):
