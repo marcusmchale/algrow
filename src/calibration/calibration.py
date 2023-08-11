@@ -6,8 +6,6 @@ import numpy as np
 
 from .app import Calibrator
 
-from ..image_loading import ImageLoader
-
 logger = logging.getLogger(__name__)
 
 def calibrate(args: argparse.Namespace):

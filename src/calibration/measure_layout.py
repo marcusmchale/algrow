@@ -2,9 +2,10 @@ import logging
 
 import wx
 
+
 import pandas as pd
 from pathlib import Path
-
+from typing import List, Optional
 
 from matplotlib import get_data_path, patheffects
 from matplotlib.patches import Circle
@@ -20,6 +21,8 @@ from ..layout import (
     ImageContentException,
     InsufficientCircleDetection
 )
+from .loading import wait_for_results
+from ..logging import worker_log_configurer
 from .popframe import PopFrame
 
 from matplotlib import pyplot as plt
@@ -28,12 +31,14 @@ logger = logging.getLogger(__name__)
 
 
 class LayoutPanel(MeasurePanel):
-    def __init__(self, parent, image: ImageLoaded):
+    def __init__(self, parent, image: ImageLoaded, layouts: List[Optional[Layout]]):
         self.plates = None
+        for i, j in enumerate(layouts):  # clear stored layouts to force recalculation
+            layouts[i] = None
+        self.layouts = layouts
         super().__init__(parent, image)
         logger.debug("Launch layout panel")
         self.annotations = list()
-
 
     def set_titles(self):
         self.fig.suptitle("Define layout detection parameters")
@@ -188,7 +193,6 @@ class LayoutPanel(MeasurePanel):
         if self.plates is None:
             checkbox_toolbar.EnableTool(15, False)
 
-
         toolbar.AddSeparator()
         close_btn = wx.Button(toolbar, 16, "Save and close")
         toolbar.AddControl(close_btn)
@@ -265,7 +269,6 @@ class LayoutPanel(MeasurePanel):
         self.cv.flush_events()
 
     def test_layout(self, _=None):
-        logger.debug(self.args.plate_width)
         image = self.image.copy()  # deep copy so this doesn't share args with the main args
         done = self.save_args(image.args)  # write the current displayed args to this temporary copy for testing
 
@@ -274,66 +277,84 @@ class LayoutPanel(MeasurePanel):
             an.remove()
         self.annotations.clear()
 
-        logger.debug("Detect layout")
         if done and layout_defined(image.args):  # todo highlight any missing parameters
-            layout_detector = LayoutDetector(image)
-            plt.close()
+            logger.debug("Detect layout")
             fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
-            # force draw by setting level to warn
-            # this is so the figure is available to plot to frame if it fails
-            # we then need to later manually control the printing at debug level only if successful
-            circles = None
-            plates = None
-            for i in range(5):  # try 5 times to find enough circles to make plates
-                try:
-                    circles = layout_detector.find_n_circles(image.args.circles_per_plate * image.args.n_plates, i, fig)
-                except InsufficientCircleDetection:
-                    logger.debug("Not enough circles found, relax parameters and try again")
-                    continue
-                try:
-                    clusters, target_clusters = layout_detector.find_plate_clusters(
-                        circles,
-                        image.args.circles_per_plate,
-                        image.args.n_plates,
-                        fig=fig
-                    )
-                    plates = [
-                        Plate(
-                            cluster_id,
-                            circles[[i for i, j in enumerate(clusters.flat) if j == cluster_id]],
-                        ) for cluster_id in target_clusters
-                    ]
-                    plates = layout_detector.sort_plates(plates)
-                    self.plates = plates
-                    self.toolbar.EnableTool(15, True)
-                    layout = Layout(plates, image)
-                    self.draw_overlay(layout)
-                    if self.args.image_debug <= 0:  # (i.e. debug level):
-                        fig.print()
-                    return
-                except InsufficientPlateDetection:
-                    logger.debug(f"Try again with detection of more circles")
-                    continue
-                except ImageContentException:
-                    logger.debug(f"More plates were detected than defined")
-                    break
-            logger.info(f"Layout not detected")
-            message = None
-            if circles is None:
-                message = f"No circles detected"
+            kwargs_list = [{"image": image, 'fig': fig}]
 
-            elif len(circles) < image.args.circles_per_plate * image.args.n_plates:
-                message = f"Insufficient circles detected: {len(circles)}"
-            elif plates is None:
-                message = f"No plates detected"
-            elif len(plates) < image.args.n_plates:
-                message = f"Insufficient plates detected: {len(plates)}"
-            elif len(plates) > image.args.n_plates:
-                message = f"Too many plates detected: {len(plates)}"
-            logger.info(message)
-            self.plates = None
-            self.toolbar.EnableTool(15, False)
-            popframe = PopFrame(message, fig)
-            popframe.Show(True)
-            if self.args.image_debug <= 0:   # (i.e. debug level):
+            result = wait_for_results("Detecting layout", 1, get_layout, kwargs_list)[0]
+
+            plates = result['plates']
+            circles = result['circles']
+            fig = result['fig']
+            if self.args.image_debug <= 0:  # (i.e. debug level):
                 fig.print()
+            self.plates = plates
+            self.toolbar.EnableTool(15, True)
+
+            try:
+                logger.debug("prepare to draw layout")
+                layout = Layout(plates, image)
+                self.layouts[0] = layout
+                self.draw_overlay(layout)
+            except:
+                message = None
+                if circles is None:
+                    message = f"No circles detected"
+                elif len(circles) < image.args.circles_per_plate * image.args.n_plates:
+                    message = f"Insufficient circles detected: {len(circles)}"
+                elif plates is None:
+                    message = f"No plates detected"
+                elif len(plates) < image.args.n_plates:
+                    message = f"Insufficient plates detected: {len(plates)}"
+                elif len(plates) > image.args.n_plates:
+                    message = f"Too many plates detected: {len(plates)}"
+                logger.info(message)
+                self.toolbar.EnableTool(15, False)
+                popframe = PopFrame(message, fig)
+                popframe.Show(True)
+
+
+def get_layout(image, fig, log_queue=None):
+    if log_queue is not None:
+        worker_log_configurer(log_queue)
+
+    layout_detector = LayoutDetector(image)
+    plt.close()
+    # force draw by setting level to warn
+    # this is so the figure is available to plot to frame if it fails
+    # we then need to later manually control the printing at debug level only if successful
+    circles = None
+    plates = None
+    for i in range(5):  # try 5 times to find enough circles to make plates
+        try:
+            circles = layout_detector.find_n_circles(image.args.circles_per_plate * image.args.n_plates, i, fig)
+        except InsufficientCircleDetection:
+            logger.debug("Not enough circles found, relax parameters and try again")
+            continue
+        try:
+            clusters, target_clusters = layout_detector.find_plate_clusters(
+                circles,
+                image.args.circles_per_plate,
+                image.args.n_plates,
+                fig=fig
+            )
+            plates = [
+                Plate(
+                    cluster_id,
+                    circles[[i for i, j in enumerate(clusters.flat) if j == cluster_id]],
+                ) for cluster_id in target_clusters
+            ]
+            plates = layout_detector.sort_plates(plates)
+            break
+        except InsufficientPlateDetection:
+            logger.debug(f"Try again with detection of more circles")
+            continue
+        except ImageContentException:
+            logger.debug(f"More plates were detected than defined")
+            break
+    return {
+        "circles": circles,
+        "plates": plates,
+        "fig": fig
+    }

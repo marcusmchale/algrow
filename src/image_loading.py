@@ -1,11 +1,5 @@
 import argparse
 import logging
-
-import numpy as np
-import multiprocessing
-import threading
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import time
 from pathlib import Path
 
 from skimage.io import imread
@@ -13,9 +7,8 @@ from skimage.util import img_as_float
 from skimage.color import rgb2lab, lab2rgb
 from skimage.transform import downscale_local_mean
 from copy import deepcopy
-from typing import List
 
-from src.logging import worker_log_configurer, logger_thread, ImageFilepathAdapter
+from src.logging import ImageFilepathAdapter
 
 from .options.custom_types import DebugEnum
 from .figurebuilder import FigureBase, FigureMatplot, FigureNone
@@ -33,6 +26,14 @@ class ImageLoaded:
 
         self.logger.debug(f"Read image from file")
         self.rgb = img_as_float(imread(str(filepath)))
+
+        if self.rgb.shape[2] == 4:
+            self.logger.info("Removing alpha channel")
+            # slice off the alpha channel
+            self.rgb = self.rgb[:, :, :3]
+        elif self.rgb.shape[2] != 3:
+            raise ValueError("This image does not appear to be RGB")
+
         self.figures = ImageFigureBuilder(filepath, args)
 
         rgb_fig = self.figures.new_figure("RGB image")
@@ -104,61 +105,3 @@ class ImageFigureBuilder:
             return FigureMatplot(name, self.counter, self.args, cols=cols, image_filepath=self.image_filepath)
         else:
             return FigureNone(name, self.counter, self.args, cols=cols, image_filepath=self.image_filepath)
-
-
-class ImageLoader:
-    def __init__(self, paths: List[Path], args):
-        self.paths = paths
-        self.args = args
-        self.images: List[ImageLoaded] = list()
-
-    def run(self, progress_callback):
-        log_queue = multiprocessing.Manager().Queue(-1)
-        lp = threading.Thread(target=logger_thread, args=(log_queue,))
-        lp.start()
-
-        with ProcessPoolExecutor(
-                max_workers=self.args.processes,
-                mp_context=multiprocessing.get_context('spawn')
-        ) as executor:
-            futures = [executor.submit(self.load_image, path=fp, log_queue=log_queue) for fp in self.paths]
-
-            progress_callback(message="Loading images")
-
-            while True:
-                num_completed = sum([future.done() for future in futures])
-                num_total = len(futures)
-                complete_percent = int(num_completed/num_total * 100)
-                #logger.debug(f"complete {complete_percent}")
-                if complete_percent == 100:
-                    logger.debug(f"completed all")
-                    break
-                time.sleep(0.1)
-                progress_callback(complete=complete_percent)
-
-            for future in futures:
-                try:
-                    image = future.result()
-                    logger.debug(f"Loaded {image.filepath}")
-                    self.images.append(image)
-
-                except Exception as exc:
-                    logger.info(f'Exception occurred during image loading: {exc}')
-
-        log_queue.put(None)
-        lp.join()
-
-        logger.debug(f"images loaded: {len(self.images)}")
-        self.images.sort()
-        # multiprocessing makes a copy of args for each when using spawn, so let's write back the shared reference
-        for image in self.images:
-            image.args = self.args
-        # Note: spawn is required for support on windows etc.
-        # it is also required for the segmentation (can't recall exact reason right now)
-        # anyway, sticking with this method here rather than fork due to wider support
-
-    def load_image(self, path, log_queue=None):
-        logger.info(f"Load image: {path}")
-        if log_queue is not None:
-            worker_log_configurer(log_queue)
-        return ImageLoaded(path, self.args)

@@ -6,31 +6,32 @@ from pathlib import Path
 import wx
 from pubsub import pub
 
-import multiprocessing
-import time
 
-
-from ..image_loading import ImageLoader, ImageLoaded
+from ..image_loading import ImageLoaded
+from ..layout import Layout
 from ..options.update_and_verify import calibration_complete, layout_defined
+
+from .loading import ImageLoader, Points, LayoutMultiLoader
 
 from .measure_layout import LayoutPanel
 from .measure_scale import ScalePanel
-from .hull_pixels import HullPanel, Points
+from .hull_pixels import HullPanel
+
 from .lasso import LassoPanel
 
 logger = logging.getLogger(__name__)
 
 
 # this snippet is useful to catch exceptions from wx.Frame
-#import sys
-#import traceback
-##
-#def excepthook(type, value, tb):
-#    message = 'Uncaught exception:\n'
-#    message += ''.join(traceback.format_exception(type, value, tb))
-#    logger.debug(message)
+import sys
+import traceback
 #
-#sys.excepthook = excepthook
+def excepthook(type, value, tb):
+    message = 'Uncaught exception:\n'
+    message += ''.join(traceback.format_exception(type, value, tb))
+    logger.debug(message)
+
+sys.excepthook = excepthook
 
 
 class Calibrator(wx.App):
@@ -42,51 +43,68 @@ class Calibrator(wx.App):
 
         self.images = None
         self.points = None
+        self.layouts = None
         self.frame = None
 
         logger.info("Loading: please wait")
         super().__init__(self, **kwargs)
 
-    def set_points(self, queue):
-        logger.debug("Process points from images")
-        points = Points(self.images)
-        queue.put(points)
+    #def OnInit(self):
+    #    # now calculate the uniq_points but load a wait dialog as it takes a bit of time
+    #    dialog = wx.ProgressDialog(
+    #        "Algrow Calibration",
+    #        "Please wait...",
+    #        maximum=100,
+    #        parent=None,
+    #        style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
+    #    )
+    #    wx.Yield()
+    #
+    #    def progress_callback(complete: int = None, message: str = ""):
+    #        if complete is None:
+    #            dialog.Pulse(message)
+    #        else:
+    #            dialog.Update(complete, message)
+    #        wx.Yield()
+    #        time.sleep(0.1)
+    #
+    #    dialog.Pulse("Loading images")
+    #    image_loader = ImageLoader(self.image_filepaths, self.args)
+    #    image_loader.run(progress_callback)
+    #    self.images: List[ImageLoaded] = image_loader.images
+    #
+    #    dialog.Pulse("Summarising colours")
+    #    points = Points(self.images)
+    #    points.calculate(progress_callback)
+    #    self.points = points
+    #
+    #    dialog.Pulse("Loading layouts")
+    #    self.load_layouts(progress_callback)
+    #
+    #    dialog.Update(100)
+    #    dialog.Close()
+    #    wx.Yield()
+    #
+    #    self.frame = TopFrame(self.images, self.points, self.args)
+    #    logger.info("Start configuration GUI")
+    #    self.frame.Show(True)
+    #    return True
 
     def OnInit(self):
-        with multiprocessing.Manager() as manager:
-            # now calculate the uniq_points but load a wait dialog as it takes a bit of time
-            dialog = wx.ProgressDialog(
-                "Algrow Calibration",
-                "Please wait...",
-                maximum=100,
-                parent=None,
-                style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
-            )
-            wx.Yield()
+        image_loader = ImageLoader(self.image_filepaths, self.args)
+        image_loader.run()
+        self.images: List[ImageLoaded] = image_loader.images
 
-            def progress_callback(complete: int = None, message: str = ""):
-                if complete is None:
-                    dialog.Pulse(message)
-                else:
-                    dialog.Update(complete, message)
-                wx.Yield()
-                time.sleep(0.1)
+        points = Points(self.images)
+        points.calculate()
+        self.points = points
 
-            dialog.Pulse("Loading images")
-            image_loader = ImageLoader(self.image_filepaths, self.args)
-            image_loader.run(progress_callback)
-            self.images: List[ImageLoaded] = image_loader.images
+        multilayout = LayoutMultiLoader(self.images)
+        multilayout.run()
+        self.layouts = multilayout.layouts
 
-            points = Points(self.images)
-            points.calculate(progress_callback)
-            dialog.Pulse()
-            self.points = points
-
-            dialog.Update(100)
-            dialog.Close()
-            wx.Yield()
-
-        self.frame = TopFrame(self.images, self.points, self.args)
+        logger.info("Prepare configuration GUI")
+        self.frame = TopFrame(self.images, self.points, self.layouts, self.args)
         logger.info("Start configuration GUI")
         self.frame.Show(True)
         return True
@@ -137,16 +155,19 @@ class Calibrator(wx.App):
         return int(1)
 
 
+
 class TopFrame(wx.Frame):
-    def __init__(self, images: List[ImageLoaded], points: Points, args: argparse.Namespace):
+    def __init__(self, images: List[ImageLoaded], points: Points, layouts: List[Layout], args: argparse.Namespace):
+        logger.debug("Load top frame")
         super().__init__(None, title="AlGrow Calibration", size=(1500, 1000))
         self.figure_counter = 0
         self.images = images
+        self.layouts = layouts
         self.points = points
         self.args = args
 
         # a single image for some calibration windows, taken from the middle
-        self.image = self.images[len(self.images) // 2]
+        #self.image = self.images[len(self.images) // 2]
 
         self.SetIcon(wx.Icon(str(Path(Path(__file__).parent, "bmp", "logo.png"))))
 
@@ -243,20 +264,21 @@ class TopFrame(wx.Frame):
         self.Update()
 
     def launch_layout(self, _=None):
-        panel = LayoutPanel(self, self.image)
+        panel = LayoutPanel(self, self.images[0], self.layouts)  # first image is usually better for layout detection
+        # todo handle multiple images for all measure/scale panels
         self.display_panel(panel)
 
     def launch_scaler(self, _=None):
-        panel = ScalePanel(self, self.image)
+        panel = ScalePanel(self, self.images[0])
         self.display_panel(panel)
 
     def launch_circle_colour(self, _=None):
-        panel = LassoPanel(self, self.image)
+        panel = LassoPanel(self, self.images[0])
         self.display_panel(panel)
 
     def launch_hull(self, _=None):
         logger.debug("launch hull panel")
-        hull_panel = HullPanel(self, self.images, self.points)
+        hull_panel = HullPanel(self, self.images, self.points, self.layouts)
         self.display_panel(hull_panel)
 
     def on_exit(self, _=None):
