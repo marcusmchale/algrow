@@ -227,13 +227,13 @@ class FigureMatplot(FigureBase):
         self._current_axis.get_xaxis().set_visible(False)
         self._current_axis.get_yaxis().set_visible(False)
 
-    def plot_scatter_3d(self, points: np.ndarray, axis_labels: tuple[str, str, str], rgb: np.ndarray, hull=None):
+    def plot_scatter_3d(self, points: np.ndarray, axis_labels: tuple[str, str, str], rgb: np.ndarray, sizes=10, hull=None):
         # todo starting to refactor to support other colourspaces
         ax = self._add_plot(projection='3d')
         ax.set_xlabel(axis_labels[0])
         ax.set_ylabel(axis_labels[1])
         ax.set_zlabel(axis_labels[2])
-        ax.scatter(xs=points[:, 0], ys=points[:, 1], zs=points[:, 2], s=10, c=rgb, lw=0)
+        ax.scatter(xs=points[:, 0], ys=points[:, 1], zs=points[:, 2], s=sizes, c=rgb, lw=0)
         # rearranging so that L is z axis, i.e. last
         if hull is not None:
             self._current_axis.plot_trisurf(
@@ -243,9 +243,6 @@ class FigureMatplot(FigureBase):
             )
 
     def animate(self):
-
-        if not self.args.animations:
-            return
 
         def rotate(ii, ax):
             ax.view_init(azim=ii[0], elev=ii[1])
@@ -291,7 +288,6 @@ class FigureMatplot(FigureBase):
 
 
 class FigureNone(FigureBase):
-
 
     def __init__(self, name: str, number: int, args: argparse.Namespace, cols=1, image_filepath=None):
         super().__init__(name, number, args, cols=cols, image_filepath=image_filepath)

@@ -1,17 +1,11 @@
 import logging
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
-import threading
-import time
-
-from typing import List, Optional
+from typing import List, Tuple, Optional
 
 import wx
 from pubsub import pub
 
 import numpy as np
 from pathlib import Path
-
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_wxagg import (
@@ -21,8 +15,6 @@ from matplotlib.backends.backend_wxagg import (
 from matplotlib.figure import Figure
 from matplotlib import get_data_path  # we are recycling some matplotlib icons
 
-
-from skimage.color import lab2rgb
 from alphashape import alphashape, optimizealpha
 from trimesh import (
     PointCloud,
@@ -31,113 +23,32 @@ from trimesh import (
 import open3d as o3d
 
 from ..image_loading import ImageLoaded
+from ..layout import Layout
 from ..figurebuilder import FigureMatplot, FigureNone
 from ..options.update_and_verify import update_arg
 from ..options.custom_types import DebugEnum
-from ..logging import logger_thread, worker_log_configurer
+
+from .loading import Points, LayoutMultiLoader, wait_for_results
+from ..logging import worker_log_configurer
 
 logger = logging.getLogger(__name__)
 
 
-class Points:
-    def __init__(self, images: List[ImageLoaded]):
-        self.images = images
-        self.args = self.images[0].args
-        self.nearest = 10  # affects rounding used to reduce lab uniq_points # todo pass up as argument
-
-        self.lab = None
-        self.rgb = None
-        self.lab_unique = dict()
-        self.lab_inv = dict()
-        self.lab_sizes = dict()
-        self.rgb_unique = dict()
-
-    def calculate(self, progress_callback):
-        logger.debug("build dictionary of lab/rgb for images ")
-        self.lab = {image.filepath: image.lab.reshape(-1, 3) for image in self.images}  # note these are references
-        self.rgb = {image.filepath: image.rgb.reshape(-1, 3) for image in self.images}
-
-        if self.args.hull_vertices is not None:
-            logger.debug("append args")
-            self.lab["args"] = np.array(self.args.hull_vertices)
-            self.rgb["args"] = lab2rgb(self.lab["args"])
-
-        logger.debug(f"Compress the uniq_points to unique per {self.nearest}")
-
-        log_queue = multiprocessing.Manager().Queue(-1)
-        lp = threading.Thread(target=logger_thread, args=(log_queue,))
-        lp.start()
-
-        with ProcessPoolExecutor(
-                max_workers=self.args.processes,
-                mp_context=multiprocessing.get_context('spawn')
-        ) as executor:
-            futures = [executor.submit(self.process, key=image.filepath, log_queue=log_queue) for image in self.images]
-
-            progress_callback(complete=0, message="Preparing colour summaries")
-
-            while True:
-                num_completed = sum([future.done() for future in futures])
-                num_total = len(futures)
-                complete_percent = int(num_completed/num_total * 100)
-                if complete_percent == 100:
-                    logger.debug(f"completed all")
-                    break
-                time.sleep(0.1)
-                progress_callback(complete=complete_percent)
-
-            for future in futures:
-                try:
-                    progress_callback()
-                    record = future.result()
-                    self.lab_unique[record["key"]] = record["lab_unique"]
-                    self.lab_inv[record["key"]] = record["lab_inv"]
-                    self.lab_sizes[record["key"]] = record["lab_sizes"]
-                    self.rgb_unique[record["key"]] = record["rgb_unique"]
-                    logger.debug(f"Calculated points for {record['key']}")
-                except Exception as exc:
-                    logger.info(f'Exception occurred during points calculation: {exc}')
-
-    def process(self, key, log_queue=None):
-        logger.info(f"Calculate points summary for : {key}")
-        if log_queue is not None:
-            worker_log_configurer(log_queue)
-
-        lab = self.lab[key]
-        logger.debug(f"rounding lab for {key}")
-        lab_round = np.around(lab/self.nearest, decimals=0)*self.nearest
-        logger.debug(f"getting unique for {key}")
-        uni, inv, counts = np.unique(lab_round, axis=0, return_inverse=True, return_counts=True)
-        # todo consider filtering out if only found 1 time,
-        #  this would require a definite index rather than relative, consider pandas
-        #logger.debug(f"deleting singletons for {key}")
-        #singleton = np.argwhere(counts == 1)
-        #uni = np.delete(uni, singleton, axis=0)
-        #counts = np.delete(counts, singleton, axis=0)
-        #
-        ##inv =
-
-        logger.debug(f"scaling sizes for {key}")
-        scaled_counts = counts / np.median(counts)  # so that most are centered on 1
-        scaled_counts[scaled_counts <= 0.1] = 0.1  # rare uniq_points should still be visible (and clickable)
-        scaled_counts[scaled_counts >= 10] = 10  # and overrepresented colours shouldn't mask others
-        return {
-            'key': key,
-            "lab_unique": uni,
-            "lab_inv": inv,
-            "lab_sizes": scaled_counts * 10,
-            "rgb_unique": lab2rgb(uni)
-        }
-
-
 class HullPanel(wx.Panel):
 
-    def __init__(self, parent, images: List[ImageLoaded], points: Points):
+    def __init__(self, parent, images: List[ImageLoaded], points: Points, layouts: List[Optional[Layout]]):
         super().__init__(parent)
         self.parent = parent
         self.images = images
         self.args = self.images[0].args
         self.points = points
+
+        layouts_to_load = [i for i, layout in enumerate(layouts) if layout is None]
+        logger.debug(f"{layouts_to_load}")
+        if layouts_to_load:
+            layoutmultiloader = LayoutMultiLoader([image for i, image in enumerate(self.images) if i in layouts_to_load])
+            for j in layouts_to_load:
+                layouts[layouts_to_load[j]] = layoutmultiloader.layouts[j]
 
         # Prepare an index for navigating the list of images
         self.ind: int = 0
@@ -159,19 +70,19 @@ class HullPanel(wx.Panel):
         # we are using two figures rather than one due to a bug in imshow that prevents efficient animation
         # https://github.com/matplotlib/matplotlib/issues/18985
         # by keeping them separate, changing the view on one doesn't force a redraw of the other
-        self.seg_fig = Figure()
-        self.seg_fig.set_dpi(150)
-        self.seg_ax = self.seg_fig.add_subplot(111)
-        self.seg_fig.suptitle('Left-click to select', fontsize=10)
-        self.seg_cv = FigureCanvas(self, -1, self.seg_fig)
-        self.seg_art = None
-        self.seg_nav_toolbar = NavigationToolbar(self.seg_cv)
-        self.seg_nav_toolbar.Realize()
-        seg_sizer = wx.BoxSizer(wx.VERTICAL)
-        seg_sizer.Add(self.seg_nav_toolbar, 0, wx.ALIGN_CENTER)
-        seg_sizer.Add(self.seg_cv, 1, wx.EXPAND)
-        self.seg_nav_toolbar.update()
-        self.click_segments = self.seg_cv.mpl_connect('pick_event', self.on_click_segments)
+        self.image_fig = Figure()
+        self.image_fig.set_dpi(150)
+        self.image_ax = self.image_fig.add_subplot(111)
+        self.image_fig.suptitle('Left-click to select', fontsize=10)
+        self.image_cv = FigureCanvas(self, -1, self.image_fig)
+        self.image_art = None
+        self.image_nav_toolbar = NavigationToolbar(self.image_cv)
+        self.image_nav_toolbar.Realize()
+        image_sizer = wx.BoxSizer(wx.VERTICAL)
+        image_sizer.Add(self.image_nav_toolbar, 0, wx.ALIGN_CENTER)
+        image_sizer.Add(self.image_cv, 1, wx.EXPAND)
+        self.image_nav_toolbar.update()
+        self.click_image = self.image_cv.mpl_connect('pick_event', self.on_click_image)
 
         self.lab_fig = Figure()
         self.lab_fig.set_dpi(100)
@@ -196,7 +107,7 @@ class HullPanel(wx.Panel):
 
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         figure_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        figure_sizer.Add(seg_sizer, proportion=1, flag=wx.LEFT | wx.TOP | wx.EXPAND)
+        figure_sizer.Add(image_sizer, proportion=1, flag=wx.LEFT | wx.TOP | wx.EXPAND)
         figure_sizer.Add(lab_sizer, proportion=1, flag=wx.RIGHT | wx.TOP | wx.EXPAND)
         self.sizer.Add(figure_sizer, proportion=1, flag=wx.ALIGN_CENTER)
         self.SetSizer(self.sizer)
@@ -215,8 +126,6 @@ class HullPanel(wx.Panel):
         logger.debug("Close called")
         if self.alpha_selection.hull is None:
             raise ValueError("Calibration not complete - please start again and select more than 4 uniq_points")
-
-        self.plot_hull()
 
         update_arg(self.args, 'alpha', self.alpha_selection.alpha)
         update_arg(self.args, "hull_vertices", list(map(tuple, np.round(
@@ -333,26 +242,38 @@ class HullPanel(wx.Panel):
             "args",
             wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
-            "Include uniq_points supplied as arguments in collection",
-            "Include uniq_points supplied as arguments in collection"
+            "Select points supplied as arguments",
+            "Select points supplied as arguments"
         )
         self.toolbar.ToggleTool(11, False)
         self.Bind(wx.EVT_TOOL, self.toggle_args_vertices, id=11)
         if self.args.hull_vertices is None:
             self.toolbar.EnableTool(11, False)
 
-        # add button to toggle using the hull vertices supplied as args
-        #self.toolbar.AddSeparator()
-        #self.toolbar.AddCheckTool(
-        #    12,
-        #    "all_points",
-        #    wx.Image(str(Path(Path(__file__).parent, "bmp", "all_points.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
-        #    wx.NullBitmap,
-        #    "Display uniq_points from all images, (and arguments)",
-        #    "Display uniq_points from all images (and arguments)"
-        #)
-        #self.toolbar.ToggleTool(12, False)
-        #self.Bind(wx.EVT_TOOL, self.toggle_all_points, id=12)
+        self.toolbar.AddTool(
+            20,
+            "Print",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            wx.ITEM_NORMAL,
+            "Print animation",
+            "Print animated gif of rotating hull",
+            None
+        )
+        self.Bind(wx.EVT_TOOL, self.wait_for_animation, id=20)
+
+        #add button to toggle using the hull vertices supplied as args
+        self.toolbar.AddSeparator()
+        self.toolbar.AddCheckTool(
+            12,
+            "all_points",
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "all_points.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.NullBitmap,
+            "Display all points (all images and arguments)",
+            "Display all points (all images and arguments)"
+        )
+        self.toolbar.ToggleTool(12, False)
+        self.Bind(wx.EVT_TOOL, self.toggle_all_points, id=12)
 
         # add a close button
         self.toolbar.AddSeparator()
@@ -388,7 +309,7 @@ class HullPanel(wx.Panel):
     def load_current_image(self):
         filepath = self.images[self.ind].filepath
         logger.debug(f"Load image: {filepath}")
-        self.seg_ax.set_title(str(filepath), y=-0.01, size=5)
+        self.image_ax.set_title(str(filepath), y=-0.01, size=5)
         self.draw_image_figure()
         self.draw_lab_figure()
 
@@ -421,34 +342,50 @@ class HullPanel(wx.Panel):
         self.alpha_selection.set_delta(value)
         self.draw_image_figure()
 
-    def coord_to_index(self, x, y):
+    def coord_to_pixel(self, x, y) -> int:
         x_length = self.images[self.ind].lab.shape[1]
         return (y * x_length) + x
 
-    def index_to_coord(self, index):
+    def pixel_to_coord(self, index) -> Tuple[int, int]:
         x_length = self.images[self.ind].lab.shape[1]
         return index % x_length, int(np.floor(index/x_length))
 
-    def coord_index_to_unique(self, coord_index, filepath):
-        unique_index = self.points.lab_inv[filepath][coord_index]
-        return unique_index
+    def pixel_to_lab(self, pixel) -> Tuple[Path, int]:
+        return tuple(self.points.pixel_to_lab.loc[(self.images[self.ind].filepath, pixel)].to_numpy())
 
-    def unique_index_to_coord_indices(self, filepath, unique_index):
-        coord_indices = np.flatnonzero(self.points.lab_inv[filepath] == unique_index)
-        return coord_indices
+    def lab_to_pixels(self, lab, filepath: Optional[Path] = None) -> List[Tuple[Path, int]]:
+        if filepath is None:
+            return [tuple(x) for x in self.points.lab_to_pixel.loc[lab].to_numpy()]
+        else:
+            return [tuple([filepath, *x]) for x in self.points.filepath_lab_to_pixel.loc[(filepath, *lab)].to_numpy()]
 
-    def on_click_segments(self, event):
-        x = int(np.around(event.mouseevent.xdata, decimals=0))
-        y = int(np.around(event.mouseevent.ydata, decimals=0))
-        logger.debug(f"x:{event.mouseevent.xdata} = {x}, y:{event.mouseevent.ydata} = {y}")
-        image = self.images[self.ind]
-        coord_index = self.coord_to_index(x, y)
-        unique_index = self.coord_index_to_unique(coord_index, image.filepath)
+    def on_click_image(self, event):
         # Left click only
         if event.mouseevent.button == 1:
+            x = int(np.around(event.mouseevent.xdata, decimals=0))
+            y = int(np.around(event.mouseevent.ydata, decimals=0))
+            logger.debug(f"x: {x}, y: {y}")
+            image = self.images[self.ind]
+            pixel = self.coord_to_pixel(x, y)
+            lab = self.pixel_to_lab(pixel)
+            self.alpha_selection.toggle_colour(lab)
+            self.draw_image_figure()
+            self.draw_hull()
+
+    def on_click_lab(self, event):
+        # Left click only (right click can be used to rotate view)
+        if event.mouseevent.button == 1:
+            lab_plot_index = event.ind[0]
+            all_points = self.toolbar.GetToolState(11)
+            if all_points:
+                
+                points.counts_all or points.counts_per_image  depending on *all_points or not
+
+            image = self.images[self.ind]
             self.alpha_selection.toggle_colour(image.filepath, unique_index)
             self.draw_image_figure()
             self.draw_hull()
+
 
     def toggle_args_vertices(self, event=None):
         if self.args.hull_vertices is not None:
@@ -460,14 +397,6 @@ class HullPanel(wx.Panel):
     def toggle_all_points(self, event=None):
         self.draw_lab_figure()
 
-    def on_click_lab(self, event):
-        # Left click only (right click can be used to rotate view)
-        if event.mouseevent.button == 1:
-            unique_index = event.ind[0]
-            image = self.images[self.ind]
-            self.alpha_selection.toggle_colour(image.filepath, unique_index)
-            self.draw_image_figure()
-            self.draw_hull()
 
     def draw_image_figure(self, _=None):
         logger.debug("Draw image with highlighting")
@@ -492,13 +421,13 @@ class HullPanel(wx.Panel):
             within_real = within[inv].reshape(-1)
             displayed.reshape(-1, 3)[within_real, :] = (1, 1, 1)  # todo make these colours variables, either as arguments or some other method
 
-        if self.seg_art is None:
-            self.seg_art = self.seg_ax.imshow(displayed, picker=True)
+        if self.image_art is None:
+            self.image_art = self.image_ax.imshow(displayed, picker=True)
         else:
-            self.seg_art.set_data(displayed)
+            self.image_art.set_data(displayed)
 
-        self.seg_cv.draw_idle()
-        self.seg_cv.flush_events()
+        self.image_cv.draw_idle()
+        self.image_cv.flush_events()
 
     def draw_lab_figure(self, _=None):
         logger.debug("Draw lab figure")
@@ -556,26 +485,17 @@ class HullPanel(wx.Panel):
         self.lab_cv.flush_events()
         logger.debug("flush complete")
 
-    def plot_hull(self):
-        if self.alpha_selection.hull is None:
-            logger.warning("Configuration is incomplete, will not attempt to print summary figure")
-            return
-        logger.debug("Plotting hull in lab colourspace")
+    def wait_for_animation(self, _=None):
+        kwargs_list = [{
+            "args": self.args,
+            "points": self.points,
+            "hull_vertices": self.alpha_selection.hull.vertices if self.alpha_selection.hull else None,
+            "alpha": self.alpha_selection.alpha,
+            "counter": self.parent.figure_counter
+        }]
+        wait_for_results("Preparing animation", 1, plot_hull_animation, kwargs_list)
 
-        if DebugEnum["INFO"] >= self.args.image_debug:
-            self.parent.figure_counter += 1
-            fig = FigureMatplot("Hull", self.parent.figure_counter, self.args, cols=1)
-        else:
-            fig = FigureNone("Hull", self.parent.figure_counter, self.args, cols=1)
-
-        abl = np.concatenate(list(self.points.lab.values()))[:, [1, 2, 0]]
-        rgb = np.concatenate(list(self.points.rgb.values()))
-        labels = ("a*", "b*", "L*")
-        fig.plot_scatter_3d(abl, labels, rgb, self.alpha_selection.hull)
-        fig.animate()
-        fig.print()
-
-    def reset_selection(self, event=None):
+    def reset_selection(self, _=None):
         self.alpha_selection = AlphaSelection(
             self.points.lab_unique,
             set(),
@@ -585,6 +505,41 @@ class HullPanel(wx.Panel):
         self.toolbar.ToggleTool(11, False)
         self.draw_image_figure()
         self.draw_hull()
+
+
+def plot_hull_animation(args, points, hull_vertices, alpha, counter, log_queue=None):
+    if log_queue is not None:
+        worker_log_configurer(log_queue)
+
+    if hull_vertices is not None:
+        if len(hull_vertices) < 4:
+            hull = None
+        else:
+            logger.debug("Calculating hull")
+            if alpha is None or alpha == 0:
+                logger.debug("creating convex hull")
+                # the api for alphashape is a bit strange,
+                # it returns a shapely polygon when alpha is 0
+                # rather than a trimesh object which is returned for other values of alpha
+                # so just calculate the convex hull with trimesh to ensure we get a consistent return value
+                hull = PointCloud(hull_vertices).convex_hull
+            else:
+                logger.debug("creating alpha shape")
+                hull = alphashape(hull_vertices, alpha)
+                if len(hull.faces) == 0:
+                    logger.debug("More points required for a complete hull with current alpha value")
+                    hull = None
+    else:
+        hull = None
+
+    logger.debug("Plotting animation of hull")
+    fig = FigureMatplot("Hull", counter, args, cols=1)
+    abl = np.concatenate(list(points.lab_unique.values()))[:, [1, 2, 0]]
+    rgb = np.concatenate(list(points.rgb_unique.values()))
+    sizes = np.concatenate(list(points.lab_sizes.values()))
+    labels = ("a*", "b*", "L*")
+    fig.plot_scatter_3d(abl, labels, rgb, sizes, hull)
+    fig.animate()
 
 
 class AlphaSelection:
@@ -625,13 +580,13 @@ class AlphaSelection:
         logger.debug(f"Set delta: {delta}")
         self.delta = delta
 
-    def toggle_colour(self, filepath, index):
-        if (filepath, index) in self.selection:
-            self.selection.remove((filepath, index))
+    def toggle_colour(self, lab: np.ndarray):
+        if lab in self.selection:
+            self.selection.remove(lab)
             self.last_selected = None
         else:
-            self.selection.add((filepath, index))
-            self.last_selected = (filepath, index)
+            self.selection.add(lab)
+            self.last_selected = lab
         self.update_hull()
 
     def toggle_args_vertices(self, on=True):

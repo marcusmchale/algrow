@@ -78,9 +78,10 @@ def options():
         type=arg_types["block_regex"]
     )
     parser.add_argument(
-        "--animations",
-        help="Use imagemagick to generate gif animations of 3d plots",
-        action='store_true'
+        "--colourspace_rounding",
+        help="Value to round to nearest in colourspace projection for hull calibration",
+        type=arg_types["colourspace_rounding"],
+        default=10
     )
     parser.add_argument(
         "--superpixels",

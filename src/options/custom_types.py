@@ -68,6 +68,7 @@ arg_types = {
     "processes": int,
     "image_debug": debug_level,
     "loglevel": debug_level,
+    "colourspace_rounding": float,
     "superpixels": int,
     "slic_iter": int,
     "compactness": float,
