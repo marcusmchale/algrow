@@ -78,40 +78,40 @@ def options():
         type=arg_types["block_regex"]
     )
     parser.add_argument(
-        "--colourspace_rounding",
+        "--colour_rounding",
         help="Value to round to nearest in colourspace projection for hull calibration",
-        type=arg_types["colourspace_rounding"],
-        default=10
-    )
-    parser.add_argument(
-        "--superpixels",
-        help="The number of superpixels to find in image",
-        type=arg_types["superpixels"],
-        default=None
-    )
-    parser.add_argument(
-        "--slic_iter",
-        help="The maximum number of iterations for SLIC clustering",
-        type=arg_types["slic_iter"],
-        default=10
-    )
-    parser.add_argument(
-        "--compactness",
-        help=(
-            "Superpixel compactness, higher values is more more weight to distance than colour."
-            " Positive values will be fixed, negative values will run run slic_zero"
-            " (a locally adaptive compactness parameter)"
-            " with the absolute of the provided value being the starting point"
-        ),
-        type=arg_types["compactness"],
-        default=-.1
-    )
-    parser.add_argument(
-        "--sigma",
-        help="Smoothing kernel applied before superpixel clustering",
-        type=arg_types["sigma"],
+        type=arg_types["colour_rounding"],
         default=1
     )
+    #parser.add_argument(
+    #    "--superpixels",
+    #    help="The number of superpixels to find in image",
+    #    type=arg_types["superpixels"],
+    #    default=None
+    #)
+    #parser.add_argument(
+    #    "--slic_iter",
+    #    help="The maximum number of iterations for SLIC clustering",
+    #    type=arg_types["slic_iter"],
+    #    default=10
+    #)
+    #parser.add_argument(
+    #    "--compactness",
+    #    help=(
+    #        "Superpixel compactness, higher values is more more weight to distance than colour."
+    #        " Positive values will be fixed, negative values will run run slic_zero"
+    #        " (a locally adaptive compactness parameter)"
+    #        " with the absolute of the provided value being the starting point"
+    #    ),
+    #    type=arg_types["compactness"],
+    #    default=-.1
+    #)
+    #parser.add_argument(
+    #    "--sigma",
+    #    help="Smoothing kernel applied before superpixel clustering",
+    #    type=arg_types["sigma"],
+    #    default=1
+    #)
     parser.add_argument(
         "--circle_colour",
         help="Circle colour in Lab colourspace",
@@ -135,7 +135,7 @@ def options():
         "--delta",
         help="Maximum distance outside of target polygon to consider as target",
         type=arg_types["delta"],
-        default=5
+        default=1
     )
     parser.add_argument(
         "--force_calibration",

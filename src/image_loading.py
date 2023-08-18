@@ -3,8 +3,9 @@ import logging
 from pathlib import Path
 
 from skimage.io import imread
-from skimage.util import img_as_float
-from skimage.color import rgb2lab, lab2rgb
+from skimage.util import img_as_float64 as img_as_float
+# todo reconsider, 64 is actually faster with open3d so coerce to this
+from skimage.color import rgb2lab
 from skimage.transform import downscale_local_mean
 from copy import deepcopy
 
@@ -26,6 +27,7 @@ class ImageLoaded:
 
         self.logger.debug(f"Read image from file")
         self.rgb = img_as_float(imread(str(filepath)))
+        self.logger.debug(f"Loaded RGB image data type: {self.rgb.dtype}")
 
         if self.rgb.shape[2] == 4:
             self.logger.info("Removing alpha channel")

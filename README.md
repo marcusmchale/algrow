@@ -324,3 +324,8 @@ with similar images and to ensure consistency across multiple analyses.
     - Motorised IR cut camera (supplier pimoroni is on agresso but not willing to supply)
       - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
     - Note: IR didn't work well in testing with a fixed camera - very high background reflection from the water surface and plates/frames
+
+# During wxpython install you need opengl available:
+you might get this warning:
+  configure: WARNING: OpenGL libraries not available, disabling support for OpenGL
+if so then reinstall after e.g. sudo apt install freeglut3-dev

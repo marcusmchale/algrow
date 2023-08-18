@@ -13,7 +13,6 @@ from datetime import datetime
 
 from skimage.morphology import remove_small_holes, remove_small_objects
 
-#from trimesh import proximity
 from alphashape import alphashape
 from trimesh import PointCloud
 import open3d as o3d
@@ -39,6 +38,7 @@ def calculate(args):
         alpha_hull = PointCloud(args.hull_vertices).convex_hull
     else:
         alpha_hull = alphashape(np.array(args.hull_vertices), args.alpha)
+
     if len(alpha_hull.faces) == 0:
         raise ValueError("The provided vertices do not construct a complete hull with the chosen alpha parameter")
 

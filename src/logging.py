@@ -53,9 +53,11 @@ LOGGING_CONFIG = {
         }
     },
     'loggers': {
-        '': {  # root logger  # I prefer to set this as WARNING, otherwise we get debug from loaded packages as well
+        '': {  # root logger  # I prefer to set this as ERROR, otherwise we get messages from loaded packages as well
             'handlers': ['default'],
-            'level': 'WARNING',
+            'level': 'ERROR',
+            # e.g. there is a warning in alphashapes.alphasimplices that isn't a concern
+            # in particular the presence of simplices in a single axis. These points are still found in other
             'propagate': False
         },
         'src': {

@@ -206,9 +206,6 @@ class LayoutDetector:
         raise InsufficientPlateDetection(f"Insufficient plates detected - consider modifying the layout configuration")
 
     def get_axis_clusters(self, axis_values, cut_height, fig, plate_id=None):
-        logger.debug(axis_values.shape)
-        logger.debug(axis_values)
-
         dendrogram = hierarchy.linkage(axis_values.reshape(-1, 1))
         fig.plot_dendrogram(dendrogram, cut_height, label=f"Plate: {plate_id}" if plate_id else None)
         return hierarchy.cut_tree(dendrogram, height=cut_height)
@@ -250,7 +247,7 @@ class LayoutDetector:
             within_plate_fig = self.image.figures.new_figure(f"Within plate {'row' if rows_first else 'col'} clustering")
             for i, p in enumerate(plates):
                 p.id = i + 1
-
+                self.sort_circles(plates[i], within_plate_fig, rows_first, left_right, top_bottom)
             within_plate_fig.print()
             return plates.tolist()
         else:

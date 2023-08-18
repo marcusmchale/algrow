@@ -49,47 +49,6 @@ class Calibrator(wx.App):
         logger.info("Loading: please wait")
         super().__init__(self, **kwargs)
 
-    #def OnInit(self):
-    #    # now calculate the uniq_points but load a wait dialog as it takes a bit of time
-    #    dialog = wx.ProgressDialog(
-    #        "Algrow Calibration",
-    #        "Please wait...",
-    #        maximum=100,
-    #        parent=None,
-    #        style=wx.PD_APP_MODAL | wx.PD_AUTO_HIDE
-    #    )
-    #    wx.Yield()
-    #
-    #    def progress_callback(complete: int = None, message: str = ""):
-    #        if complete is None:
-    #            dialog.Pulse(message)
-    #        else:
-    #            dialog.Update(complete, message)
-    #        wx.Yield()
-    #        time.sleep(0.1)
-    #
-    #    dialog.Pulse("Loading images")
-    #    image_loader = ImageLoader(self.image_filepaths, self.args)
-    #    image_loader.run(progress_callback)
-    #    self.images: List[ImageLoaded] = image_loader.images
-    #
-    #    dialog.Pulse("Summarising colours")
-    #    points = Points(self.images)
-    #    points.calculate(progress_callback)
-    #    self.points = points
-    #
-    #    dialog.Pulse("Loading layouts")
-    #    self.load_layouts(progress_callback)
-    #
-    #    dialog.Update(100)
-    #    dialog.Close()
-    #    wx.Yield()
-    #
-    #    self.frame = TopFrame(self.images, self.points, self.args)
-    #    logger.info("Start configuration GUI")
-    #    self.frame.Show(True)
-    #    return True
-
     def OnInit(self):
         image_loader = ImageLoader(self.image_filepaths, self.args)
         image_loader.run()
@@ -113,6 +72,10 @@ class Calibrator(wx.App):
         if not calibration_complete(self.args):
             raise ValueError("Not all calibration parameters were defined")
         # Output a file summarising the calibration values: selected colours, alpha and delta values
+        self.write_calibration()
+        return int(1)
+
+    def write_calibration(self):
         logger.info("Write out calibration parameters")
         with open(Path(self.args.out_dir, "calibration.conf"), 'w') as text_file:
             if self.args.whole_image:
@@ -152,8 +115,6 @@ class Calibrator(wx.App):
                 text_file.write(f"circles_bottom_top = {self.args.circles_bottom_top}\n")
                 text_file.write(f"circles_right_left = {self.args.circles_right_left}\n")
             logger.debug("Finished writing to calibration file")
-        return int(1)
-
 
 
 class TopFrame(wx.Frame):
@@ -278,8 +239,10 @@ class TopFrame(wx.Frame):
 
     def launch_hull(self, _=None):
         logger.debug("launch hull panel")
-        hull_panel = HullPanel(self, self.images, self.points, self.layouts)
-        self.display_panel(hull_panel)
+        #panel = HullPanel(self, self.images, self.points, self.layouts)
+        #self.display_panel(panel)
+        from .o3d_test import main
+        main()
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")

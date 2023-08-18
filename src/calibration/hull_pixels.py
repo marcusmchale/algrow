@@ -1,5 +1,5 @@
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Set, Tuple, Optional
 
 import wx
 from pubsub import pub
@@ -24,12 +24,10 @@ import open3d as o3d
 
 from ..image_loading import ImageLoaded
 from ..layout import Layout
-from ..figurebuilder import FigureMatplot, FigureNone
+from ..figurebuilder import FigureMatplot
 from ..options.update_and_verify import update_arg
-from ..options.custom_types import DebugEnum
 
-from .loading import Points, LayoutMultiLoader, wait_for_results
-from ..logging import worker_log_configurer
+from .loading import Points, LayoutMultiLoader, wait_for_result
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +45,8 @@ class HullPanel(wx.Panel):
         logger.debug(f"{layouts_to_load}")
         if layouts_to_load:
             layoutmultiloader = LayoutMultiLoader([image for i, image in enumerate(self.images) if i in layouts_to_load])
-            for j in layouts_to_load:
-                layouts[layouts_to_load[j]] = layoutmultiloader.layouts[j]
+            for i, layout in enumerate(layoutmultiloader.layouts):
+                layouts[layouts_to_load[i]] = layout
 
         # Prepare an index for navigating the list of images
         self.ind: int = 0
@@ -118,7 +116,7 @@ class HullPanel(wx.Panel):
         self.add_toolbar()
 
         self.reset_selection(None)
-        #self.toggle_args_vertices()
+        self.toggle_args_colours()
         self.load_current_image()
         logger.debug("init complete")
 
@@ -242,18 +240,18 @@ class HullPanel(wx.Panel):
             "args",
             wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
-            "Select points supplied as arguments",
-            "Select points supplied as arguments"
+            "Include points supplied as arguments",
+            "Include points supplied as arguments"
         )
         self.toolbar.ToggleTool(11, False)
-        self.Bind(wx.EVT_TOOL, self.toggle_args_vertices, id=11)
+        self.Bind(wx.EVT_TOOL, self.toggle_args_colours, id=11)
         if self.args.hull_vertices is None:
             self.toolbar.EnableTool(11, False)
 
         self.toolbar.AddTool(
             20,
             "Print",
-            wx.Image(str(Path(Path(__file__).parent, "bmp", "args.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
+            wx.Image(str(Path(Path(__file__).parent, "bmp", "print_hull.png")), wx.BITMAP_TYPE_PNG).ConvertToBitmap(),
             wx.NullBitmap,
             wx.ITEM_NORMAL,
             "Print animation",
@@ -350,14 +348,31 @@ class HullPanel(wx.Panel):
         x_length = self.images[self.ind].lab.shape[1]
         return index % x_length, int(np.floor(index/x_length))
 
-    def pixel_to_lab(self, pixel) -> Tuple[Path, int]:
-        return tuple(self.points.pixel_to_lab.loc[(self.images[self.ind].filepath, pixel)].to_numpy())
-
-    def lab_to_pixels(self, lab, filepath: Optional[Path] = None) -> List[Tuple[Path, int]]:
+    def pixel_to_lab(self, pixel, filepath: Optional[Path] = None) -> Tuple[str, int]:
         if filepath is None:
+            filepath = self.images[self.ind].filepath
+        return tuple(self.points.pixel_to_lab.loc[(str(filepath), pixel)].to_numpy())
+
+    @wait_for_result
+    def lab_to_pixels(
+            self,
+            lab: List[Tuple[int, int, int]] | Tuple[int, int, int],
+            filepath: Optional[Path] = None
+    ) -> List[Tuple[str, int]] | List[int]:
+        logger.debug("Find pixels in selected colour bins and return pixel indices")
+        if not isinstance(lab, list):
+            lab = [lab]
+        if filepath is None:
+            logger.debug("Ensure only good keys")
+            lab = self.points.filepath_lab_to_pixel.index.intersection(lab)  # keep only good keys
             return [tuple(x) for x in self.points.lab_to_pixel.loc[lab].to_numpy()]
         else:
-            return [tuple([filepath, *x]) for x in self.points.filepath_lab_to_pixel.loc[(filepath, *lab)].to_numpy()]
+            # need to handle cases where colour is in another image or args but not in the current image
+            # this raises a keyerror in pandas
+            logger.debug("Ensure only good keys")
+            lab = self.points.filepath_lab_to_pixel.loc[str(filepath)].index.intersection(lab)  # keep only good keys
+            logger.debug("Lookup keys")
+            return self.points.filepath_lab_to_pixel.loc[str(filepath)].loc[lab].to_numpy().reshape(-1).tolist()
 
     def on_click_image(self, event):
         # Left click only
@@ -365,7 +380,6 @@ class HullPanel(wx.Panel):
             x = int(np.around(event.mouseevent.xdata, decimals=0))
             y = int(np.around(event.mouseevent.ydata, decimals=0))
             logger.debug(f"x: {x}, y: {y}")
-            image = self.images[self.ind]
             pixel = self.coord_to_pixel(x, y)
             lab = self.pixel_to_lab(pixel)
             self.alpha_selection.toggle_colour(lab)
@@ -378,25 +392,27 @@ class HullPanel(wx.Panel):
             lab_plot_index = event.ind[0]
             all_points = self.toolbar.GetToolState(11)
             if all_points:
-                
-                points.counts_all or points.counts_per_image  depending on *all_points or not
-
-            image = self.images[self.ind]
-            self.alpha_selection.toggle_colour(image.filepath, unique_index)
+                lab = self.points.counts_all.iloc[lab_plot_index][[("lab", "L"), ("lab", "a"),("lab", "b")]].to_numpy()
+            else:
+                filepath = self.images[self.ind].filepath
+                lab = self.points.counts_per_image.loc[str(filepath)].iloc[lab_plot_index][
+                    [("lab", "L"), ("lab", "a"), ("lab", "b")]
+                ].to_numpy()
+            lab = tuple(lab)
+            #  or points.counts_per_image
+            self.alpha_selection.toggle_colour(lab)
             self.draw_image_figure()
             self.draw_hull()
 
-
-    def toggle_args_vertices(self, event=None):
+    def toggle_args_colours(self, event=None):
         if self.args.hull_vertices is not None:
             show_args = self.toolbar.GetToolState(11)  # true if show args is selected in gui
-            self.alpha_selection.toggle_args_vertices(show_args)
+            self.alpha_selection.toggle_args_colours(show_args)
             self.draw_image_figure()
             self.draw_hull()
 
     def toggle_all_points(self, event=None):
         self.draw_lab_figure()
-
 
     def draw_image_figure(self, _=None):
         logger.debug("Draw image with highlighting")
@@ -406,20 +422,23 @@ class HullPanel(wx.Panel):
         logger.debug(f"show within: {show_within}")
 
         image = self.images[self.ind]
-        inv = self.points.lab_inv[image.filepath]
         displayed = image.rgb.copy()
 
         if show_selected:
-            selected = [(i, j) for i, j in self.alpha_selection.selection if i == image.filepath]
-            selected_real = [i for j in selected for i in self.unique_index_to_coord_indices(*j)]
-            displayed.reshape(-1, 3)[selected_real, :] = (1, 1, 1)
+            selected_pixels = self.lab_to_pixels(list(self.alpha_selection.selection), image.filepath)
+            logger.debug(f"Selected pixels: {len(selected_pixels)}")
+            displayed.reshape(-1, 3)[selected_pixels, :] = (1, 1, 1)
+            #last_selected_pixels = self.lab_to_pixels(self.alpha_selection.last_selected, image.filepath)
+            #displayed.reshape(-1, 3)[last_selected_pixels, :] = (1, 0, 0)
 
         if show_within:
             self.alpha_selection.update_dist(image.filepath)
-            dist = self.alpha_selection.dist[image.filepath]
-            within = dist <= self.alpha_selection.delta
-            within_real = within[inv].reshape(-1)
-            displayed.reshape(-1, 3)[within_real, :] = (1, 1, 1)  # todo make these colours variables, either as arguments or some other method
+            lab_within = self.alpha_selection.get_within(image.filepath)
+            if lab_within:
+                logger.debug(f"Within colours: {len(lab_within)}")
+                within_pixels = self.lab_to_pixels(lab_within, filepath=image.filepath)
+                logger.debug(f"Within pixels: {len(within_pixels)}")
+                displayed.reshape(-1, 3)[within_pixels, :] = (1, 1, 1)  # todo make these colours variables, either as arguments or some other method
 
         if self.image_art is None:
             self.image_art = self.image_ax.imshow(displayed, picker=True)
@@ -431,16 +450,21 @@ class HullPanel(wx.Panel):
 
     def draw_lab_figure(self, _=None):
         logger.debug("Draw lab figure")
-        #show_all = self.toolbar.GetToolState(12)
+        show_all = self.toolbar.GetToolState(12)
         image = self.images[self.ind]
-        #if show_all:
-        #    lab = np.concatenate(list(self.points.lab_unique.values()))  # todo handle these for uniqueness also including indices
-        #    rgb = np.concatenate(list(self.points.rgb_unique.values()))
-        #    sizes = np.concatenate(list(self.points.lab_sizes.values()))
-        #else:
-        lab = self.points.lab_unique[image.filepath]
-        rgb = self.points.rgb_unique[image.filepath]
-        sizes = self.points.lab_sizes[image.filepath]
+        if show_all:
+            lab = self.points.counts_all[[("lab", "L"), ("lab", "a"), ("lab", "b")]].to_numpy()
+            rgb = self.points.counts_all[[("rgb", "r"), ("rgb", "g"), ("rgb", "b")]].to_numpy()
+            counts = self.points.counts_all["count"].to_numpy()
+        else:
+            lab = self.points.counts_per_image.loc[str(image.filepath), [("lab", "L"), ("lab", "a"), ("lab", "b")]].to_numpy()
+            rgb = self.points.counts_per_image.loc[str(image.filepath), [("rgb", "r"), ("rgb", "g"), ("rgb", "b")]].to_numpy()
+            counts = self.points.counts_per_image.loc[str(image.filepath), "count"].to_numpy()
+
+        log_counts = np.log(counts)
+        scaled_log_counts = log_counts/max(log_counts)
+        sizes = scaled_log_counts * 50
+        # sizes[sizes <= 1] = 1  # ensure even low abundance points are still shown?
 
         # get the current view angles on lab plot to reload with after redraw
         elev, azim = self.lab_ax.elev, self.lab_ax.azim
@@ -452,10 +476,8 @@ class HullPanel(wx.Panel):
             xs=lab[:, 1],
             ys=lab[:, 2],
             zs=lab[:, 0],
-            #s=10,
             s=sizes,
-            edgecolor=(0,0,0),
-            facecolor=rgb,
+            color=rgb,
             alpha=0.9,
             lw=0,
             picker=True,
@@ -485,19 +507,45 @@ class HullPanel(wx.Panel):
         self.lab_cv.flush_events()
         logger.debug("flush complete")
 
+    @wait_for_result
     def wait_for_animation(self, _=None):
-        kwargs_list = [{
-            "args": self.args,
-            "points": self.points,
-            "hull_vertices": self.alpha_selection.hull.vertices if self.alpha_selection.hull else None,
-            "alpha": self.alpha_selection.alpha,
-            "counter": self.parent.figure_counter
-        }]
-        wait_for_results("Preparing animation", 1, plot_hull_animation, kwargs_list)
+
+        if self.alpha_selection.hull is not None:
+            if len(self.alpha_selection.hull.vertices) < 4:
+                hull = None
+            else:
+                logger.debug("Calculating hull")
+                if self.alpha_selection.alpha is None or self.alpha_selection.alpha == 0:
+                    logger.debug("creating convex hull")
+                    # the api for alphashape is a bit strange,
+                    # it returns a shapely polygon when alpha is 0
+                    # rather than a trimesh object which is returned for other values of alpha
+                    # so just calculate the convex hull with trimesh to ensure we get a consistent return value
+                    hull = PointCloud(self.alpha_selection.hull.vertices).convex_hull
+                else:
+                    logger.debug("creating alpha shape")
+                    hull = alphashape(self.alpha_selection.hull.vertices, self.alpha_selection.alpha)
+                    if len(hull.faces) == 0:
+                        logger.debug("More points required for a complete hull with current alpha value")
+                        hull = None
+        else:
+            hull = None
+
+        logger.debug("Plotting animation of hull")
+        fig = FigureMatplot("Hull", self.parent.figure_counter, self.args, cols=1)
+        abl = self.points.counts_all[[("lab", "a"), ("lab", "b"), ("lab", "L")]].to_numpy()
+        rgb = self.points.counts_all[[("rgb", "r"), ("rgb", "g"), ("rgb", "b")]].to_numpy()
+        counts = self.points.counts_all["count"].to_numpy()
+        log_counts = np.log(counts)
+        scaled_log_counts = log_counts / max(log_counts)
+        sizes = scaled_log_counts * 20
+        labels = ("a*", "b*", "L*")
+        fig.plot_scatter_3d(abl, labels, rgb, sizes, hull)
+        fig.animate()
 
     def reset_selection(self, _=None):
         self.alpha_selection = AlphaSelection(
-            self.points.lab_unique,
+            self.points,
             set(),
             alpha=self.args.alpha,
             delta=self.args.delta
@@ -507,59 +555,21 @@ class HullPanel(wx.Panel):
         self.draw_hull()
 
 
-def plot_hull_animation(args, points, hull_vertices, alpha, counter, log_queue=None):
-    if log_queue is not None:
-        worker_log_configurer(log_queue)
-
-    if hull_vertices is not None:
-        if len(hull_vertices) < 4:
-            hull = None
-        else:
-            logger.debug("Calculating hull")
-            if alpha is None or alpha == 0:
-                logger.debug("creating convex hull")
-                # the api for alphashape is a bit strange,
-                # it returns a shapely polygon when alpha is 0
-                # rather than a trimesh object which is returned for other values of alpha
-                # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                hull = PointCloud(hull_vertices).convex_hull
-            else:
-                logger.debug("creating alpha shape")
-                hull = alphashape(hull_vertices, alpha)
-                if len(hull.faces) == 0:
-                    logger.debug("More points required for a complete hull with current alpha value")
-                    hull = None
-    else:
-        hull = None
-
-    logger.debug("Plotting animation of hull")
-    fig = FigureMatplot("Hull", counter, args, cols=1)
-    abl = np.concatenate(list(points.lab_unique.values()))[:, [1, 2, 0]]
-    rgb = np.concatenate(list(points.rgb_unique.values()))
-    sizes = np.concatenate(list(points.lab_sizes.values()))
-    labels = ("a*", "b*", "L*")
-    fig.plot_scatter_3d(abl, labels, rgb, sizes, hull)
-    fig.animate()
-
-
 class AlphaSelection:
     def __init__(
             self,
-            points,
-            selection: set[tuple[Path, int]],
+            points: Points,
+            selection: Set[Tuple[int, int, int]],
             alpha: float,
             delta: float
     ):
-        self.uniq_points = points
-        # uniq_points is a dict with image filepath as key, value is ndarray of images reshaped to (-1,3)
-        # filepath "args" is a special entry describing the input hull vertices supplied as arguments
+        self.points = points
 
-        self.selection = selection  # a set of (filepath, index) for the uniq_points dataframe
-        self.last_selected = None
+        self.selection = selection  # a set of lab tuples
+        self.last_selected = None  # a single lab tuple
+
         self.alpha = alpha  # the alpha parameter for hull construction
         self.delta = delta  # the distance from the hull surface to consider a point within the hull
-
-        self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.uniq_points.items()}
 
         self.hull: Optional[Trimesh] = None
 
@@ -567,8 +577,7 @@ class AlphaSelection:
         if alpha is None:
             if len(self.selection) >= 4:
                 logger.debug(f"optimising alpha")
-                selected = [self.uniq_points[fp][ind].values for fp, ind in self.selection]
-                self.alpha = round(optimizealpha(selected), ndigits=3)
+                self.alpha = round(optimizealpha(list(self.selection)), ndigits=3)
                 logger.info(f"optimised alpha: {self.alpha}")
             else:
                 logger.debug(f"Insufficient uniq_points selected")
@@ -580,7 +589,7 @@ class AlphaSelection:
         logger.debug(f"Set delta: {delta}")
         self.delta = delta
 
-    def toggle_colour(self, lab: np.ndarray):
+    def toggle_colour(self, lab: Tuple[int, int, int]):
         if lab in self.selection:
             self.selection.remove(lab)
             self.last_selected = None
@@ -589,20 +598,20 @@ class AlphaSelection:
             self.last_selected = lab
         self.update_hull()
 
-    def toggle_args_vertices(self, on=True):
-        if "args" in self.uniq_points:
-            args_indices = {("args", i) for i in np.ndindex(self.uniq_points["args"].shape[0])}
+    def toggle_args_colours(self, on=True):
+        if "args" in self.points.pixel_to_lab.index:
+            args_colours = set(map(tuple, self.points.pixel_to_lab.loc["args"].to_numpy()))
             if on:
-                self.selection = self.selection.union(args_indices)
+                logger.debug(f"Include args points: {len(args_colours)}")
+                self.selection = self.selection.union(args_colours)
             else:
-                self.selection = self.selection - args_indices
-        #logger.debug(self.selection)
+                logger.debug(f"Remove args points: {len(args_colours)}")
+                self.selection = self.selection - args_colours
         self.update_hull()
 
     def update_hull(self):
-        selected_points = [self.uniq_points[filepath][index] for filepath, index in self.selection]
         # logger.debug(f"selected_points:{selected_points}")
-        if len(selected_points) < 4:
+        if len(self.selection) < 4:
             self.hull = None
         else:
             logger.debug("Calculating hull")
@@ -612,10 +621,10 @@ class AlphaSelection:
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha
                 # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                self.hull = PointCloud(selected_points).convex_hull
+                self.hull = PointCloud(list(self.selection)).convex_hull
             else:
                 logger.debug("creating alpha shape")
-                self.hull = alphashape(np.array(selected_points), self.alpha)
+                self.hull = alphashape(np.array(list(self.selection)), self.alpha)
                 if len(self.hull.faces) == 0:
                     logger.debug("More uniq_points required for a complete hull with current alpha value")
                     self.hull = None
@@ -623,21 +632,28 @@ class AlphaSelection:
     def update_dist(self, filepath):
         if self.hull is None:
             logger.debug("No hull available to calculate distance")
-            self.dist = {k: np.full(v.shape[0], np.inf) for k, v in self.uniq_points.items()}
+            self.points.counts_per_image['distance'] = np.inf
             return
 
         logger.debug(f"updating distances from hull for {filepath}")
-        # we don't update the whole array every time as it is too slow,
+        # we don't update the whole array every time as it is slow,
         # we just update the current file to support display of within
-        # see https://github.com/mikedh/trimesh/issues/1116
         # todo keep an eye on this as the alphashape package is likely to change around this
+        # see https://github.com/mikedh/trimesh/issues/1116
         scene = o3d.t.geometry.RaycastingScene()
         scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(self.hull.as_open3d))
+        colours = self.points.counts_per_image.loc[str(filepath)][[("lab", "L"), ("lab", "a"), ("lab", "b")]].to_numpy(dtype=np.float32)
+        distances = scene.compute_signed_distance(
+            o3d.core.Tensor.from_numpy(colours)
+        ).numpy()
+        self.points.counts_per_image.loc[str(filepath), 'distance'] = distances.reshape(-1, 1)
 
-        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(self.uniq_points[filepath].astype(dtype=np.float32))).numpy()
-        logger.debug(distances_array.shape)
-        self.dist[filepath] = distances_array.reshape(-1, 1)
-
-
-
-
+    def get_within(self, filepath):
+        if self.hull is None:
+            logger.debug("No hull available to calculate within")
+            return list()
+        all_colours = self.points.counts_per_image.loc[str(filepath)][[("lab", "L"), ("lab", "a"), ("lab", "b")]]
+        logger.debug(f"Colours in file: {all_colours.shape[0]}")
+        colours_within = self.points.counts_per_image.loc[str(filepath), "distance"] <= self.delta
+        logger.debug(f"Colours within hull: {np.sum(colours_within)}")
+        return list(map(tuple, all_colours[colours_within].to_numpy()))
