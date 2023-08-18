@@ -33,8 +33,10 @@ class AppWindow:
         self.window.set_on_layout(self._on_layout)
 
         # the below are loaded when an image is loaded
+        self.image = None
         self.cloud = None
         self.indices = None
+        self.image_to_voxel = None
         self.selected = set()
 
         # a small dialog to update with info about the last selected
@@ -64,7 +66,10 @@ class AppWindow:
         margin = 0.5 * em
         self.panel = gui.Vert(0.5 * em, gui.Margins(margin))
         self.panel.add_child(gui.Label("Color image"))
-        self.rgb_widget = None
+        self.rgb_widget = gui.ImageWidget()
+        self.rgb_widget.set_on_mouse(self.on_mouse_rgb_widget)
+        self.panel.add_child(self.rgb_widget)
+        self.window.add_child(self.panel)
 
         # ---- Menu ----
         # The menu is global (because the macOS menu is global), so only create
@@ -154,35 +159,15 @@ class AppWindow:
                 # post to the main thread to safely access UI items.
                 def update_selected():
                     if world is None:   # need this check as might get called before the above is run
+                        self.info.visible = False
                         return
                     # get from world coords to the nearest point in the input array
                     single_point_cloud = o3d.geometry.PointCloud()
                     single_point_cloud.points = o3d.utility.Vector3dVector(o3d.utility.Vector3dVector([world]))
                     dist = self.cloud.compute_point_cloud_distance(single_point_cloud)
                     nearest_index = np.argmin(dist)
-                    selected_lab = self.cloud.points[nearest_index]
-                    selected_rgb = self.cloud.colors[nearest_index]
-                    text = "({:.1f}, {:.1f}, {:.1f})".format(
-                        selected_lab[0], selected_lab[1], selected_lab[2])
-
-                    if nearest_index in self.selected:
-                        logger.debug(f"Remove: {selected_lab}")
-                        self.selected.remove(nearest_index)
-                        self.lab_widget.scene.remove_geometry(text)
-                    else:
-                        sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
-                        sphere.paint_uniform_color(selected_rgb)
-                        sphere.compute_vertex_normals()
-                        sphere.translate(selected_lab)
-                        self.lab_widget.scene.add_geometry(text, sphere, self.material)
-                        logger.debug(f"Select: {selected_lab}")
-                        self.selected.add(nearest_index)
-
-                    self.info.text = text
-                    self.info.visible = world is not None
-                    # We are sizing the info label to be exactly the right size,
-                    # so since the text likely changed width, we need to
-                    # re-layout to set the new frame.
+                    self.toggle_voxel(nearest_index)
+                    self.info.visible = True
                     self.window.set_needs_layout()
 
                 gui.Application.instance.post_to_main_thread(self.window, update_selected)
@@ -190,6 +175,52 @@ class AppWindow:
             self.lab_widget.scene.scene.render_to_depth_image(depth_callback)
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
+
+    def coord_to_index(self, x, y) -> int:
+        x_length = self.image.rgb.shape[1]
+        return (y * x_length) + x
+
+    def on_mouse_rgb_widget(self, event):
+        if event.type == gui.MouseEvent.Type.BUTTON_DOWN:
+            #todo need to handle window scaling and get x and y from the image coordinates
+            frame_x = event.x - self.rgb_widget.frame.x
+            frame_y = event.y - self.rgb_widget.frame.y
+            frame_fraction_x = frame_x / self.rgb_widget.frame.width
+            frame_fraction_y = frame_y / self.rgb_widget.frame.height
+            image_x = self.image.rgb.shape[1] * frame_fraction_x
+            image_y = self.image.rgb.shape[0] * frame_fraction_y
+            x = int(np.around(image_x, decimals=0))
+            y = int(np.around(image_y, decimals=0))
+            logger.debug(f"Image coordinates: {x, y}")
+            image_index = self.coord_to_index(x, y)
+            logger.debug(f"Image index {image_index}")
+            voxel_index = self.image_to_voxel[image_index]
+            logger.debug(f"Voxel index {voxel_index}")
+            self.toggle_voxel(voxel_index)
+            self.window.set_needs_layout()
+            return gui.Widget.EventCallbackResult.HANDLED
+        return gui.Widget.EventCallbackResult.IGNORED
+
+    def toggle_voxel(self, index):
+        selected_lab = self.cloud.points[index]
+        selected_rgb = self.cloud.colors[index]
+        text = "({:.1f}, {:.1f}, {:.1f})".format(
+            selected_lab[0], selected_lab[1], selected_lab[2])
+        self.info.text = text
+
+        if index in self.selected:
+            logger.debug(f"Remove: {selected_lab}")
+            self.selected.remove(index)
+            self.lab_widget.scene.remove_geometry(text)
+        else:
+            sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
+            sphere.paint_uniform_color(selected_rgb)
+            sphere.compute_vertex_normals()
+            sphere.translate(selected_lab)
+            self.lab_widget.scene.add_geometry(text, sphere, self.material)
+            logger.debug(f"Select: {selected_lab}")
+            self.selected.add(index)
+
 
     def _on_menu_open(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose image to load", self.window.theme)
@@ -219,7 +250,6 @@ class AppWindow:
 
     def _on_export_dialog_done(self, filename):
         self.window.close_dialog()
-        frame = self.lab_widget.frame
         self.export_image(filename)
 
     def _on_menu_quit(self):
@@ -266,21 +296,22 @@ class AppWindow:
     def load(self, path):
         self.lab_widget.scene.clear_geometry()
         logger.debug("Load image")
-        image = ImageLoaded(path, self.args)
-        logger.debug("Calculate points summary")
+        self.image = ImageLoaded(path, self.args)
+        logger.debug("Load rgb image")
 
-        o3d_img = o3d.geometry.Image(image.rgb.astype(np.float32))  # can't load from float64 apparently
+        o3d_img = o3d.geometry.Image(self.image.rgb.astype(np.float32))  # can't load from float64 apparently
+        self.rgb_widget.update_image(o3d_img)
 
-        if self.rgb_widget is None:
-            self.rgb_widget = gui.ImageWidget(o3d_img)
-            self.panel.add_child(self.rgb_widget)
-            self.window.add_child(self.panel)
-        else:
-            self.rgb_widget.update_image(o3d_img)
+        logger.debug("Get point cloud")
+        self.cloud, self.indices = self.get_downscaled_cloud_and_indices(self.image)
+        # need to build a reverse mapping from image index to voxel in cloud
+        logger.debug("Build map from image to voxel")  #todo refactor this, it is slow
+        self.image_to_voxel = dict()
 
-        logger.debug("Add to scene")
-        self.cloud, self.indices = self.get_downscaled_cloud_and_indices(image)
-
+        for i, jj in enumerate(self.indices):
+            for j in jj:
+                self.image_to_voxel[j] = i
+        logger.debug("Add point cloud to scene")
         self.lab_widget.scene.add_geometry("points", self.cloud, self.material)
         logger.debug("Setup camera")
         bbox = self.cloud.get_axis_aligned_bounding_box()
