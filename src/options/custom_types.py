@@ -36,15 +36,17 @@ def lab(s: str | tuple[float|int]):
             raise argparse.ArgumentTypeError(f'Each colour must be a string with 3 comma separated float values: {s}')
 
 
+IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "bmp"]
+
+
 def image_path(s: str):
-    if Path(s).is_file():
+    if s is None:
+        return None
+    elif Path(s).is_file():
         return [Path(s)]
     elif Path(s).is_dir():
-        jpg = [p for p in Path(s).glob('**/*.jpg')]
-        jpeg = [p for p in Path(s).glob('**/*.jpeg')]
-        png = [p for p in Path(s).glob('**/*.png')]
-        bmp = [p for p in Path(s).glob('**/*.bmp')]
-        return jpg + jpeg + png + bmp
+        paths = [[p for p in Path(s).glob(f'**/*.{extension}')] for extension in IMAGE_EXTENSIONS]
+        return [p for sublist in paths for p in sublist]
     else:
         raise FileNotFoundError
 
@@ -68,7 +70,7 @@ arg_types = {
     "processes": int,
     "image_debug": debug_level,
     "loglevel": debug_level,
-    "colourspace_rounding": float,
+    "colour_rounding": float,
     "superpixels": int,
     "slic_iter": int,
     "compactness": float,

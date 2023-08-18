@@ -6,7 +6,8 @@ from src.logging import LOGGING_CONFIG
 
 from .options.parse_args import options, postprocess
 from .options.update_and_verify import calibration_complete
-from .calibration.calibration import calibrate
+#from .calibration.calibration import calibrate
+from .calibration_open3d.calibration import calibrate
 from .area_calculation import calculate
 from .analysis import analyse
 

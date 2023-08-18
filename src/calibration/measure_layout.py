@@ -21,7 +21,7 @@ from ..layout import (
     ImageContentException,
     InsufficientCircleDetection
 )
-from .loading import wait_for_results
+from .loading import wait_for_multiprocessing
 from ..logging import worker_log_configurer
 from .popframe import PopFrame
 
@@ -282,7 +282,7 @@ class LayoutPanel(MeasurePanel):
             fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
             kwargs_list = [{"image": image, 'fig': fig}]
 
-            result = wait_for_results("Detecting layout", 1, get_layout, kwargs_list)[0]
+            result = wait_for_multiprocessing("Detecting layout", 1, get_layout, kwargs_list)[0]
 
             plates = result['plates']
             circles = result['circles']
@@ -304,11 +304,11 @@ class LayoutPanel(MeasurePanel):
                 elif len(circles) < image.args.circles_per_plate * image.args.n_plates:
                     message = f"Insufficient circles detected: {len(circles)}"
                 elif plates is None:
-                    message = f"No plates detected"
-                elif len(plates) < image.args.n_plates:
-                    message = f"Insufficient plates detected: {len(plates)}"
-                elif len(plates) > image.args.n_plates:
-                    message = f"Too many plates detected: {len(plates)}"
+                    message = f"Incorrect number of plates detected"
+                #elif len(plates) < image.args.n_plates:
+                #    message = f"Insufficient plates detected: {len(plates)}"
+                #elif len(plates) > image.args.n_plates:
+                #    message = f"Too many plates detected: {len(plates)}"
                 logger.info(message)
                 self.toolbar.EnableTool(15, False)
                 popframe = PopFrame(message, fig)
