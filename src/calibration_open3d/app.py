@@ -5,15 +5,14 @@ import open3d as o3d
 from open3d.visualization import gui
 from open3d.visualization import rendering
 import platform
-
-import numpy as np
-
 from skimage.color import lab2rgb
+import numpy as np
 
 from ..options.custom_types import IMAGE_EXTENSIONS
 from ..image_loading import ImageLoaded
-from .points import ColourPoints
-from .loading import wait_for_result
+from .hull import HullHolder
+
+from typing import Tuple
 
 isMacOS = (platform.system() == "Darwin")
 
@@ -37,6 +36,9 @@ class AppWindow:
         self.cloud = None
         self.indices = None
         self.image_to_voxel = None
+        self.hull_holder = None
+        self.alpha = self.args.alpha
+        self.delta = self.args.delta
         self.selected = set()
 
         # a small dialog to update with info about the last selected
@@ -51,7 +53,7 @@ class AppWindow:
         self.lab_widget.scene = rendering.Open3DScene(self.window.renderer)
         self.lab_widget.scene.set_background([0, 0, 0, 1])
         self.material = o3d.visualization.rendering.MaterialRecord()
-        self.material.point_size = 5 * self.window.scaling
+        self.material.point_size = 2 * self.window.scaling
         self.material.shader = "defaultUnlit"
         self.lab_widget.set_view_controls(gui.SceneWidget.Controls.ROTATE_CAMERA)
         logger.debug("Set lighting for Lab scene")
@@ -66,9 +68,9 @@ class AppWindow:
         margin = 0.5 * em
         self.panel = gui.Vert(0.5 * em, gui.Margins(margin))
         self.panel.add_child(gui.Label("Color image"))
-        self.rgb_widget = gui.ImageWidget()
-        self.rgb_widget.set_on_mouse(self.on_mouse_rgb_widget)
-        self.panel.add_child(self.rgb_widget)
+        self.image_widget = gui.ImageWidget()
+        self.image_widget.set_on_mouse(self.on_mouse_rgb_widget)
+        self.panel.add_child(self.image_widget)
         self.window.add_child(self.panel)
 
         # ---- Menu ----
@@ -144,6 +146,18 @@ class AppWindow:
                 # exists it also takes up space in the window (except on macOS).
                 x = event.x - self.lab_widget.frame.x
                 y = event.y - self.lab_widget.frame.y
+
+                # have a reasonable selection radius and just get the closest point within that
+                def closest_within(radius):
+                    image = np.asarray(depth_image)
+                    ys = np.arange(0, image.shape[0])
+                    xs = np.arange(0, image.shape[1])
+                    mask = (xs[np.newaxis,:]-x)**2 + (ys[:,np.newaxis]-y)**2 >= radius**2
+                    masked_array = np.ma.masked_array(image, mask=mask)
+                    closest_index = masked_array.argmin(fill_value=1)
+                    return self.index_to_coord(image, closest_index)
+
+                y, x = closest_within(3)
                 # Note that np.asarray() reverses the axes.
                 depth = np.asarray(depth_image)[y, x]
 
@@ -176,23 +190,29 @@ class AppWindow:
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
-    def coord_to_index(self, x, y) -> int:
-        x_length = self.image.rgb.shape[1]
+    @staticmethod
+    def coord_to_index(image, x, y) -> int:
+        x_length = image.shape[1]
         return (y * x_length) + x
+
+    @staticmethod
+    def index_to_coord(image, i) -> Tuple[int, int]:  # in y, x order
+        return np.unravel_index(i, image.shape)
+        #x_length = image.shape[1]
+        #return i % x_length, int(np.floor(i / x_length))  # in x,y order
 
     def on_mouse_rgb_widget(self, event):
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN:
-            #todo need to handle window scaling and get x and y from the image coordinates
-            frame_x = event.x - self.rgb_widget.frame.x
-            frame_y = event.y - self.rgb_widget.frame.y
-            frame_fraction_x = frame_x / self.rgb_widget.frame.width
-            frame_fraction_y = frame_y / self.rgb_widget.frame.height
+            frame_x = event.x - self.image_widget.frame.x
+            frame_y = event.y - self.image_widget.frame.y
+            frame_fraction_x = frame_x / self.image_widget.frame.width
+            frame_fraction_y = frame_y / self.image_widget.frame.height
             image_x = self.image.rgb.shape[1] * frame_fraction_x
             image_y = self.image.rgb.shape[0] * frame_fraction_y
             x = int(np.around(image_x, decimals=0))
             y = int(np.around(image_y, decimals=0))
             logger.debug(f"Image coordinates: {x, y}")
-            image_index = self.coord_to_index(x, y)
+            image_index = self.coord_to_index(self.image.rgb, x, y)
             logger.debug(f"Image index {image_index}")
             voxel_index = self.image_to_voxel[image_index]
             logger.debug(f"Voxel index {voxel_index}")
@@ -220,8 +240,34 @@ class AppWindow:
             self.lab_widget.scene.add_geometry(text, sphere, self.material)
             logger.debug(f"Select: {selected_lab}")
             self.selected.add(index)
+        logger.debug("get selected points to update hull holder")
+        self.update_hull(self.cloud.select_by_index(list(self.selected)).points, self.alpha)
 
+    def update_hull(self, points=None, alpha=None):
+        logger.debug("Update hull holder")
+        if points is not None:
+            self.hull_holder = HullHolder(points, alpha)
+        elif alpha is not None:
+            self.hull_holder.update_alpha(alpha)
+        self.draw_hull()
+        self.update_image()
 
+    def update_image(self):
+        image32 = self.image.rgb.astype(np.float32)
+        if self.hull_holder.mesh is not None:
+            logger.debug(f"Calculate distance from hull for image with: {image32.reshape(-1, 3).shape[0]} pixels")
+            distances = self.hull_holder.get_distances(self.image.lab)
+
+            image32.reshape(-1, 3)[distances <= self.delta] = [1, 0, 1]  # todo configure colour for selection in gui
+        o3d_img = o3d.geometry.Image(image32)
+        self.image_widget.update_image(o3d_img)
+
+    def draw_hull(self):
+        if self.lab_widget.scene is not None and self.hull_holder.mesh is not None:
+            self.lab_widget.scene.remove_geometry('mesh')
+            logger.debug("Add mesh to scene")
+            self.lab_widget.scene.add_geometry("mesh", self.hull_holder.mesh, self.material)
+            
     def _on_menu_open(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose image to load", self.window.theme)
         extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
@@ -300,7 +346,7 @@ class AppWindow:
         logger.debug("Load rgb image")
 
         o3d_img = o3d.geometry.Image(self.image.rgb.astype(np.float32))  # can't load from float64 apparently
-        self.rgb_widget.update_image(o3d_img)
+        self.image_widget.update_image(o3d_img)
 
         logger.debug("Get point cloud")
         self.cloud, self.indices = self.get_downscaled_cloud_and_indices(self.image)
@@ -314,8 +360,22 @@ class AppWindow:
         logger.debug("Add point cloud to scene")
         self.lab_widget.scene.add_geometry("points", self.cloud, self.material)
         logger.debug("Setup camera")
+
         bbox = self.cloud.get_axis_aligned_bounding_box()
         center = bbox.get_center()
+        bbox_geom = o3d.geometry.OrientedBoundingBox().create_from_axis_aligned_bounding_box(bbox)
+        bbox_material = o3d.visualization.rendering.MaterialRecord()
+        bbox_material.shader = "unlitLine"
+        bbox_material.line_width = 0.2 * self.window.theme.font_size
+        lineset = o3d.geometry.LineSet().create_from_oriented_bounding_box(bbox_geom)
+        to_remove = np.unique([np.asarray(line) for line in lineset.lines if ~np.any(line == 0)], axis=1)
+        for i in range(1,4):
+            point = lineset.points[i]
+            axis = np.array(["L*", "a*", "b*"])[point != lineset.points[0]]
+            label:  o3d.visualization.gui.Label3D = self.lab_widget.add_3d_label(point, str(axis[0]))
+            label.color = o3d.visualization.gui.Color(1, 1, 1)
+        [lineset.lines.remove(line) for line in to_remove]
+        self.lab_widget.scene.add_geometry("lines", lineset, bbox_material)
         # in the below 60 is default field of view, [5,0,0] is just the middle of the Lab space
         self.lab_widget.setup_camera(60, bbox, [50, 0, 0])
         self.lab_widget.look_at(center, [-200, 0, 0], [-1, 1, 0])
@@ -331,9 +391,8 @@ class AppWindow:
         logger.debug("Set point colours")
         cloud.colors = o3d.utility.Vector3dVector(rgb)
         logger.debug("Downsample")
-        cloud, _, indices = cloud.voxel_down_sample_and_trace(voxel_size=self.args.colour_rounding, min_bound=[-128, -128, 0], max_bound=[127, 127, 100])
+        cloud, _, indices = cloud.voxel_down_sample_and_trace(voxel_size=self.args.colour_rounding, min_bound=[0, -128, -128], max_bound=[100, 127, 127])
         return cloud, indices
-
 
     def export_image(self, path):
 
@@ -345,8 +404,7 @@ class AppWindow:
                 quality = 100
             o3d.io.write_image(path, img, quality)
 
-        self.lab_scene.scene.scene.render_to_image(on_image)
-
+        self.lab_widget.scene.scene.render_to_image(on_image)
 
 
 
