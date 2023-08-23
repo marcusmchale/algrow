@@ -1,6 +1,6 @@
 import numpy as np
 import logging
-from trimesh import Trimesh, PointCloud
+from trimesh import PointCloud
 from alphashape import optimizealpha, alphashape
 import open3d as o3d
 
@@ -19,7 +19,6 @@ class HullHolder:
         self.points = points
 
         self.alpha = None
-        #self.hull: Optional[Trimesh] = None
         self.mesh: Optional[o3d.geometry.TriangleMesh] = None
         self.scene: Optional[o3d.t.geometry.RaycastingScene] = None
 
@@ -38,7 +37,7 @@ class HullHolder:
         self.update_hull()
 
     def update_hull(self):
-        if len(self.points) <= 4:
+        if len(self.points) < 4:
             self.scene = None
             self.mesh = None
             return
