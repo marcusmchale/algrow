@@ -17,8 +17,8 @@ class HullHolder:
             alpha: Optional[float] = None
     ):
         self.points = points
-
         self.alpha = None
+        self.hull = None
         self.mesh: Optional[o3d.geometry.TriangleMesh] = None
         self.scene: Optional[o3d.t.geometry.RaycastingScene] = None
 
@@ -28,7 +28,7 @@ class HullHolder:
         if alpha is None:
             if len(self.points) >= 4:
                 logger.debug(f"optimising alpha")
-                self.alpha = round(optimizealpha(self.points), ndigits=3)
+                self.alpha = 1/round(optimizealpha(self.points), ndigits=3)
                 logger.info(f"optimised alpha: {self.alpha}")
             else:
                 logger.debug(f"Insufficient points selected for automated alpha optimisation")
@@ -49,18 +49,20 @@ class HullHolder:
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha
                 # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                hull = PointCloud(self.points).convex_hull
+                self.hull = PointCloud(self.points).convex_hull
             else:
                 logger.debug("Constructing alpha shape")
-                hull = alphashape(self.points, self.alpha)
-                if len(hull.faces) == 0:
+                # note the alphashape package uses the inverse of the alpha radius as alpha
+                self.hull = alphashape(self.points, 1/self.alpha)
+                if len(self.hull.faces) == 0:
                     logger.debug("More points required for a closed hull with current alpha value")
+                    self.hull = None
                     self.scene = None
                     self.mesh = None
                     return
 
         self.scene = o3d.t.geometry.RaycastingScene()
-        self.mesh = o3d.t.geometry.TriangleMesh().from_legacy(mesh_legacy=hull.as_open3d)
+        self.mesh = o3d.t.geometry.TriangleMesh().from_legacy(mesh_legacy=self.hull.as_open3d)
         self.scene.add_triangles(self.mesh)
 
     def get_distances(self, points: np.ndarray):

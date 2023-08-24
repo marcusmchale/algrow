@@ -8,6 +8,10 @@ import platform
 from scipy.ndimage import zoom
 import numpy as np
 
+from queue import Queue, Empty
+
+import time
+
 from ..options.custom_types import IMAGE_EXTENSIONS
 from ..image_loading import ImageLoaded
 from .hull import HullHolder
@@ -26,10 +30,12 @@ class AppWindow:
     MENU_SHOW_SETTINGS = 11
     MENU_ABOUT = 21
 
-    def __init__(self, width, height, args):
+    def __init__(self, width, height, args, images):
         self.args: argparse.Namespace = args
-        self.window = gui.Application.instance.create_window("AlGrow Calibration", width, height)
+        self.app = gui.Application.instance
+        self.window = self.app.create_window("AlGrow Calibration", width, height)
         self.window.set_on_layout(self._on_layout)
+        self.images = images
 
         # the below are loaded when an image is loaded
         self.image = None
@@ -41,14 +47,13 @@ class AppWindow:
         self.delta = self.args.delta if self.args.delta is not None else 0
         self.selected = set()
 
+        self.zoom_queue = Queue()
+        self.update_queue = Queue()
+        self.toggle_queue = Queue()
+
         # Prepare a right_panel to display the source image
         self.em = self.window.theme.font_size
         margin = 0.5 * self.em
-
-        # a small dialog to update with info about the last selected
-        self.info = gui.Label("")
-        self.info.visible = False
-        self.window.add_child(self.info)
 
         # Prepare a scene for lab colours in 3d
         logger.debug("Prepare Lab scene (space for 3D model)")
@@ -68,19 +73,20 @@ class AppWindow:
         self.window.add_child(self.lab_widget)
         self.labels = list()
 
-        self.image_panel = gui.Vert(margin, gui.Margins(margin))
-        self.window.add_child(self.image_panel)
-        self.image_panel.add_child(gui.Label("Image RGB"))
+        #self.image_panel = gui.Vert(margin, gui.Margins(margin))
+        #self.window.add_child(self.image_panel)
+        #self.image_panel.add_child(gui.Label("Image RGB"))
 
         self.image_widget = gui.ImageWidget()
+        self.window.add_child(self.image_widget)
         self.image_widget.visible = False
         self.image_widget.set_on_mouse(self.on_mouse_image_widget)
-        self.image_panel.add_child(self.image_widget)
+        #self.image_panel.add_child(self.image_widget)
 
         self.tool_panel = gui.Horiz(margin, gui.Margins(margin))
-
         self.tool_panel.visible = False
-        self.image_panel.add_child(self.tool_panel)
+        self.window.add_child(self.tool_panel)
+
         self.button_panel = gui.Vert(margin, gui.Margins(margin))
         self.tool_panel.add_child(self.button_panel)
 
@@ -91,7 +97,9 @@ class AppWindow:
         self.alpha_input = gui.TextEdit()
         self.alpha_input.placeholder_text = "Alpha"
         self.alpha_input.text_value = str(self.args.alpha)
-        self.alpha_input.tooltip = "Alpha input"
+        self.alpha_input.tooltip = (
+            "Radius to connect vertices in alpha hull (set to 0 for a convex hull)"
+        )
         self.alpha_input.set_on_value_changed(self.update_alpha)
         alpha_panel.add_child(self.alpha_input)
 
@@ -102,7 +110,7 @@ class AppWindow:
         self.delta_input = gui.TextEdit()
         self.delta_input.placeholder_text = "Delta"
         self.delta_input.text_value = str(self.delta)
-        self.delta_input.tooltip = "Delta input"
+        self.delta_input.tooltip = "Distance from hull surface to consider as within target"
         self.delta_input.set_on_value_changed(self.update_delta)
         delta_panel.add_child(self.delta_input)
 
@@ -118,21 +126,33 @@ class AppWindow:
         self.show_within_button.set_on_clicked(self.update_image_highlighting)
         self.button_panel.add_child(self.show_within_button)
 
+        self.highlight_colour = gui.ColorEdit()
+        self.highlight_colour.color_value = gui.Color(1.0, 0.0, 1.0)
+        self.button_panel.add_child(gui.Label("Highlighting colour (RGB)"))
+        self.button_panel.add_child(self.highlight_colour)
+        self.highlight_colour.set_on_value_changed(self.update_image_highlighting)
+
         self.show_hull_button = gui.Button("Show Hull")
         self.show_hull_button.toggleable = True
         self.show_hull_button.is_on = True
         self.show_hull_button.set_on_clicked(self.draw_hull)
         self.button_panel.add_child(self.show_hull_button)
 
-
         self.selection_panel = gui.ScrollableVert(margin, gui.Margins(margin))
         clear_selection = gui.Button("Clear Selection")
         clear_selection.tooltip = "Clear selected colours"
         clear_selection.set_on_clicked(self.clear_selection)
         self.selection_panel.add_child(clear_selection)
+
+        reduce_selection = gui.Button("Reduce Selection")
+        reduce_selection.tooltip = "Reduce selection to hull vertices only"
+        reduce_selection.set_on_clicked(self.reduce_selection)
+        self.selection_panel.add_child(reduce_selection)
+
         self.tool_panel.add_child(self.selection_panel)
         self.button_pool = ButtonPool(self.selection_panel)
-        self.image_panel.add_stretch()
+        self.tool_panel.add_stretch()
+
         # ---- Menu ----
         # The menu is global (because the macOS menu is global), so only create
         # it once, no matter how many windows are created
@@ -183,28 +203,43 @@ class AppWindow:
     def _on_layout(self, layout_context):
         r = self.window.content_rect
         panel_width = 0.5 * r.width
-        self.lab_widget.frame = gui.Rect(
-            r.x, r.y, 0.5 * r.width, r.height
+        self.lab_widget.frame = gui.Rect(r.x, r.y, 0.5 * r.width, r.height)
+        #tool_constraints = gui.Widget.Constraints()
+        #tool_constraints.height = 10*self.em
+        tool_pref = self.tool_panel.calc_preferred_size(layout_context, gui.Widget.Constraints())
+
+        #self.image_panel.frame = gui.Rect(self.lab_widget.frame.get_right(), r.y, panel_width, 0.6*r.height)
+        #self.image_widget.frame = gui.Rect(self.lab_widget.frame.get_right(), r.y, panel_width, 0.6 * r.height)
+        image_pref = self.image_widget.calc_preferred_size(layout_context, gui.Widget.Constraints())
+        image_panel_width, image_panel_height = image_pref.width, image_pref.height
+        if self.image is not None:
+            image_ratio = self.image.displayed.shape[0] / self.image.displayed.shape[1]  # height/width
+            # if oversized we get deadspace if just in window or a scrollbar if in a Vert/Horiz panel
+            #  - deadspace renders strange
+            #  - scrollbar doesn't provide a position to compute the pixels (as far as I can tell at this time)
+            # so we ensure we always fill the space such that the coords have a consistent origin
+            # find which axis (width or height) is greater
+            available_height = r.height - tool_pref.height
+            available_width = r.width - panel_width
+            # first need to ensure at least some space in available height is available for the toolbar 20% say
+            if available_height > r.height * 0.8:
+                available_height = r.height - tool_pref.height
+            # Then we find where there is space to fill
+            if available_height * image_ratio >= available_width * image_ratio:  # space in height so fix to fill this
+                image_panel_height = available_height
+                image_panel_width = image_panel_height / image_ratio
+            else:
+                image_panel_width = available_width
+                image_panel_height = image_panel_width * image_ratio
+        self.image_widget.frame = gui.Rect(self.lab_widget.frame.get_right(), r.y, image_panel_width, image_panel_height)
+
+        tool_height = max(r.height - self.image_widget.frame.height, 0.2 * r.height)
+        self.tool_panel.frame = gui.Rect(
+            panel_width,
+            r.get_bottom() - tool_height,
+            panel_width,
+            tool_height
         )
-        
-        #panel_size = self.image_panel.calc_preferred_size(layout_context, self.image_panel.Constraints())
-        self.image_panel.frame = gui.Rect(
-            self.lab_widget.frame.get_right(), r.y, panel_width, r.height
-        )
-        #image_pref = self.image_widget.calc_preferred_size(layout_context, gui.Widget.Constraints())
-        #self.image_widget.frame = gui.Rect(
-        #   self.lab_widget.frame.get_right(), self.lab_widget.frame.y, image_pref.width, image_pref.height
-        #)
-
-
-        #info_pref = self.info.calc_preferred_size(layout_context,  gui.Widget.Constraints())
-        #self.info.frame = gui.Rect(
-        #    r.x,
-        #    r.get_bottom() - info_pref.height,
-        #    info_pref.width,
-        #    info_pref.height
-        #)
-
 
     def on_mouse_lab_widget(self, event):
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(
@@ -234,26 +269,23 @@ class AppWindow:
                 depth = np.asarray(depth_image)[y, x]
 
                 if depth == 1.0:  # 1 if clicked on nothing (i.e. the far plane)
-                    world = None
+                    nearest_index = None
                 else:
                     world = self.lab_widget.scene.camera.unproject(
                         x, y, depth, self.lab_widget.frame.width,
                         self.lab_widget.frame.height
                     )
-
-                # This is not called on the main thread, so we need to
-                # post to the main thread to safely access UI items.
-                def update_selected():
-                    if world is None:   # need this check as might get called before the above is run
-                        self.info.visible = False
-                        return
                     # get from world coords to the nearest point in the input array
                     nearest_index = self.get_nearest_index_from_coords(world)
-                    self.toggle_voxel(nearest_index)
-                    self.info.visible = True
-                    self.window.set_needs_layout()
+                # This is not called on the main thread, so we need to
+                # post to the main thread to safely access UI items.
 
-                gui.Application.instance.post_to_main_thread(self.window, update_selected)
+                def update_selected():
+                    if nearest_index is not None:
+                        self.toggle_voxel(nearest_index)
+                        #self.window.set_needs_layout()
+
+                self.app.post_to_main_thread(self.window, update_selected)
 
             self.lab_widget.scene.scene.render_to_depth_image(depth_callback)
             return gui.Widget.EventCallbackResult.HANDLED
@@ -266,9 +298,28 @@ class AppWindow:
         return np.argmin(dist)
 
     def clear_selection(self, event=None):
+        selected_points = self.cloud.select_by_index(list(self.selected)).points
+        for lab in selected_points:
+            lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
+            self.lab_widget.scene.remove_geometry(lab_text)
         self.selected.clear()
         self.button_pool.clear()
-        self.update_hull(self.cloud.select_by_index(list(self.selected)).points, self.alpha)
+        self.update_hull()
+
+    def reduce_selection(self, event=None):
+        if self.hull_holder.mesh is not None:
+            hull_vertices = self.hull_holder.hull.vertices
+            to_remove = list()
+            for i in self.selected:
+                lab = self.cloud.points[i]
+                if lab not in hull_vertices:
+                    lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
+                    self.lab_widget.scene.remove_geometry(lab_text)
+                    self.button_pool.remove_button(i)
+                    to_remove.append(i)
+            logger.debug(f"Removing selected points: {len(to_remove)}")
+            [self.selected.remove(i) for i in to_remove]
+        self.update_hull()
 
     def update_alpha(self, event=None):
         try:
@@ -279,7 +330,8 @@ class AppWindow:
             logger.debug("Could not coerce to float")
         self.alpha = alpha
         self.alpha_input.text_value = str(alpha)
-        self.update_hull(alpha=alpha)
+        self.hull_holder.update_alpha(alpha)
+        self.update_hull()
 
     def update_delta(self, event=None):
         try:
@@ -292,17 +344,22 @@ class AppWindow:
         self.update_image_highlighting()
 
     def image_widget_to_image_coords(self, event_x, event_y):
-        frame_x = event_x - self.image_widget.frame.x
+        #logger.debug(f"event x,y: {event_x, event_y}")
+        #logger.debug(f"frame x,y: {self.image_widget.frame.x, self.image_widget.frame.y}")
+        frame_x = event_x - self.image_widget.frame.x  # todo this fails when scrollbar present
         frame_y = event_y - self.image_widget.frame.y
-        logger.debug(f"frame coords: {frame_x, frame_y}")
+        #logger.debug(f"frame coords: {frame_x, frame_y}")
         frame_fraction_x = frame_x / self.image_widget.frame.width
         frame_fraction_y = frame_y / self.image_widget.frame.height
+
+        #frame spacing depends on image ratio due to scaling, when image height is less than frame height there is a margin equally split
+
         displayed_image_x = np.floor(self.image.displayed.shape[1] * frame_fraction_x)
         displayed_image_y = np.floor(self.image.displayed.shape[0] * frame_fraction_y)
-        logger.debug(f"displayed coords: {displayed_image_x, displayed_image_y}")
+        #logger.debug(f"displayed coords: {displayed_image_x, displayed_image_y}")
         image_x = np.floor((displayed_image_x/self.image.zoom_factor)) + self.image.displayed_start_x
         image_y = np.floor((displayed_image_y/self.image.zoom_factor)) + self.image.displayed_start_y
-        logger.debug(f"image coords: {image_x, image_y}")
+        #logger.debug(f"image coords: {image_x, image_y}")
         x = int(image_x)
         y = int(image_y)
         return x, y
@@ -316,96 +373,168 @@ class AppWindow:
 
             if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(
                     gui.KeyModifier.SHIFT):
-                logger.debug(f"Image coordinates: {x, y}")
+
+                # logger.debug(f"Image coordinates: {x, y}")
                 image_index = self.image.coord_to_index(self.image.rgb, x, y)
-                logger.debug(f"Image index {image_index}")
+                # logger.debug(f"Image index {image_index}")
                 voxel_index = self.image_to_voxel[image_index]
-                logger.debug(f"Voxel index {voxel_index}")
-                self.toggle_voxel(voxel_index, remove_if_found=False)
-                self.window.set_needs_layout()
-                return gui.Widget.EventCallbackResult.HANDLED
+                # logger.debug(f"Voxel index {voxel_index}")
+                if voxel_index is not None:
+                    self.toggle_voxel(voxel_index)
+
             elif event.type == gui.MouseEvent.Type.WHEEL:
-                self.image.zoom(x, y, event.wheel_dy)
-                self.update_image_highlighting()
+                # the queue is used to defer zooming rather than do it for each event
+                self.zoom_queue.put((x, y, event.wheel_dy))
+
+                def zoom_from_queue():
+                    zoom_x, zoom_y, dy = self.zoom_queue.get()
+                    # one blocking call to get the first in this thread and ensure it does get processed
+                    zoom_factor = dy
+                    while True:
+                        try:
+                            time.sleep(0.1)
+                            zoom_x, zoom_y, dy = self.zoom_queue.get(False)  # then wait till the same event stops coming,
+                            # collect the delta from each event
+                            # todo need to accumulate the relative position of the zoom center also
+                            zoom_factor += dy
+                        except Empty:
+                            break
+                    # calculate the zoomed image
+                    cropped_rescaled, start_x, start_y = self.image.calculate_zoom(zoom_x, zoom_y, event.wheel_dy)
+
+                    def do_zoom():
+                        logger.debug(f"Zooming at {x, y}, zoom_factor {zoom_factor}")
+                        self.image.apply_zoom(cropped_rescaled, start_x, start_y)
+                        self.window.set_needs_layout()
+                        self.update_image_highlighting()
+
+                    self.app.post_to_main_thread(self.window, do_zoom)
+
+                self.app.run_in_thread(zoom_from_queue)
+            return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
-    def toggle_voxel(self, lab_index, remove_if_found=True):
-        selected_lab = self.cloud.points[lab_index]
-        selected_rgb = self.cloud.colors[lab_index]
-        lab_text = "({:.1f}, {:.1f}, {:.1f})".format(
-            selected_lab[0], selected_lab[1], selected_lab[2])
-        self.info.text = lab_text
+    def toggle_voxel(self, lab_index):
+        self.toggle_queue.put(lab_index)
 
-        if lab_index in self.selected:
-            if remove_if_found:
-                logger.debug(f"Remove: {selected_lab}")
-                self.selected.remove(lab_index)
-                self.lab_widget.scene.remove_geometry(lab_text)
-                self.button_pool.remove_button(lab_index)
-                self.update_hull(self.cloud.select_by_index(list(self.selected)).points, self.alpha)
-            else:
-                logger.debug(f"Found: {selected_lab}")
-        else:
-            sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
-            sphere.paint_uniform_color(selected_rgb)
-            sphere.compute_vertex_normals()
-            sphere.translate(selected_lab)
-            self.lab_widget.scene.add_geometry(lab_text, sphere, self.material)
-            self.selected.add(lab_index)
-            self.add_button(lab_index, lab_text, selected_rgb)
-        logger.debug("get selected points to update hull holder")
-        self.update_hull(self.cloud.select_by_index(list(self.selected)).points, self.alpha)
+        def toggle_from_queue():
+            indices = list()
+            indices.append(self.toggle_queue.get())
+
+            while True:
+                try:
+                    time.sleep(0.1)
+                    indices.append(self.toggle_queue.get(False))  # waiting for the calls to stop coming in
+                except Empty:
+                    break
+
+            def do_toggle():
+
+                for i in indices:
+                    selected_lab = self.cloud.points[i]
+                    selected_rgb = self.cloud.colors[i]
+                    lab_text = "({:.1f}, {:.1f}, {:.1f})".format(
+                        selected_lab[0], selected_lab[1], selected_lab[2])
+                    if i in self.selected:
+                        logger.debug(f"Remove: {selected_lab}")
+                        self.selected.remove(i)
+                        self.lab_widget.scene.remove_geometry(lab_text)
+                        self.button_pool.remove_button(i)
+                    else:
+                        sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
+                        sphere.paint_uniform_color(selected_rgb)
+                        sphere.compute_vertex_normals()
+                        sphere.translate(selected_lab)
+                        self.lab_widget.scene.add_geometry(lab_text, sphere, self.material)
+                        self.selected.add(i)
+                        self.add_button(i, lab_text, selected_rgb)
+                    logger.debug("get selected points to update hull holder")
+
+                self.update_hull()
+
+            self.app.post_to_main_thread(self.window, do_toggle)
+
+        self.app.run_in_thread(toggle_from_queue)
 
     def add_button(self, lab_index: int, lab_text: str, rgb):
         b = gui.Button(lab_text)
         b.background_color = gui.Color(*rgb)
         self.button_pool.add_button(lab_index, b)
-        b.set_on_clicked(lambda: self.toggle_voxel(lab_index, remove_if_found=True))
+        b.set_on_clicked(lambda: self.toggle_voxel(lab_index))
 
-    def update_hull(self, points=None, alpha=None):
-        if points is not None:
-            logger.debug("Update hull holder")
-            if alpha is None:
-                alpha = self.alpha
-            self.hull_holder = HullHolder(points, alpha)
-        elif alpha is not None and self.hull_holder is not None:
-            logger.debug("Update alpha")
-            self.hull_holder.update_alpha(alpha)
+    def update_hull(self):
+        points = self.cloud.select_by_index(list(self.selected)).points
+        logger.debug("Update hull points")
+        self.hull_holder = HullHolder(points, self.alpha)
         self.draw_hull()
         self.update_image_highlighting()
 
-    def update_image_highlighting(self):
+    def update_image_highlighting(self, _event=None):
+        logger.debug("Update highlighting")
         if self.image is None:
             self.image_widget.visible = False
             self.tool_panel.visible = False
         else:
-            if self.show_selected_button.is_on:
-                selected = [j for i in list(self.selected) for j in self.indices[i]]
-            else:
-                selected = []
-            if self.show_within_button.is_on and self.hull_holder is not None and self.hull_holder.mesh is not None:
-                logger.debug(f"Calculate distance from hull for image with: {self.image.rgb.reshape(-1, 3).shape[0]} pixels")
-                distances = self.hull_holder.get_distances(self.image.lab)
-                if distances is not None:
-                    logger.debug("Apply mask to selected")
-                    within = np.where(distances.reshape(-1) <= self.delta)[0]
-                else:
-                    within = []
-
-            else:
-                within = []
-
-            mask_indices = self.image.indices_in_displayed(np.unique(np.append(selected, within)).astype(int))
-            displayed = self.image.displayed.copy()  # make a copy
-            displayed.reshape(-1, 3)[mask_indices] = self.image.highlight_colour
-            self.image_widget.update_image(o3d.geometry.Image(displayed.astype(np.float32)))
             self.image_widget.visible = True
             self.tool_panel.visible = True
+            self.update_queue.put(None)
+
+            def highlight_from_queue():
+                pass
+                to_render = None
+                self.update_queue.get()
+
+                while True:
+                    try:
+                        time.sleep(0.1)
+                        self.update_queue.get(False)  # we wait for the calls to stop before highlighting
+                    except Empty:
+                        break
+
+                if self.show_selected_button.is_on:
+                    selected = [j for i in list(self.selected) for j in self.indices[i]]
+                else:
+                    selected = []
+                if self.show_within_button.is_on and self.hull_holder is not None and self.hull_holder.mesh is not None:
+                    logger.debug(
+                        f"Calculate distance from hull for image with: {self.image.rgb.reshape(-1, 3).shape[0]} pixels")
+                    distances = self.hull_holder.get_distances(self.image.lab)
+                    if distances is not None:
+                        within = np.where(distances.reshape(-1) <= self.delta)[0]
+                    else:
+                        within = []
+                else:
+                    within = []
+                to_highlight = np.unique(np.append(selected, within)).astype(int)
+                mask_indices = self.image.indices_in_displayed(to_highlight)
+                displayed = self.image.displayed.copy()  # make a copy
+                displayed.reshape(-1, 3)[mask_indices] = [
+                    self.highlight_colour.color_value.red,
+                    self.highlight_colour.color_value.green,
+                    self.highlight_colour.color_value.blue
+                ]
+                to_render = o3d.geometry.Image(displayed.astype(np.float32))
+
+                def do_highlighting():
+                    logger.debug("inside do_highlighting")
+                    if to_render is not None:
+                        self.image_widget.update_image(to_render)
+                        self.window.set_needs_layout()
+
+                self.app.post_to_main_thread(self.window, do_highlighting)
+
+            self.app.run_in_thread(highlight_from_queue)
+            return gui.Widget.EventCallbackResult.HANDLED
+        return gui.Widget.EventCallbackResult.IGNORED
+
 
     def draw_hull(self):
         if self.lab_widget.scene is not None:
             logger.debug("Remove existing mesh")
-            self.lab_widget.scene.remove_geometry('mesh')
+            try:
+                self.lab_widget.scene.remove_geometry('mesh')
+            except:
+                logger.debug('mesh not found')
         if self.show_hull_button.is_on and self.hull_holder is not None and self.hull_holder.mesh is not None:
             logger.debug("Add mesh to scene")
             self.lab_widget.scene.add_geometry("mesh", self.hull_holder.mesh, self.material)
@@ -600,8 +729,6 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
         self.displayed_start_x = 0
         self.displayed_start_y = 0
 
-        self.highlight_colour = [1, 0, 1]  # todo make this colour configurable
-
     @property
     def lab(self):
         return self._image.lab
@@ -614,15 +741,20 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
     def as_o3d(self):
         return o3d.geometry.Image(self.displayed.astype(np.float32))
 
-    def zoom(self, x, y, factor_increment: int = 1):
+    def apply_zoom(self, cropped_rescaled, start_x, start_y):
+        self.displayed = cropped_rescaled
+        self.displayed_start_x = start_x
+        self.displayed_start_y = start_y
+
+    def calculate_zoom(self, x, y, factor_increment: int = 1):
         self.zoom_factor += factor_increment
         self.zoom_factor = 1 if self.zoom_factor < 1 else self.zoom_factor
         # factor should be integer,
         # we don't want interpolation for now
         cropped_width = int(self._image.rgb.shape[1] / self.zoom_factor)
         cropped_height = int(self._image.rgb.shape[0] / self.zoom_factor)
-        logger.debug(f"x:{x}, y:{y}, zoom_factor{self.zoom_factor}")
-        logger.debug(f"cropped_width: {cropped_width}, cropped_height: {cropped_height}")
+        #logger.debug(f"x:{x}, y:{y}, zoom_factor{self.zoom_factor}")
+        #logger.debug(f"cropped_width: {cropped_width}, cropped_height: {cropped_height}")
         if x < cropped_width/2:
             zoom_start_x = 0
         elif x > (self._image.rgb.shape[1] - (cropped_width/2)):
@@ -635,16 +767,16 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
             zoom_start_y = self._image.rgb.shape[0] - cropped_height
         else:
             zoom_start_y = y - (cropped_height/2)
-        self.displayed_start_x = int(zoom_start_x)
-        self.displayed_start_y = int(zoom_start_y)
-        logger.debug(f"displayed_start_x = {self.displayed_start_x}, displayed_start_y = {self.displayed_start_y}")
+
+        #logger.debug(f"displayed_start_x = {self.displayed_start_x}, displayed_start_y = {self.displayed_start_y}")
         cropped = self._image.rgb[
                   self.displayed_start_y:self.displayed_start_y + cropped_height,
                   self.displayed_start_x:self.displayed_start_x + cropped_width
                   ]
-        logger.debug(f"cropped_shape: {cropped.shape}")
+        #logger.debug(f"cropped_shape: {cropped.shape}")
         cropped_rescaled = zoom(cropped, (self.zoom_factor, self.zoom_factor, 1), order=0, grid_mode=True, mode='nearest')
-        self.displayed = cropped_rescaled
+
+        return cropped_rescaled, int(zoom_start_x), int(zoom_start_y)
 
     def reload_displayed(self):
         self.displayed = self._image.rgb.copy()
@@ -682,21 +814,13 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
         displayed_y = (image_y - self.displayed_start_y) * self.zoom_factor
         try:
             starting_coord = self.coord_to_index(self.displayed, displayed_x, displayed_y)
-            logger.debug(f"starting_coord {starting_coord}")
             # need to handle expansion due to zooming
             if self.zoom_factor % 2:
-                #pixel_expansion = range(int((-self.zoom_factor+1)/2), int((self.zoom_factor-1)/2))
                 pixel_expansion = range(0, self.zoom_factor)
             else:
                 pixel_expansion = range(-1, self.zoom_factor)
-                #pixel_expansion = range(int((-self.zoom_factor/2)+1), int(self.zoom_factor/2))
-
-            #x_expanded_coords = [starting_coord + i for i in range(0, self.zoom_factor)] + [starting_coord - i for i in range(0, self.zoom_factor)]
             x_expanded_coords = [starting_coord + i for i in pixel_expansion]
-            #logger.debug(f"x_expanded {x_expanded_coords}")
-            #all_expanded_coords = [j + self.displayed.shape[1] * i for i in range(0, self.zoom_factor) for j in x_expanded_coords] + [j - self.displayed.shape[1] * i for i in range(0, self.zoom_factor) for j in x_expanded_coords]
             all_expanded_coords = [j + self.displayed.shape[1] * i for i in pixel_expansion for j in x_expanded_coords]
-            #logger.debug(f"all_expanded :{all_expanded_coords}")
             return all_expanded_coords
         except ValueError:
             return None

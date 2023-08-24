@@ -2,20 +2,23 @@ import logging
 import argparse
 from typing import List
 from pathlib import Path
-
+from open3d.visualization import gui
 import wx
 from pubsub import pub
 
+
+from ..calibration_open3d.app import AppWindow
 
 from ..image_loading import ImageLoaded
 from ..layout import Layout
 from ..options.update_and_verify import calibration_complete, layout_defined
 
-from .loading import ImageLoader, Points, LayoutMultiLoader
+from .loading import ImageLoader, LayoutMultiLoader
 
 from .measure_layout import LayoutPanel
 from .measure_scale import ScalePanel
-from .hull_pixels import HullPanel
+
+#from .hull_pixels import HullPanel
 
 from .lasso import LassoPanel
 
@@ -42,7 +45,6 @@ class Calibrator(wx.App):
         self.args = args
 
         self.images = None
-        self.points = None
         self.layouts = None
         self.frame = None
 
@@ -54,16 +56,12 @@ class Calibrator(wx.App):
         image_loader.run()
         self.images: List[ImageLoaded] = image_loader.images
 
-        points = Points(self.images)
-        points.calculate()
-        self.points = points
-
         multilayout = LayoutMultiLoader(self.images)
         multilayout.run()
         self.layouts = multilayout.layouts
 
         logger.info("Prepare configuration GUI")
-        self.frame = TopFrame(self.images, self.points, self.layouts, self.args)
+        self.frame = TopFrame(self.images, self.layouts, self.args)
         logger.info("Start configuration GUI")
         self.frame.Show(True)
         return True
@@ -118,13 +116,12 @@ class Calibrator(wx.App):
 
 
 class TopFrame(wx.Frame):
-    def __init__(self, images: List[ImageLoaded], points: Points, layouts: List[Layout], args: argparse.Namespace):
+    def __init__(self, images: List[ImageLoaded], layouts: List[Layout], args: argparse.Namespace):
         logger.debug("Load top frame")
         super().__init__(None, title="AlGrow Calibration", size=(1500, 1000))
         self.figure_counter = 0
         self.images = images
         self.layouts = layouts
-        self.points = points
         self.args = args
 
         # a single image for some calibration windows, taken from the middle
@@ -239,10 +236,12 @@ class TopFrame(wx.Frame):
 
     def launch_hull(self, _=None):
         logger.debug("launch hull panel")
-        #panel = HullPanel(self, self.images, self.points, self.layouts)
-        #self.display_panel(panel)
-        from .o3d_test import main
-        main()
+        logger.debug("Initialise the open3dapp")
+        gui.Application.instance.initialize()
+        logger.debug("Get window")
+        window = AppWindow(1024, 768, self.args, self.images)
+        logger.debug("Run")
+        gui.Application.instance.run()
 
     def on_exit(self, _=None):
         logger.debug("Exit top frame")
