@@ -14,7 +14,7 @@ def calibrate(args: argparse.Namespace):
     gui.Application.instance.initialize()
     logger.debug("Get window")
 
-    window = AppWindow(1024, 768, args)
+    window = AppWindow(1024, 768, args, images=None)
 
     logger.debug("Run")
     gui.Application.instance.run()
