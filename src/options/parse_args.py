@@ -81,7 +81,7 @@ def options():
         "--colour_rounding",
         help="Value to round to nearest in colourspace projection for hull calibration",
         type=arg_types["colour_rounding"],
-        default=1
+        default=5
     )
     #parser.add_argument(
     #    "--superpixels",

@@ -67,9 +67,13 @@ class HullHolder:
 
     def get_distances(self, points: np.ndarray):
         if self.scene is not None:
-            logger.debug(f"Get distances from hull")
+            logger.debug(f"Prepare tensor of all points")
             points_tensor = o3d.core.Tensor(np.asarray(points, dtype=np.float32))
-            distances = self.scene.compute_signed_distance(points_tensor).numpy().reshape(-1)
+            logger.debug(f"Get distances from hull")
+            distances = self.scene.compute_signed_distance(points_tensor)
+            logger.debug(f"Convert distances to flat array")
+            distances = distances.numpy().reshape(-1)
+            logger.debug("Return distances")
             return distances
         else:
             return None
