@@ -117,20 +117,20 @@ class AppWindow:
         self.show_selected_button = gui.Button("Highlight Selected")
         self.show_selected_button.toggleable = True
         self.show_selected_button.is_on = True
-        self.show_selected_button.set_on_clicked(self.update_image_highlighting)
+        self.show_selected_button.set_on_clicked(self.update_highlighting)
         self.button_panel.add_child(self.show_selected_button)
 
         self.show_within_button = gui.Button("Highlight Within")
         self.show_within_button.toggleable = True
         self.show_within_button.is_on = True
-        self.show_within_button.set_on_clicked(self.update_image_highlighting)
+        self.show_within_button.set_on_clicked(self.update_highlighting)
         self.button_panel.add_child(self.show_within_button)
 
         self.highlight_colour = gui.ColorEdit()
         self.highlight_colour.color_value = gui.Color(1.0, 0.0, 1.0)
         self.button_panel.add_child(gui.Label("Highlighting colour (RGB)"))
         self.button_panel.add_child(self.highlight_colour)
-        self.highlight_colour.set_on_value_changed(self.update_image_highlighting)
+        self.highlight_colour.set_on_value_changed(self.update_highlighting)
 
         self.show_hull_button = gui.Button("Show Hull")
         self.show_hull_button.toggleable = True
@@ -341,7 +341,7 @@ class AppWindow:
             self.delta = 0
             logger.debug("Could not coerce to float")
         self.delta = delta
-        self.update_image_highlighting()
+        self.update_highlighting()
 
     def image_widget_to_image_coords(self, event_x, event_y):
         #logger.debug(f"event x,y: {event_x, event_y}")
@@ -354,11 +354,11 @@ class AppWindow:
 
         #frame spacing depends on image ratio due to scaling, when image height is less than frame height there is a margin equally split
 
-        displayed_image_x = np.floor(self.image.displayed.shape[1] * frame_fraction_x)
-        displayed_image_y = np.floor(self.image.displayed.shape[0] * frame_fraction_y)
+        displayed_image_x = np.floor(self.image.width * frame_fraction_x)
+        displayed_image_y = np.floor(self.image.height * frame_fraction_y)
         #logger.debug(f"displayed coords: {displayed_image_x, displayed_image_y}")
-        image_x = np.floor((displayed_image_x/self.image.zoom_factor)) + self.image.displayed_start_x
-        image_y = np.floor((displayed_image_y/self.image.zoom_factor)) + self.image.displayed_start_y
+        image_x = np.floor((displayed_image_x*self.image.zoom_factor)) + self.image.displayed_start_x
+        image_y = np.floor((displayed_image_y*self.image.zoom_factor)) + self.image.displayed_start_y
         #logger.debug(f"image coords: {image_x, image_y}")
         x = int(image_x)
         y = int(image_y)
@@ -384,77 +384,124 @@ class AppWindow:
 
             elif event.type == gui.MouseEvent.Type.WHEEL:
                 # the queue is used to defer zooming rather than do it for each event
-                self.zoom_queue.put((x, y, event.wheel_dy))
+                # only attempt to zoom if not already at limit
+                if event.wheel_dy > 0 and self.image.zoom_index == len(self.image.divisors) - 1:
+                    pass
+                elif event.wheel_dy < 0 and self.image.zoom_index == 0:
+                    pass
+                else:
+                    self.zoom_image(x, y, event.wheel_dy)
 
-                def zoom_from_queue():
-                    zoom_x, zoom_y, dy = self.zoom_queue.get()
-                    # one blocking call to get the first in this thread and ensure it does get processed
-                    zoom_factor = dy
-                    while True:
-                        try:
-                            time.sleep(0.1)
-                            zoom_x, zoom_y, dy = self.zoom_queue.get(False)  # then wait till the same event stops coming,
-                            # collect the delta from each event
-                            # todo need to accumulate the relative position of the zoom center also
-                            zoom_factor += dy
-                        except Empty:
-                            break
-                    # calculate the zoomed image
-                    cropped_rescaled, start_x, start_y = self.image.calculate_zoom(zoom_x, zoom_y, event.wheel_dy)
-
-                    def do_zoom():
-                        logger.debug(f"Zooming at {x, y}, zoom_factor {zoom_factor}")
-                        self.image.apply_zoom(cropped_rescaled, start_x, start_y)
-                        self.window.set_needs_layout()
-                        self.update_image_highlighting()
-
-                    self.app.post_to_main_thread(self.window, do_zoom)
-
-                self.app.run_in_thread(zoom_from_queue)
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
+    def zoom_image(self, x, y, dy):
+        if not self.zoom_queue.empty():  # if existing zoom requests in queue then we just add them
+            logger.debug("added to zoom queue")
+            self.zoom_queue.put((x, y, dy))
+        else:  # if empty we add but start a thread to watch for more then calculate
+            logger.debug("adding to queue and preparing thread to catch more")
+            self.zoom_queue.put((x, y, dy))
+
+            def zoom_aggregate():
+                time.sleep(0.2)  # wait a bit in case more requests are coming in
+                zoom_increment = 0
+                zoom_x = None
+                zoom_y = None
+                start = True
+                while True:
+                    try:
+                        zx, zy, dy = self.zoom_queue.get(False)
+                        if start:
+                            zoom_x = zx
+                            zoom_y = zy
+                            start = False
+                        zoom_increment += dy  # collect the delta from each event
+                    except Empty:
+                        self.zoom_queue.put((zoom_x, zoom_y, zoom_increment))
+                        logger.debug(f"Finished aggregating queue: increment = {zoom_increment}")
+                        break
+
+                while True:
+                    try:
+                        zoom_x, zoom_y, zoom_increment = self.zoom_queue.get(False)
+                        if zoom_increment != 0 and zoom_x is not None:
+                            cropped_rescaled, start_x, start_y = self.image.calculate_zoom(
+                                zoom_x,
+                                zoom_y,
+                                zoom_increment
+                            )
+                            logger.debug("Calculated zoom")
+
+                            def do_zoom():
+                                logger.debug(f"Zooming at {x, y}, zoom factor {self.image.zoom_factor}")
+                                self.image.apply_zoom(cropped_rescaled, start_x, start_y)
+                                self.window.set_needs_layout()
+                                self.update_highlighting()
+                                if not self.zoom_queue.empty:
+                                    # check if any more came in since we processed the queue,
+                                    # we may need to start again
+                                    logger.debug("Restart zoom watcher")
+                                    self.app.run_in_thread(zoom_aggregate)
+
+                            self.app.post_to_main_thread(self.window, do_zoom)
+
+                    except Empty:
+                        break
+
+            self.app.run_in_thread(zoom_aggregate)
+
     def toggle_voxel(self, lab_index):
-        self.toggle_queue.put(lab_index)
+        if not self.toggle_queue.empty():
+            self.toggle_queue.put(lab_index)
+        else:
+            self.toggle_queue.put(lab_index)
 
-        def toggle_from_queue():
-            indices = list()
-            indices.append(self.toggle_queue.get())
+            def toggle_aggregate():
+                time.sleep(0.2)  # wait in case more come in
+                indices = set()
 
-            while True:
-                try:
-                    time.sleep(0.1)
-                    indices.append(self.toggle_queue.get(False))  # waiting for the calls to stop coming in
-                except Empty:
-                    break
+                while True:
+                    try:
+                        ind = self.toggle_queue.get(False)
+                        if ind in indices:
+                            indices.remove(ind)
+                        else:
+                            indices.add(ind)
+                    except Empty:
+                        logger.debug("Finished agregating selected toggles")
+                        break
 
-            def do_toggle():
+                def do_toggle():
 
-                for i in indices:
-                    selected_lab = self.cloud.points[i]
-                    selected_rgb = self.cloud.colors[i]
-                    lab_text = "({:.1f}, {:.1f}, {:.1f})".format(
-                        selected_lab[0], selected_lab[1], selected_lab[2])
-                    if i in self.selected:
-                        logger.debug(f"Remove: {selected_lab}")
-                        self.selected.remove(i)
-                        self.lab_widget.scene.remove_geometry(lab_text)
-                        self.button_pool.remove_button(i)
-                    else:
-                        sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
-                        sphere.paint_uniform_color(selected_rgb)
-                        sphere.compute_vertex_normals()
-                        sphere.translate(selected_lab)
-                        self.lab_widget.scene.add_geometry(lab_text, sphere, self.material)
-                        self.selected.add(i)
-                        self.add_button(i, lab_text, selected_rgb)
-                    logger.debug("get selected points to update hull holder")
+                    for i in indices:
+                        selected_lab = self.cloud.points[i]
+                        selected_rgb = self.cloud.colors[i]
+                        lab_text = "({:.1f}, {:.1f}, {:.1f})".format(
+                            selected_lab[0], selected_lab[1], selected_lab[2])
+                        if i in self.selected:
+                            logger.debug(f"Remove: {selected_lab}")
+                            self.selected.remove(i)
+                            self.lab_widget.scene.remove_geometry(lab_text)
+                            self.button_pool.remove_button(i)
+                        else:
+                            sphere = o3d.geometry.TriangleMesh.create_sphere(radius=self.args.delta)
+                            sphere.paint_uniform_color(selected_rgb)
+                            sphere.compute_vertex_normals()
+                            sphere.translate(selected_lab)
+                            self.lab_widget.scene.add_geometry(lab_text, sphere, self.material)
+                            self.selected.add(i)
+                            self.add_button(i, lab_text, selected_rgb)
+                        logger.debug("get selected points to update hull holder")
 
-                self.update_hull()
+                    self.update_hull()
+                    if not self.toggle_queue.empty():
+                        logger.debug("Restarting toggle watcher")
+                        self.app.run_in_thread(toggle_aggregate)
 
-            self.app.post_to_main_thread(self.window, do_toggle)
+                self.app.post_to_main_thread(self.window, do_toggle)
 
-        self.app.run_in_thread(toggle_from_queue)
+            self.app.run_in_thread(toggle_aggregate)
 
     def add_button(self, lab_index: int, lab_text: str, rgb):
         b = gui.Button(lab_text)
@@ -467,9 +514,9 @@ class AppWindow:
         logger.debug("Update hull points")
         self.hull_holder = HullHolder(points, self.alpha)
         self.draw_hull()
-        self.update_image_highlighting()
+        self.update_highlighting()
 
-    def update_image_highlighting(self, _event=None):
+    def update_highlighting(self, _event=None):
         logger.debug("Update highlighting")
         if self.image is None:
             self.image_widget.visible = False
@@ -477,53 +524,77 @@ class AppWindow:
         else:
             self.image_widget.visible = True
             self.tool_panel.visible = True
-            self.update_queue.put(None)
+            if not self.update_queue.empty():
+                logger.debug("Pending update highlighting")
+                self.update_queue.put(None)
+            else:
+                logger.debug("Preparing update highlighting")
+                self.update_queue.put(None)
 
-            def highlight_from_queue():
-                pass
-                to_render = None
-                self.update_queue.get()
-
-                while True:
-                    try:
-                        time.sleep(0.1)
-                        self.update_queue.get(False)  # we wait for the calls to stop before highlighting
-                    except Empty:
-                        break
-
-                if self.show_selected_button.is_on:
-                    selected = [j for i in list(self.selected) for j in self.indices[i]]
-                else:
-                    selected = []
-                if self.show_within_button.is_on and self.hull_holder is not None and self.hull_holder.mesh is not None:
-                    logger.debug(
-                        f"Calculate distance from hull for image with: {self.image.rgb.reshape(-1, 3).shape[0]} pixels")
-                    distances = self.hull_holder.get_distances(self.image.lab)
-                    if distances is not None:
-                        within = np.where(distances.reshape(-1) <= self.delta)[0]
+                def highlight_aggregate():
+                    logger.debug("Highlight from queue")
+                    time.sleep(0.2)
+                    while True:
+                        try:
+                            self.update_queue.get(False)  # we wait for the calls to stop before highlighting
+                        except Empty:
+                            break
+                    if self.show_selected_button.is_on:
+                        selected = [j for i in list(self.selected) for j in self.indices[i]]
+                        selected = self.image.indices_in_displayed(selected)
+                    else:
+                        selected = []
+                    if self.show_within_button.is_on and self.hull_holder is not None and self.hull_holder.mesh is not None:
+                        logger.debug(
+                            f"Calculate distance from hull for {self.image.displayed_lab.reshape(-1, 3).shape[0]} pixels"
+                        )
+                        distances = self.hull_holder.get_distances(self.image.displayed_lab)
+                        if distances is not None:
+                            distances = distances.reshape(self.image.displayed_lab.shape[0:2])
+                            logger.debug("rescale distances to displayed")
+                            distances = zoom(
+                                distances,
+                                self.image.divisors[self.image.zoom_index],
+                                order=0,
+                                grid_mode=True,
+                                mode='nearest'
+                            )
+                            logger.debug("Find within")
+                            within = np.where(distances.reshape(-1) <= self.delta)[0]
+                        else:
+                            within = []
                     else:
                         within = []
-                else:
-                    within = []
-                to_highlight = np.unique(np.append(selected, within)).astype(int)
-                mask_indices = self.image.indices_in_displayed(to_highlight)
-                displayed = self.image.displayed.copy()  # make a copy
-                displayed.reshape(-1, 3)[mask_indices] = [
-                    self.highlight_colour.color_value.red,
-                    self.highlight_colour.color_value.green,
-                    self.highlight_colour.color_value.blue
-                ]
-                to_render = o3d.geometry.Image(displayed.astype(np.float32))
+                    logger.debug("get unique")
+                    to_highlight = np.unique(np.append(selected, within)).astype(int)
+                    logger.debug("get a copy of the displayed image to highlight")
+                    highlighted = self.image.displayed.copy()  # make a copy
+                    logger.debug("highlight with selected colour")
+                    try:
+                        highlighted.reshape(-1, 3)[to_highlight] = [
+                            self.highlight_colour.color_value.red,
+                            self.highlight_colour.color_value.green,
+                            self.highlight_colour.color_value.blue
+                        ]
 
-                def do_highlighting():
-                    logger.debug("inside do_highlighting")
-                    if to_render is not None:
+                    except:
+                        logger.error("FAILS")
+                        import pdb; pdb.set_trace()
+
+                    logger.debug("prepare image to render")
+                    to_render = o3d.geometry.Image(highlighted.astype(np.float32))
+
+                    def do_highlighting():
+                        logger.debug("Do highlight")
                         self.image_widget.update_image(to_render)
                         self.window.set_needs_layout()
+                        if not self.update_queue.empty:
+                            logger.debug("Restart highlight aggregation")
+                            self.app.run_in_thread(highlight_aggregate)
 
-                self.app.post_to_main_thread(self.window, do_highlighting)
+                    self.app.post_to_main_thread(self.window, do_highlighting)
 
-            self.app.run_in_thread(highlight_from_queue)
+                self.app.run_in_thread(highlight_aggregate)
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
@@ -725,9 +796,46 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
     def __init__(self, image: ImageLoaded):
         self._image = image
         self.displayed = self._image.rgb.copy()
-        self.zoom_factor = 1
+        self.zoom_index = 0
         self.displayed_start_x = 0
         self.displayed_start_y = 0
+        # restrict zooming to perfect zooms, i.e. where whole numbers of pixels
+        # we don't want to handle interpolation and optional cropping (for now)
+        # it would be more complex and may not have much benefit
+        self.height, self.width = self._image.rgb.shape[0:2]
+        self.divisors = list()
+        gcd = np.gcd(self.height, self.width)
+        for i in range(1, gcd+1):
+            if gcd % i == 0:
+                self.divisors.append(int(i))
+
+    @property
+    def zoom_factor(self):
+        return 1/self.divisors[self.zoom_index]
+
+    def increment_zoom(self, zoom_increment):
+        new_step = self.zoom_index + zoom_increment
+        if new_step < 0:
+            self.zoom_index = 0
+        elif new_step > len(self.divisors) - 1:
+            self.zoom_index = len(self.divisors) - 1
+        else:
+            self.zoom_index += zoom_increment
+
+    def get_zoom_start(self, x_center, y_center, new_width, new_height):
+        if x_center < new_width/2:
+            zoom_start_x = 0
+        elif x_center > (self._image.rgb.shape[1] - (new_width/2)):
+            zoom_start_x = self._image.rgb.shape[1] - new_width
+        else:
+            zoom_start_x = x_center - (new_width/2)
+        if y_center < new_height/2:
+            zoom_start_y = 0
+        elif y_center > (self._image.rgb.shape[0] - (new_height/2)):
+            zoom_start_y = self._image.rgb.shape[0] - new_height
+        else:
+            zoom_start_y = y_center - (new_height/2)
+        return int(zoom_start_x), int(zoom_start_y)
 
     @property
     def lab(self):
@@ -741,55 +849,39 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
     def as_o3d(self):
         return o3d.geometry.Image(self.displayed.astype(np.float32))
 
-    def apply_zoom(self, cropped_rescaled, start_x, start_y):
+    def apply_zoom(self, cropped_rescaled, x_start, y_start):
         self.displayed = cropped_rescaled
-        self.displayed_start_x = start_x
-        self.displayed_start_y = start_y
+        self.displayed_start_x = x_start
+        self.displayed_start_y = y_start
 
-    def calculate_zoom(self, x, y, factor_increment: int = 1):
-        self.zoom_factor += factor_increment
-        self.zoom_factor = 1 if self.zoom_factor < 1 else self.zoom_factor
-        # factor should be integer,
-        # we don't want interpolation for now
-        cropped_width = int(self._image.rgb.shape[1] / self.zoom_factor)
-        cropped_height = int(self._image.rgb.shape[0] / self.zoom_factor)
-        #logger.debug(f"x:{x}, y:{y}, zoom_factor{self.zoom_factor}")
-        #logger.debug(f"cropped_width: {cropped_width}, cropped_height: {cropped_height}")
-        if x < cropped_width/2:
-            zoom_start_x = 0
-        elif x > (self._image.rgb.shape[1] - (cropped_width/2)):
-            zoom_start_x = self._image.rgb.shape[1] - cropped_width
-        else:
-            zoom_start_x = x - (cropped_width/2)
-        if y < cropped_height/2:
-            zoom_start_y = 0
-        elif y > (self._image.rgb.shape[0] - (cropped_height/2)):
-            zoom_start_y = self._image.rgb.shape[0] - cropped_height
-        else:
-            zoom_start_y = y - (cropped_height/2)
+    def calculate_zoom(self, x_center, y_center, zoom_increment: int):
+        self.increment_zoom(zoom_increment)
+        new_width = int(self.zoom_factor * self.width)
+        new_height = int(self.zoom_factor * self.height)
+        x_start, y_start = self.get_zoom_start(x_center, y_center, new_width, new_height)
+        cropped = self._image.rgb[y_start:y_start + new_height, x_start:x_start + new_width]
+        cropped_rescaled = zoom(
+            cropped,
+            (self.divisors[self.zoom_index], self.divisors[self.zoom_index], 1),
+            order=0,
+            grid_mode=True,
+            mode='nearest'
+        )
+        logger.debug(f"new_shape: {cropped.shape}")
+        return cropped_rescaled, x_start, y_start
 
-        #logger.debug(f"displayed_start_x = {self.displayed_start_x}, displayed_start_y = {self.displayed_start_y}")
-        cropped = self._image.rgb[
-                  self.displayed_start_y:self.displayed_start_y + cropped_height,
-                  self.displayed_start_x:self.displayed_start_x + cropped_width
-                  ]
-        #logger.debug(f"cropped_shape: {cropped.shape}")
-        cropped_rescaled = zoom(cropped, (self.zoom_factor, self.zoom_factor, 1), order=0, grid_mode=True, mode='nearest')
+    #def reload_displayed(self):
+    #    self.displayed = self._image.rgb.copy()
+    #    new_width = int(self.zoom_factor * self.width)
+    #    new_height = int(self.zoom_factor * self.height)
+    #    cropped = self._image.rgb[
+    #              self.displayed_start_y:self.displayed_start_y + new_height,
+    #              self.displayed_start_x:self.displayed_start_x + new_width
+    #              ]
+    #    cropped_rescaled = zoom(cropped, (self.zoom_factor, self.zoom_factor, 1), order=0, grid_mode=True, mode='nearest')
+    #    self.displayed = cropped_rescaled
+    #    return self.displayed
 
-        return cropped_rescaled, int(zoom_start_x), int(zoom_start_y)
-
-    def reload_displayed(self):
-        self.displayed = self._image.rgb.copy()
-        cropped_width = int(self._image.rgb.shape[1] / self.zoom_factor)
-        cropped_height = int(self._image.rgb.shape[0] / self.zoom_factor)
-        cropped = self._image.rgb[
-                  self.displayed_start_y:self.displayed_start_y + cropped_height,
-                  self.displayed_start_x:self.displayed_start_x + cropped_width
-                  ]
-        #cropped_rescaled = rescale(cropped, self.zoom_factor, channel_axis=2)
-        cropped_rescaled = zoom(cropped, (self.zoom_factor, self.zoom_factor, 1), order=0, grid_mode=True, mode='nearest')
-        self.displayed = cropped_rescaled
-        return self.displayed
 
     def indices_in_displayed(self, selected: List[int]) -> List[int]:
         selected_in_displayed = [self.image_index_to_displayed_indices(i) for i in selected]
@@ -809,18 +901,27 @@ class ZoomableImage:  # an adapter to allow zooming and easier loading
         #return i % x_length, int(np.floor(i / x_length))  # in x,y order
 
     def image_index_to_displayed_indices(self, image_index: int) -> Optional[List[int]]:  # can be many due to zooming but at least one
+        if self.zoom_factor == 1:
+            return [image_index]
         image_y, image_x = self.index_to_coord(self.rgb, image_index)
-        displayed_x = (image_x - self.displayed_start_x) * self.zoom_factor
-        displayed_y = (image_y - self.displayed_start_y) * self.zoom_factor
+        displayed_x = (image_x - self.displayed_start_x) * self.divisors[self.zoom_index]
+        displayed_y = (image_y - self.displayed_start_y) * self.divisors[self.zoom_index]
         try:
-            starting_coord = self.coord_to_index(self.displayed, displayed_x, displayed_y)
+            starting = self.coord_to_index(self.displayed, displayed_x, displayed_y)
             # need to handle expansion due to zooming
-            if self.zoom_factor % 2:
-                pixel_expansion = range(0, self.zoom_factor)
-            else:
-                pixel_expansion = range(-1, self.zoom_factor)
-            x_expanded_coords = [starting_coord + i for i in pixel_expansion]
-            all_expanded_coords = [j + self.displayed.shape[1] * i for i in pixel_expansion for j in x_expanded_coords]
-            return all_expanded_coords
+            pixel_expansion = range(0, self.divisors[self.zoom_index])
+            x_expanded = [starting + i for i in pixel_expansion]
+            all_expanded = [j + self.displayed.shape[1] * i for i in pixel_expansion for j in x_expanded]
+            return all_expanded
         except ValueError:
             return None
+
+    @property
+    def displayed_lab(self):
+        height = int(self.height / self.divisors[self.zoom_index])
+        width = int(self.width / self.divisors[self.zoom_index])
+        x_start = self.displayed_start_x
+        y_start = self.displayed_start_y
+        return self.lab[y_start:y_start + height, x_start:x_start + width]
+
+
