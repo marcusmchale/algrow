@@ -13,6 +13,8 @@ from skimage.segmentation import slic, felzenszwalb, find_boundaries, mark_bound
 from skimage.color import lab2rgb, label2rgb
 from skimage.measure import regionprops_table
 
+
+
 from .image_loading import ImageLoaded, ImageFilepathAdapter
 from .layout import LayoutDetector, Layout, LayoutLoader
 from .logging import worker_log_configurer, logger_thread

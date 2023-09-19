@@ -1,3 +1,4 @@
+import io
 import logging
 import argparse
 import numpy as np
@@ -10,6 +11,8 @@ from matplotlib.figure import Figure, Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
 from skimage.morphology import binary_dilation, binary_erosion
+from matplotlib.pyplot import imread
+
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +87,10 @@ class FigureBase(ABC):
 
     @abstractmethod
     def print(self, large=False):
+        raise NotImplementedError
+
+    @abstractmethod
+    def as_array(self):
         raise NotImplementedError
 
 
@@ -286,6 +293,21 @@ class FigureMatplot(FigureBase):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         self._fig.savefig(str(out_path), dpi=300)
 
+    def as_array(self):
+        self._fig.canvas.draw_idle()
+        self._fig.canvas.flush_events()
+        buf = io.BytesIO()
+        self._fig.savefig(buf, dpi=300)
+        buf.seek(0)
+        img = imread(buf)
+        #import pdb; pdb.set_trace()
+        #from PIL import Image
+        #img = Image.open(buf)
+        #img.show()
+        buf.close()
+        self.print()
+        return img
+
 
 class FigureNone(FigureBase):
 
@@ -327,4 +349,7 @@ class FigureNone(FigureBase):
         pass
 
     def print(self, large=False):
+        pass
+
+    def as_array(self):
         pass
