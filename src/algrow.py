@@ -6,8 +6,7 @@ from src.logging import LOGGING_CONFIG
 
 from .options.parse_args import options, postprocess
 from .options.update_and_verify import calibration_complete
-#from .calibration.calibration import calibrate
-from .calibration_open3d.calibration import calibrate
+from .calibration.calibration import calibrate
 from .area_calculation import calculate
 from .analysis import analyse
 
@@ -25,15 +24,16 @@ def algrow():
     logger = logging.getLogger(__name__)
     logger.info(f"Start with: {arg_parser.format_values()}")
 
+    if not calibration_complete(args) or args.force_calibration:
+        logger.info("Launching calibration window")
+        calibrate(args)
+        logger.info("calibration complete")
+        if not calibration_complete(args):
+            logger.warning("Required arguments were not provided, exiting")
+            return
+
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")
-        if not calibration_complete(args) or args.force_calibration:
-            logger.info("Launching calibration window")
-            calibrate(args)
-            logger.info("calibration complete")
-            if not calibration_complete(args):
-                logger.warning("Required arguments were not provided, exiting")
-                return
         logger.info("Calculate area for input files")
         calculate(args)
         logger.info("Calculations complete")

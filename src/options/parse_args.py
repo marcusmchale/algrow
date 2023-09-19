@@ -81,37 +81,8 @@ def options():
         "--colour_rounding",
         help="Value to round to nearest in colourspace projection for hull calibration",
         type=arg_types["colour_rounding"],
-        default=5
+        default=1
     )
-    #parser.add_argument(
-    #    "--superpixels",
-    #    help="The number of superpixels to find in image",
-    #    type=arg_types["superpixels"],
-    #    default=None
-    #)
-    #parser.add_argument(
-    #    "--slic_iter",
-    #    help="The maximum number of iterations for SLIC clustering",
-    #    type=arg_types["slic_iter"],
-    #    default=10
-    #)
-    #parser.add_argument(
-    #    "--compactness",
-    #    help=(
-    #        "Superpixel compactness, higher values is more more weight to distance than colour."
-    #        " Positive values will be fixed, negative values will run run slic_zero"
-    #        " (a locally adaptive compactness parameter)"
-    #        " with the absolute of the provided value being the starting point"
-    #    ),
-    #    type=arg_types["compactness"],
-    #    default=-.1
-    #)
-    #parser.add_argument(
-    #    "--sigma",
-    #    help="Smoothing kernel applied before superpixel clustering",
-    #    type=arg_types["sigma"],
-    #    default=1
-    #)
     parser.add_argument(
         "--circle_colour",
         help="Circle colour in Lab colourspace",
@@ -129,13 +100,13 @@ def options():
         "--alpha",
         help="Alpha value used to construct a hull (or hulls) around the provided hull vertices",
         type=arg_types["alpha"],
-        default=0
+        default=0.0
     )
     parser.add_argument(
         "--delta",
         help="Maximum distance outside of target polygon to consider as target",
         type=arg_types["delta"],
-        default=1
+        default=1.0
     )
     parser.add_argument(
         "--force_calibration",
@@ -191,20 +162,20 @@ def options():
     parser.add_argument(
         "--circle_expansion",
         help="Optional expansion factor for circles (increases radius to search, circles must not overlap)",
-        default=1,
+        default=0.1,
         type=arg_types["circle_expansion"]
     )
     parser.add_argument(
-        "--plate_circle_separation",
+        "--circle_separation",
         help="Distance between edges of circles within a plate (px)",
         default=None,
-        type=arg_types["plate_circle_separation"]
+        type=arg_types["circle_separation"]
     )
     parser.add_argument(
-        "--plate_cut_expansion",
+        "--circle_separation_tolerance",
         help="How much tolerance to allow for distances between circles within a plate",
-        default=1.1,
-        type=arg_types["plate_cut_expansion"]
+        default=0.1,
+        type=arg_types["circle_separation_tolerance"]
     )
     parser.add_argument(
         "--plate_width",
@@ -219,10 +190,10 @@ def options():
         type=arg_types["circles_per_plate"]
     )
     parser.add_argument(
-        "--n_plates",
+        "--plates",
         help="In plate layout, the number of plates per image",
         default=None,
-        type=arg_types["n_plates"]
+        type=arg_types["plates"]
     )
     parser.add_argument(
         "--plates_cols_first",

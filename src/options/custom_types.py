@@ -14,7 +14,7 @@ def debug_level(s: str):
     try:
         return DebugEnum[s.upper()]
     except KeyError:
-        raise argparse.ArgumentTypeError(f'Log level must be one of: {[d.value for d in DebugEnum]}')
+        raise argparse.ArgumentTypeError(f'Log level must be one of: {[d.name for d in DebugEnum]}')
 
 
 def lab(s: str | tuple[float|int]):
@@ -91,11 +91,11 @@ arg_types = {
     "fixed_layout": layout_path,
     "circle_diameter": float,
     "circle_expansion": float,
-    "plate_circle_separation": float,
-    "plate_cut_expansion": float,
+    "circle_separation": float,
+    "circle_separation_tolerance": float,
     "plate_width": float,
     "circles_per_plate": int,
-    "n_plates": int,
+    "plates": int,
     "plates_cols_first": bool,
     "plates_right_left": bool,
     "plates_bottom_top": bool,
