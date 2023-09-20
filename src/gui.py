@@ -1,35 +1,29 @@
 import logging
 import argparse
-
+import time
 import open3d as o3d
-from open3d.visualization import gui, rendering
 import platform
+import numpy as np
+import pandas as pd
+
+
+from enum import Enum
+from queue import Queue, Empty
+from pathlib import Path
+from open3d.visualization import gui, rendering
 from scipy.ndimage import zoom
 from skimage import draw
 from skimage.color import lab2rgb, deltaE_cie76, gray2rgb
 from skimage.morphology import remove_small_holes, remove_small_objects
-import numpy as np
-import pandas as pd
 
-from datetime import datetime
-
-from queue import Queue, Empty
-from pathlib import Path
-
-import time
-
-from ..options.custom_types import IMAGE_EXTENSIONS
-from .hull_o3d import HullHolder, hull_from_mask
-
-from ..image_loading import ImageLoaded
-from .loading import CalibrationImage
-from ..layout import get_layout, Layout
-
+from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess
+from .hull import HullHolder
+from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage
+from .layout import get_layout, Layout
 from .panel import Panel
+from .area_calculation import calculate_area
+from .analysis import analyse
 
-from enum import Enum
-
-from ..options.update_and_verify import update_arg, layout_defined
 
 isMacOS = (platform.system() == "Darwin")
 
@@ -47,14 +41,17 @@ class Activities(Enum):
 class AppWindow:
     MENU_OPEN = 1
     MENU_MASK = 2
-    MENU_SAMPLES = 3
+    MENU_LOAD_CONF = 3
+    MENU_WRITE_CONF = 4
+    MENU_LOAD_LAYOUT = 5
+    # MENU_SAMPLES = 3
     MENU_QUIT = 7
 
     MENU_SCALE = 11
     MENU_CIRCLE = 12
     MENU_LAYOUT = 13
     MENU_TARGET = 14
-    MENU_WRITE = 15
+
 
     MENU_AREA = 21
     MENU_RGR = 22
@@ -66,11 +63,10 @@ class AppWindow:
         self.fonts = fonts
         self.args: argparse.Namespace = args
         self.app = gui.Application.instance
-        self.window = self.app.create_window("AlGrow Calibration", width, height)
+        self.window = self.app.create_window("AlGrow", width, height)
         self.window.set_on_layout(self._on_layout)
 
         self.image = None
-        self.target_mask = None
         self.activity = Activities.NONE
 
         #selections
@@ -121,11 +117,8 @@ class AppWindow:
         self.circle_panel = self.get_circle_panel()
 
         self.layout_panel = self.get_layout_panel()
-        self.load_layout_parameters()
 
-        if self.args.hull_vertices is not None:
-            for lab in self.args.hull_vertices:
-                self.add_prior(lab)
+        self.load_all_parameters()
 
         self.prepare_menu()
 
@@ -133,11 +126,14 @@ class AppWindow:
         # ---- Menu ----
         # The menu is global (because the macOS menu is global), so only create
         # it once, no matter how many windows are created
-        if gui.Application.instance.menubar is None:
+        if self.app.menubar is None:
             file_menu = gui.Menu()
-            file_menu.add_item("Image", AppWindow.MENU_OPEN)
-            file_menu.add_item("Mask", AppWindow.MENU_MASK)
-            file_menu.add_item("Samples", AppWindow.MENU_SAMPLES)
+            file_menu.add_item("Load Image", AppWindow.MENU_OPEN)
+            file_menu.add_item("Load Mask", AppWindow.MENU_MASK)
+            #file_menu.add_item("Samples", AppWindow.MENU_SAMPLES)
+            file_menu.add_item("Load Configuration", AppWindow.MENU_LOAD_CONF)
+            file_menu.add_item("Load Layout", AppWindow.MENU_LOAD_LAYOUT)
+            file_menu.add_item("Save Configuration", AppWindow.MENU_WRITE_CONF)
             file_menu.set_enabled(AppWindow.MENU_MASK, False)
             if isMacOS:
                 app_menu = gui.Menu()
@@ -147,22 +143,28 @@ class AppWindow:
             else:
                 file_menu.add_separator()
                 file_menu.add_item("Quit", AppWindow.MENU_QUIT)
-            calibration_menu = gui.Menu()
-            calibration_menu.add_item("Set scale", AppWindow.MENU_SCALE)
-            calibration_menu.set_enabled(AppWindow.MENU_SCALE, False)
-            calibration_menu.add_item("Define Circle Colour", AppWindow.MENU_CIRCLE)
-            calibration_menu.set_enabled(AppWindow.MENU_CIRCLE, False)
-            calibration_menu.add_item("Define Layout", AppWindow.MENU_LAYOUT)
-            calibration_menu.set_enabled(AppWindow.MENU_LAYOUT, False)
-            calibration_menu.add_item("Define Target Hull", AppWindow.MENU_TARGET)
-            calibration_menu.set_enabled(AppWindow.MENU_TARGET, False)
-            calibration_menu.add_item("Save Calibration", AppWindow.MENU_WRITE)
+            configuration_menu = gui.Menu()
+            configuration_menu.add_item("Set scale", AppWindow.MENU_SCALE)
+            configuration_menu.set_enabled(AppWindow.MENU_SCALE, False)
+            configuration_menu.add_item("Define Circle Colour", AppWindow.MENU_CIRCLE)
+            configuration_menu.set_enabled(AppWindow.MENU_CIRCLE, False)
+            configuration_menu.add_item("Define Layout", AppWindow.MENU_LAYOUT)
+            configuration_menu.set_enabled(AppWindow.MENU_LAYOUT, False)
+            configuration_menu.add_item("Define Target Hull", AppWindow.MENU_TARGET)
+            configuration_menu.set_enabled(AppWindow.MENU_TARGET, False)
 
+
+            analysis_menu = gui.Menu()
+            analysis_menu.add_item("Area", AppWindow.MENU_AREA)
+            analysis_menu.set_enabled(AppWindow.MENU_AREA, configuration_complete(self.args))
+            analysis_menu.add_item("RGR", AppWindow.MENU_RGR)
+            analysis_menu.set_enabled(AppWindow.MENU_RGR, True)
 
             settings_menu = gui.Menu()
             settings_menu.set_checked(AppWindow.MENU_SHOW_SETTINGS, True)
             help_menu = gui.Menu()
             help_menu.add_item("About", AppWindow.MENU_ABOUT)
+            # todo add link to pdf with instructions and citation/paper when published to help menu
 
             menu = gui.Menu()
             if isMacOS:
@@ -172,34 +174,41 @@ class AppWindow:
                 # About..., Preferences..., and Quit menu items typically go.
                 menu.add_menu("AlGrow", app_menu)
                 menu.add_menu("File", file_menu)
-                menu.add_menu("Calibration", calibration_menu)
+                menu.add_menu("Configuration", configuration_menu)
+                menu.add_menu("Analysis", analysis_menu)
                 menu.add_menu("Settings", settings_menu)
                 # Don't include help menu unless it has something more than
-                # About...  # todo add link to pdf with instructions and citation/paper when published
+
             else:
                 menu.add_menu("File", file_menu)
-                menu.add_menu("Calibration", calibration_menu)
+                menu.add_menu("Configuration", configuration_menu)
+                menu.add_menu("Analysis", analysis_menu)
                 menu.add_menu("Settings", settings_menu)
                 menu.add_menu("Help", help_menu)
-            gui.Application.instance.menubar = menu
+            self.app.menubar = menu
 
         # The menubar is global, but we need to connect the menu items to the
         # window, so that the window can call the appropriate function when the
         # menu item is activated.
         self.window.set_on_menu_item_activated(AppWindow.MENU_OPEN, self._on_menu_open)
         self.window.set_on_menu_item_activated(AppWindow.MENU_MASK, self._on_menu_mask)
-        self.window.set_on_menu_item_activated(AppWindow.MENU_WRITE, self._on_menu_write)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_WRITE_CONF, self._on_menu_write_conf)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_CONF, self._on_menu_load_conf)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_LAYOUT, self._on_menu_load_layout)
         self.window.set_on_menu_item_activated(AppWindow.MENU_QUIT, self._on_menu_quit)
         self.window.set_on_menu_item_activated(AppWindow.MENU_SCALE, self.start_scale)
         self.window.set_on_menu_item_activated(AppWindow.MENU_CIRCLE, self.start_circle)
         self.window.set_on_menu_item_activated(AppWindow.MENU_LAYOUT, self.start_layout)
         self.window.set_on_menu_item_activated(AppWindow.MENU_TARGET, self.start_target)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_AREA, self._on_menu_area)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_RGR, self._on_menu_rgr)
+
         self.window.set_on_menu_item_activated(AppWindow.MENU_SHOW_SETTINGS, self._on_menu_toggle_settings_panel)
         self.window.set_on_menu_item_activated(AppWindow.MENU_ABOUT, self._on_menu_about)
         # ----
 
     def get_material(self, key: str):
-        logger.debug("Prepare material for {key}")
+        logger.debug(f"Prepare material for {key}")
         if key == "point":
             material = rendering.MaterialRecord()
             material.shader = "defaultUnlit"
@@ -271,7 +280,7 @@ class AppWindow:
         layout_numbers.add_input("px", float, tooltip="Line length")
         layout_numbers.add_input("line colour", gui.Color, value=gui.Color(1.0, 0.0, 0.0), tooltip="Set line colour")
         layout_numbers.add_separation(2)
-        layout_panel.add_label("Measured parameters", self.fonts['small'])
+        layout_numbers.add_label("Measured parameters", self.fonts['small'])
         layout_numbers.add_input("circle diameter", float, tooltip="Diameter of circle (px)")
         layout_numbers.add_input("circle separation", float, tooltip="Maximum distance between edges of circles within a plate (px)")
         layout_numbers.add_input("plate width", float, tooltip="Shortest dimension of plate edge (used to calculate plate cut-height)")
@@ -328,12 +337,14 @@ class AppWindow:
         layout_buttons.add_button("test layout", self.test_layout, tooltip="Test layout detection")
         layout_buttons.buttons['test layout'].enabled = layout_defined(self.args)
 
-        layout_buttons.add_button("save fixed layout", self.save_fixed_layout, tooltip="Save fixed layout")
+        layout_buttons.add_button("save fixed layout", self._on_save_fixed, tooltip="Save fixed layout")
         layout_buttons.buttons['save fixed layout'].enabled = self.layout is not None
         return layout_panel
 
     def test_layout(self, event=None):
-        self.save_layout()
+        if not self.save_layout():
+            return
+
         fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
         circles, plates, fig = get_layout(self.image, fig)
         if plates is None:
@@ -363,6 +374,7 @@ class AppWindow:
         self.layout_panel.buttons['circles start left'].is_on = not self.args.circles_right_left
         self.layout_panel.buttons['circles start top'].is_on = not self.args.circles_bottom_top
 
+
     def save_target_parameters(self):
         self.update_hull()
         if self.hull_holder is None:
@@ -376,6 +388,7 @@ class AppWindow:
         update_arg(self.args, "fill", self.target_panel.get_value("fill"))
         update_arg(self.args, "remove", self.target_panel.get_value("remove"))
 
+        self.set_menu_enabled()
 
     def save_layout(self):
         update_arg(self.args, "circle_diameter", self.layout_panel.get_value("circle diameter"))
@@ -385,14 +398,20 @@ class AppWindow:
         update_arg(self.args, "circle_separation_tolerance", self.layout_panel.get_value("circle separation tolerance"))
         update_arg(self.args, "circles_per_plate", self.layout_panel.get_value("circles"))
         update_arg(self.args, "plates", self.layout_panel.get_value("plates"))
-        update_arg(self.args, "plates_cols_first", self.layout_panel.get_value("plates in rows"))
-        update_arg(self.args, "plates_right_left", self.layout_panel.get_value("plates start left"))
-        update_arg(self.args, "plates_bottom_top", self.layout_panel.get_value("plates start top"))
-        update_arg(self.args, "circles_cols_first", self.layout_panel.get_value("circles in rows"))
-        update_arg(self.args, "circles_right_left", self.layout_panel.get_value("circles start left"))
-        update_arg(self.args, "circles_bottom_top", self.layout_panel.get_value("circles start top"))
+        update_arg(self.args, "plates_cols_first", not self.layout_panel.get_value("plates in rows"))
+        update_arg(self.args, "plates_right_left", not self.layout_panel.get_value("plates start left"))
+        update_arg(self.args, "plates_bottom_top", not self.layout_panel.get_value("plates start top"))
+        update_arg(self.args, "circles_cols_first", not self.layout_panel.get_value("circles in rows"))
+        update_arg(self.args, "circles_right_left", not self.layout_panel.get_value("circles start left"))
+        update_arg(self.args, "circles_bottom_top", not self.layout_panel.get_value("circles start top"))
         self.layout_panel.buttons['test layout'].enabled = layout_defined(self.args)
+        self.set_menu_enabled()
 
+        if layout_defined(self.args):
+            return True
+        else:
+            self.window.show_message_box("Error", "Invalid layout definition")
+            return False
 
     def _on_save_fixed(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save to", self.window.theme)
@@ -461,7 +480,7 @@ class AppWindow:
     def add_target_buttons(self, parent: Panel):
         logger.debug("Prepare target buttons")
         target_buttons = Panel(gui.Vert, 0.5 * self.em, parent=parent)
-        target_buttons.add_label("Shift-click to select colours", self.fonts['small'])
+        target_buttons.add_label("Shift-click to select voxels", self.fonts['small'])
         target_buttons.add_input(
             "alpha",
             float,
@@ -479,20 +498,20 @@ class AppWindow:
         target_buttons.add_input(
             "min pixels",
             int,
-            tooltip="Minimum number of pixels to display voxel",
+            tooltip="Minimum number of pixels to display voxel in the 3D plot",
             on_changed=self.set_min_pixels
         )
         target_buttons.add_button("show hull", self.draw_hull, tooltip="Display hull in 3D plot", toggleable=True)
         target_buttons.add_button(
             "show selected",
             self.update_image_widget,
-            tooltip="Highlight selected pixels in image plot",
+            tooltip="Highlight pixels from selected voxels in image",
             toggleable=True
         )
         target_buttons.add_button(
-            "show within",
+            "show target",
             self.update_image_widget,
-            tooltip="Highlight pixels inside and within delta of hull in image plot",
+            tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
             toggleable=True
         )
         target_buttons.add_input(
@@ -531,10 +550,10 @@ class AppWindow:
             on_changed=self.update_image_widget
         )
         target_buttons.add_input(
-            "within colour",
+            "target colour",
             gui.Color,
             value=gui.Color(1.0, 0.0, 0.0),
-            tooltip="Set selection highlighting colour",
+            tooltip="Set target highlighting colour",
             on_changed=self.update_image_widget
         )
 
@@ -749,6 +768,9 @@ class AppWindow:
         return np.argmin(dist)
 
     def clear_selection(self, event=None):
+        if self.image is None:
+            return
+
         selected_points = self.image.cloud.select_by_index(list(self.target_indices)).points
         for lab in selected_points:
             lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
@@ -759,6 +781,9 @@ class AppWindow:
         self.update_image_widget()
 
     def clear_priors(self, event=None):
+        if self.image is None:
+            return
+
         self.prior_lab.clear()
         self.target_panel.button_pools['priors'].clear()
         self.update_hull()
@@ -802,7 +827,7 @@ class AppWindow:
         circle_lab = self.image.lab.reshape(-1, 3)[list(self.circle_indices)]
         circle_lab = tuple(np.mean(circle_lab, axis=0))
         update_arg(self.args, "circle_colour", circle_lab)
-        gui.Application.instance.menubar.set_enabled(self.MENU_LAYOUT, True)
+        self.set_menu_enabled()
 
     def update_scale(self, event=None):
         px = self.scale_panel.get_value('px')
@@ -815,6 +840,7 @@ class AppWindow:
         logger.debug("save scale to args")
         scale = self.scale_panel.get_value("scale")
         update_arg(self.args, "scale", scale)
+        self.set_menu_enabled()
 
     def update_alpha(self, event=None):
         if self.hull_holder is not None:
@@ -911,8 +937,9 @@ class AppWindow:
                 drag_dif = np.array(self.drag_start) - np.array(drag_end)
                 drag_x = drag_dif[0]
                 drag_y = drag_dif[1]
-                self.image.drag(drag_x, drag_y)
-                self.update_image_widget()
+                if drag_x or drag_y:
+                    self.image.drag(drag_x, drag_y)
+                    self.update_image_widget()
                 self.drag_start = None
 
             return gui.Widget.EventCallbackResult.HANDLED
@@ -1070,7 +1097,7 @@ class AppWindow:
     def add_sphere(self, lab, rgb):
         logger.debug(f"Adding sphere for {lab}")
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
-        sphere = o3d.geometry.TriangleMesh().create_sphere(radius=self.args.colour_rounding/2)
+        sphere = o3d.geometry.TriangleMesh().create_sphere(radius=self.args.voxel_size/2)
         sphere.paint_uniform_color(rgb)
         sphere.compute_vertex_normals()
         sphere.translate(lab)
@@ -1109,92 +1136,81 @@ class AppWindow:
         if self.hull_holder is not None:
             self.draw_hull()
 
-    def highlight_target(self):
-        logger.debug("Highlight from queue")
-        time.sleep(1)
-        while True:
-            try:
-                self.update_queue.get(False)  # we wait for calls to stop before calculating
-            except Empty:
-                break
+    def get_selected_in_displayed(self):
         if self.target_panel.buttons['show selected'].is_on:
+            logger.debug("show selected")
             selected = [j for i in list(self.target_indices) for j in self.image.indices[i]]
-            selected = self.image.indices_in_displayed(selected)
+            return self.image.indices_in_displayed(selected)
         else:
-            selected = []
+            return None
+
+    def get_displayed_target_mask(self):
         if all([
-            self.target_panel.buttons['show within'].is_on,
+            self.target_panel.buttons['show target'].is_on,
             self.hull_holder is not None,
             self.hull_holder.mesh is not None
         ]):
-            logger.debug(
-                f"Calculate distance from hull for {self.image.displayed_lab.reshape(-1, 3).shape[0]} pixels"
-            )
+            logger.debug("Show target")
+            logger.debug(f"Calculate distance from hull for {self.image.displayed_lab.reshape(-1, 3).shape[0]} pixels")
             distances = self.hull_holder.get_distances(self.image.displayed_lab)
             if distances is not None:
-                try:
-                    distances = distances.reshape(self.image.displayed_lab.shape[0:2])
-                except Exception as e:
-                    logger.debug(f"exception during highlight aggregate: {e}")
-                    return  # i think this exception is just due to the async request for the distances todo fix
-                logger.debug("rescale distances to displayed")
-                distances = zoom(
-                    distances,
+                distances = distances.reshape(self.image.displayed_lab.shape[0:2])
+                target_mask = distances <= self.target_panel.get_value("delta")
+                if self.target_panel.get_value("fill"):
+                    logger.debug("Fill small holes")
+                    target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
+                if self.target_panel.get_value("remove"):
+                    logger.debug("Remove small objects")
+                    target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
+                if self.image.true_mask is not None:
+                    logger.debug("Compare target mask to true mask")
+                    true_mask = self.image.displayed_true_mask
+                    tp = np.sum(true_mask[target_mask])
+                    tn = np.sum(~true_mask[~target_mask])
+                    fp = np.sum(~true_mask[target_mask])
+                    fn = np.sum(true_mask[~target_mask])
+                    sensitivity = (tp / (tp + fn))
+                    specificity = (tn / (tn + fp))
+                    accuracy = (tp + tn) / (tp + tn + fp + fn)
+                    dice = 2 * tp / ((2 * tp) + fp + fn)
+                    logger.info(
+                        f"Dice coefficient: {dice},  Accuracy: {accuracy}, Sensitivity: {sensitivity}, Specificity: {specificity}")
+                else:
+                    dice = None
+                logger.debug("prepare image to render")
+                target_mask = zoom(
+                    target_mask,
                     self.image.divisors[self.image.zoom_index],
                     order=0,
                     grid_mode=True,
                     mode='nearest'
                 )
-                logger.debug("Find within")
-                within = np.where(distances.reshape(-1) <= self.target_panel.get_value("delta"))[0]
-            else:
-                within = []
-        else:
-            within = []
-        logger.debug("get a copy of the displayed image to highlight")
+                return target_mask, dice
+        return None, None
+
+    def highlight_target(self):
+        logger.debug("Highlight from queue")
+        time.sleep(0.3)
+        while True:
+            try:
+                self.update_queue.get(False)  # we wait for calls to stop before calculating highlighting
+                # todo should be getting any new selected from queue instead of just waiting
+            except Empty:
+                break
+
         highlighted = self.image.displayed.copy()  # make a copy
-        logger.debug("show within")
 
-        dice = None
+        target_mask, dice = self.get_displayed_target_mask()
+        logger.debug("get a copy of the displayed image to highlight")
+        if target_mask is not None:
+            target_colour = self.target_panel.get_value("target colour")
+            highlighted[target_mask] = target_colour
 
-        within_mask = np.zeros(self.image.rgb.shape[0:2], bool)
-        within_mask.reshape(-1)[within] = 1
-        if self.target_panel.get_value("fill"):
-            logger.debug("Fill small holes")
-            fill_size = self.target_panel.get_value("fill")
-            zoomed_fill = int(((fill_size ** (1/2)) * (1/self.image.zoom_factor))**2)
-            logger.debug(f"zoomed fill size : {zoomed_fill}")
-            within_mask = remove_small_holes(within_mask, zoomed_fill)
-        if self.target_panel.get_value("remove"):
-            logger.debug("Remove small objects")
-            remove_size = self.target_panel.get_value("remove")
-            zoomed_remove = int(((remove_size ** (1/2)) * (1/self.image.zoom_factor))**2)
-            logger.debug(f"zoomed remove size : {zoomed_remove}")
-            within_mask = remove_small_objects(within_mask, zoomed_remove)
-        within_mask = within_mask.reshape(-1)
-
-        if self.target_mask is not None and self.image.zoom_factor == 1:
-            logger.debug("Prepare statistics")
-            true_mask = np.all(self.target_mask.rgb == [1, 1, 1], axis=2).reshape(-1)
-            tp = np.sum(true_mask[within_mask])
-            tn = np.sum(~true_mask[~within_mask])
-            fp = np.sum(~true_mask[within_mask])
-            fn = np.sum(true_mask[~within_mask])
-            sensitivity = (tp/(tp + fn))
-            specificity = (tn/(tn + fp))
-            accuracy = (tp + tn) / (tp + tn + fp + fn)
-            dice = 2 * tp / ((2 * tp) + fp + fn)
-            logger.debug(f"Dice coefficient: {dice},  Accuracy: {accuracy}, Sensitivity: {sensitivity}, Specificity: {specificity}")
-        logger.debug("prepare image to render")
-
-        within_colour = self.target_panel.get_value("within colour")
-        highlighted.reshape(-1,3)[within_mask] = within_colour
-        logger.debug("show selected")
-        selected_colour = self.target_panel.get_value("selection colour")
-        highlighted.reshape(-1, 3)[selected] = selected_colour
-
-
-        to_render = o3d.geometry.Image(highlighted.astype(np.float32))
+        selected = self.get_selected_in_displayed()
+        if selected is not None:
+            selected_colour = self.target_panel.get_value("selection colour")
+            highlighted.reshape(-1, 3)[selected] = selected_colour
+            to_render = o3d.geometry.Image(highlighted.astype(np.float32))
 
         def do_highlighting():
             logger.debug("Do highlight")
@@ -1269,18 +1285,17 @@ class AppWindow:
     def update_info(self, dice=None):
         if self.image is None:
             self.info.text = ""
-            return
-        elif self.target_mask is None:
+        elif self.image.true_mask is None:
             self.info.text = f"Image file: {str(self.image.filepath.name)}\n"
-        elif self.target_mask is not None and dice is None:
+        elif self.image.true_mask is not None and dice is None:
             self.info.text = (
                 f"Image file: {str(self.image.filepath.name)}\n"
-                f"Mask file: {str(self.target_mask.filepath.name)}\n"
+                f"Mask file: {str(self.image.true_mask.filepath.name)}\n"
             )
         else:
             self.info.text = (
                 f"Image file: {str(self.image.filepath.name)}\n"
-                f"Mask file: {str(self.target_mask.filepath.name)}\n"
+                f"Mask file: {str(self.image.true_mask.filepath.name)}\n"
                 f"Dice coefficient: {float(dice)}"
             )
 
@@ -1313,6 +1328,15 @@ class AppWindow:
         dlg.set_on_done(self._on_load_image_dialog_done)
         self.window.show_dialog(dlg)
 
+
+    def _on_file_dialog_cancel(self):
+        self.window.close_dialog()
+
+    def _on_load_image_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_image(filepath)
+
     def _on_menu_mask(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose mask image to load", self.window.theme)
         extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
@@ -1323,34 +1347,100 @@ class AppWindow:
         dlg.set_on_done(self._on_load_mask_dialog_done)
         self.window.show_dialog(dlg)
 
-    def _on_menu_write(self):
+    def _on_load_mask_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_true_mask(filepath)
+
+    def _on_menu_write_conf(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save to", self.window.theme)
         extensions = [f".conf"]
         dlg.add_filter(" ".join(extensions), f"Configuration files ({', '.join(extensions)}")
         dlg.add_filter("", "All files")
         # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_write_dialog_done)
+        dlg.set_on_done(self._on_write_conf_dialog_done)
         self.window.show_dialog(dlg)
 
-
-    def _on_file_dialog_cancel(self):
-        self.window.close_dialog()
-
-    def _on_load_image_dialog_done(self, filename):
+    def _on_write_conf_dialog_done(self, filename):
         filepath = Path(filename)
         self.window.close_dialog()
-        self.load_image(filepath)
+        self.write_configuration(filepath)
 
-    def _on_load_mask_dialog_done(self, filename):
+    def _on_menu_load_conf(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose configuration file to load", self.window.theme)
+        extensions = [f".conf"]
+        dlg.add_filter(" ".join(extensions), f"Configuration files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_load_conf_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_load_conf_dialog_done(self, filename):
         filepath = Path(filename)
         self.window.close_dialog()
-        self.load_mask(filepath)
+        self.load_configuration(filepath)
 
-    def _on_write_dialog_done(self, filename):
+    def _on_menu_load_layout(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose layout file to load", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Layout files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_load_layout_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_load_layout_dialog_done(self, filename):
         filepath = Path(filename)
         self.window.close_dialog()
-        self.write_calibration(filepath)
+        self.load_layout(filepath)
+
+    def _on_menu_area(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose an image in a folder (all images in the folder will be analysed)", self.window.theme)
+        extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
+        dlg.add_filter(" ".join(extensions), f"Supported image files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_area_input_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_area_input_dialog_done(self, filename):
+        selected_folder = Path(filename).parent
+        self.window.close_dialog()
+        update_arg(self.args, "images", selected_folder)
+        if self.args.area_file is None:
+            try:
+                update_arg(self.args, "area_file", Path(selected_folder, "area.csv"))
+            except FileExistsError:
+                # todo allow to configure area filepath in GUI
+                # then cancel here and start again with new filename
+                logger.warning("Overwriting existing file")
+        calculate_area(self.args)
+
+    def _on_menu_rgr(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose area file to analyse", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Supported area files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_rgr_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_rgr_input_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        update_arg(self.args, "images", filepath.parent)
+
+
+    def _on_rgr_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        analyse(self.args)
+
 
     def _on_menu_quit(self):
         gui.Application.instance.quit()
@@ -1391,6 +1481,15 @@ class AppWindow:
     def _on_about_ok(self):
         self.window.close_dialog()
 
+    def set_menu_enabled(self):
+        if self.image is not None:
+            self.app.menubar.set_enabled(self.MENU_MASK, True)
+            self.app.menubar.set_enabled(self.MENU_TARGET, True)
+            self.app.menubar.set_enabled(self.MENU_SCALE, True)
+            self.app.menubar.set_enabled(self.MENU_CIRCLE, True)
+            self.app.menubar.set_enabled(self.MENU_LAYOUT, self.args.circle_colour is not None)
+        self.app.menubar.set_enabled(AppWindow.MENU_AREA, configuration_complete(self.args))
+
     def load_image(self, path):
         if self.image is not None:
             selected_points = self.image.cloud.select_by_index(list(self.target_indices)).points
@@ -1404,15 +1503,9 @@ class AppWindow:
         self.info.visible = True
         self.update_info()
 
-        self.target_mask = None  # expect a new mask for each
         self.target_panel.buttons['from mask'].enabled = False
 
-        gui.Application.instance.menubar.set_enabled(self.MENU_MASK, True)
-        gui.Application.instance.menubar.set_enabled(self.MENU_TARGET, True)
-        gui.Application.instance.menubar.set_enabled(self.MENU_SCALE, True)
-        gui.Application.instance.menubar.set_enabled(self.MENU_CIRCLE, True)
-        if self.args.circle_colour is not None:
-            gui.Application.instance.menubar.set_enabled(self.MENU_LAYOUT, True)
+        self.set_menu_enabled()
 
         logger.debug("Load rgb image")
         #self.image_widget.update_image(self.image.as_o3d)
@@ -1423,10 +1516,9 @@ class AppWindow:
         self.update_image_widget()
         self.update_distance_widget()
 
-    def load_mask(self, path):
+    def load_true_mask(self, path):
         try:
-            self.target_mask = ImageLoaded(path, self.args)
-            # todo popup warning if it doesn't look like a boolean image, consider coercing to bool also to reduce memory
+            self.image.true_mask = MaskLoaded(path)
             self.target_panel.buttons['from mask'].enabled = True
             self.update_info()
             self.update_image_widget()  # just needed to calculate dice
@@ -1436,11 +1528,11 @@ class AppWindow:
 
     def hull_from_mask(self):
         logger.debug("Prepare points from provided mask")
-        hh = hull_from_mask(
+        hh = HullHolder.get_from_mask(
             self.image,
-            self.target_mask,
             self.target_panel.get_value("alpha"),
-            self.target_panel.get_value("min pixels")
+            self.target_panel.get_value("min pixels"),
+            self.args.voxel_size
         )
         if hh is None:
             return
@@ -1509,45 +1601,61 @@ class AppWindow:
 
         self.lab_widget.scene.scene.render_to_image(on_image)
 
-    def write_calibration(self, filepath):
-        logger.info("Write out calibration parameters")
+    def write_configuration(self, filepath):
+        logger.info("Write out configured parameters")
         with open(filepath, 'w') as text_file:
-            if self.args.circle_colour is not None:
-                circle_colour_string = f"\"{','.join([str(i) for i in self.args.circle_colour])}\""
-            else:
-                circle_colour_string = ""
-
-            if self.args.hull_vertices is not None:
-                hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in self.args.hull_vertices]}'.replace(
+            for arg in vars(self.args):
+                value = getattr(self.args, arg)
+                logger.debug(f"arg:{arg}, value:{value}")
+                if value is None:
+                    continue
+                if isinstance(value, Enum):
+                    value = value.name
+                elif arg == "images":
+                    import pdb; pdb.set_trace()
+                    if isinstance(value, list):
+                        f"\"{','.join([str(i) for i in value])}\""
+                    else:
+                        value = str(value)
+                if arg == "circle_colour":
+                    value = f"\"{','.join([str(i) for i in value])}\""
+                if arg == "hull_vertices":
+                    value = f'{[",".join([str(j) for j in i]) for i in value]}'.replace(
                     "'", '"')
-            else:
-                hull_vertices_string = ""
+                text_file.write(f"{arg} = {value}\n")
+            logger.debug(f"Finished writing to configuration file {str(filepath)}")
 
-            text_file.write(f"[Scale]\n")
-            text_file.write(f"scale = {self.args.scale}\n")
-            text_file.write(f"[Colour parameters]\n")
-            text_file.write(f"circle_colour = {circle_colour_string}\n")
-            text_file.write(f"hull_vertices = {hull_vertices_string}\n")
-            text_file.write(f"alpha = {self.args.alpha}\n")
-            text_file.write(f"delta = {self.args.delta}\n")
+    def load_all_parameters(self):
+        self.load_layout_parameters()
+        self.scale_panel.set_value("scale", self.args.scale)
+        self.clear_selection()
+        self.clear_priors()
+        if self.args.hull_vertices is not None:
+            for lab in self.args.hull_vertices:
+                self.add_prior(lab)
 
-            if self.args.fixed_layout is not None:
-                text_file.write(f"[Layout]\n")
-                text_file.write(f"fixed_layout = {str(self.args.fixed_layout)}\n")
+    def load_configuration(self, filepath):
+        logger.info(f"Load configuration parameters from conf file: {str(filepath)}")
+        try:
+            args = options(filepath).parse_args()
+            self.args = postprocess(args)
+            self.load_all_parameters()
+            self.set_menu_enabled()
+        except SystemExit:
+            logger.warning(f"Failed to load configuration file")
+            self.window.show_message_box("Error", "Invalid configuration file")
+        except FileNotFoundError as e:
+            self.window.show_message_box("Error", f"File not found: {e}")
+        except FileExistsError as e:
+            self.window.show_message_box("Error", f"The output file already exists in this folder: {e}")
 
-            text_file.write(f"[Layout detection (not used if fixed_layout or whole_image arguments are provided)]\n")
-            text_file.write(f"circle_diameter = {self.args.circle_diameter}\n")
-            text_file.write(f"circle_expansion = {self.args.circle_expansion}\n")
-            text_file.write(f"circle_separation = {self.args.circle_separation}\n")
-            text_file.write(f"plate_width = {self.args.plate_width}\n")
-            text_file.write(f"circles_per_plate = {self.args.circles_per_plate}\n")
-            text_file.write(f"plates = {self.args.plates}\n")
-            text_file.write(f"plates_cols_first = {self.args.plates_cols_first}\n")
-            text_file.write(f"plates_bottom_top = {self.args.plates_bottom_top}\n")
-            text_file.write(f"plates_right_left = {self.args.plates_right_left}\n")
-            text_file.write(f"circles_cols_first = {self.args.circles_cols_first}\n")
-            text_file.write(f"circles_bottom_top = {self.args.circles_bottom_top}\n")
-            text_file.write(f"circles_right_left = {self.args.circles_right_left}\n")
+    def load_layout(self, filepath):
+        logger.info("Load fixed layout file")
+        self.args.fixed_layout = filepath
+        # todo should parse the layout file to check if it is valid
 
-            logger.debug("Finished writing to calibration file")
+
+
+
+
 

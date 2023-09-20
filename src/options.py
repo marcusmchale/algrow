@@ -1,14 +1,130 @@
-from configargparse import ArgumentParser
-from pathlib import Path
-from itertools import chain
+import logging
+import argparse
 
-from .update_and_verify import arg_types
+from configargparse import ArgumentParser
+from itertools import chain
+from enum import IntEnum
+from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
+
+
+# Types and constants
+IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "bmp"]
+
+
+class DebugEnum(IntEnum):
+    DEBUG = 0
+    INFO = 1
+    WARN = 2
+
+
+def debug_level(s: str):
+    try:
+        return DebugEnum[s.upper()]
+    except KeyError:
+        raise argparse.ArgumentTypeError(f'Log level must be one of: {[d.name for d in DebugEnum]}')
+
+
+def lab(s: str | tuple[float|int]):
+    if isinstance(s, tuple):
+        if len(s) > 3:
+            raise argparse.ArgumentTypeError(f'Colour must be a tuple with 3 float or int values: {s}')
+        else:
+            try:
+                for i in s:
+                    float(i)
+            except ValueError:
+                raise argparse.ArgumentTypeError(f'Colour must be a tuple with 3 float or int values: {s}')
+        return s
+    elif isinstance(s, str):
+        try:
+            l, a, b = map(float, s.split(','))
+            return l, a, b
+        except ValueError:
+            raise argparse.ArgumentTypeError(f'Each colour must be a string with 3 comma separated float values: {s}')
+
+
+def image_path(s: str):
+    if s is None:
+        return None
+    elif Path(s).is_file():
+        return [Path(s)]
+    elif Path(s).is_dir():
+        paths = [[p for p in Path(s).glob(f'**/*.{extension}')] for extension in IMAGE_EXTENSIONS]
+        return [p for sublist in paths for p in sublist]
+    else:
+        raise FileNotFoundError
+
+
+def existing_filepath(s: str):
+    if Path(s).is_file():
+        return Path(s)
+    else:
+        logger.warning(f"File will be overwritten: {s}")
+        #raise FileNotFoundError(s)
+
+
+def new_filepath(s: str):
+    if Path(s).is_file():
+        raise FileExistsError(s)
+    else:
+        return Path(s)
+
+
+arg_types = {
+    "conf": str,
+    "images": image_path,
+    "samples": str,
+    "out_dir": str,
+    "time_regex": str,
+    "time_format": str,
+    "block_regex": str,
+    "animations": bool,
+    "processes": int,
+    "image_debug": debug_level,
+    "loglevel": debug_level,
+    "voxel_size": float,
+    "superpixels": int,
+    "slic_iter": int,
+    "compactness": float,
+    "sigma": float,
+    "circle_colour": lab,
+    "hull_vertices": lab,
+    "alpha": float,
+    "delta": float,
+    "downscale": int,
+    "remove": int,
+    "fill": int,
+    "area_file": new_filepath,
+    "fit_start": float,
+    "fit_end": float,
+    "scale": float,
+    "fixed_layout": existing_filepath,
+    "circle_diameter": float,
+    "circle_expansion": float,
+    "circle_separation": float,
+    "circle_separation_tolerance": float,
+    "plate_width": float,
+    "circles_per_plate": int,
+    "plates": int,
+    "plates_cols_first": bool,
+    "plates_right_left": bool,
+    "plates_bottom_top": bool,
+    "circles_cols_first": bool,
+    "circles_right_left": bool,
+    "circles_bottom_top": bool
+}
 
 
 # Parse command-line arguments
-def options():
-    config_dir = Path(Path(__file__).parent.parent.parent, "conf.d")
+def options(filepath=None):
+    config_dir = Path(Path(__file__).parent.parent, "conf.d")
     config_files = config_dir.glob("*.conf")
+    config_files = [str(i) for i in config_files]
+    if filepath is not None:
+        config_files.append(filepath)
     parser = ArgumentParser(
         default_config_files=[str(i) for i in config_files],
     )
@@ -29,7 +145,7 @@ def options():
         "-o",
         "--out_dir",
         help="Output directory",
-        default="algrow_output",
+        default=".",
         type=arg_types["out_dir"]
     )
     parser.add_argument(
@@ -78,9 +194,9 @@ def options():
         type=arg_types["block_regex"]
     )
     parser.add_argument(
-        "--colour_rounding",
-        help="Value to round to nearest in colourspace projection for hull calibration",
-        type=arg_types["colour_rounding"],
+        "--voxel_size",
+        help="Size of voxel in colourspace projection to display a point during hull calibration",
+        type=arg_types["voxel_size"],
         default=1
     )
     parser.add_argument(
@@ -109,24 +225,6 @@ def options():
         default=1.0
     )
     parser.add_argument(
-        "--force_calibration",
-        help="Force calibration window to load, even if all parameters are defined",
-        action='store_true'
-    )
-    parser.add_argument(
-        "--num_calibration",
-        help="Number of images to use for calibration",
-        type=arg_types["num_calibration"],
-        default=3
-    )
-    parser.add_argument(
-        "-b",
-        "--blur",
-        help="Gaussian blur applied to image during loading",
-        type=arg_types["blur"],
-        default=1
-    )
-    parser.add_argument(
         "--downscale",
         help="Downscale by this factor",
         type=arg_types["downscale"],
@@ -148,11 +246,10 @@ def options():
     )
     parser.add_argument(
         "--area_file",
-        help="Disc area filename for analysis (must be in the output directory)",
+        help="Disc area filename for analysis",
         type=arg_types["area_file"],
-        default="area.csv"
+        default=None
     )
-
     parser.add_argument(
         "--circle_diameter",
         help="Diameter of surrounding circles in pixels",
@@ -264,3 +361,91 @@ def postprocess(args):
         #  else:  # should return default local director as out_dir
         #      raise FileNotFoundError("No output directory specified")
     return args
+
+
+class TemporaryArgsAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        return '[%s] %s' % (self.extra['temporary_args'], msg), kwargs
+
+
+def update_arg(args, arg, val, temporary=False):
+    # We need to distinguish updates to a temporary copy of args vs the main args
+    if temporary:
+        adapter = TemporaryArgsAdapter(logger, {'temporary_args': "Temporary"})
+        # only want to log this at debug level
+    else:
+        adapter = logger
+
+    if isinstance(val, list) and isinstance(val[0], tuple):
+        val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
+        # coerce to known type:
+        try:
+            val = [arg_types[arg](v) for v in val]
+        except ValueError:
+            adapter.debug("Issue with updating arg")
+            raise
+    else:
+        if isinstance(val, tuple):
+            val_str = f"\"{','.join([str(i) for i in val])}\""
+        else:
+            val_str = str(val)
+            # coerce to known type:
+        try:
+            val = arg_types[arg](val)
+        except ValueError:
+            adapter.debug("Issue with updating arg")
+            raise
+
+    if vars(args)[arg] is None:
+        if temporary:
+            adapter.debug(f"Setting {arg}: {val_str}")
+        else:
+            adapter.info(f"Setting {arg}: {val_str}")
+        vars(args).update({arg: val})
+        adapter.debug(f"{arg}:{vars(args)[arg]}")
+    else:
+        if vars(args)[arg] == val:
+            adapter.debug(f"Existing value matches the update so no change will be made {arg}: {val}")
+        else:
+            if temporary:
+                adapter.debug(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
+            else:
+                adapter.info(f"Overwriting configured value for {arg}: {vars(args)[arg]} will be set to {val}")
+            vars(args).update({arg: val})
+
+
+def minimum_calibration(args):
+    return all([
+        (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
+        args.scale is not None
+    ])
+
+
+def layout_defined(args):
+    return args.fixed_layout is not None or all([
+        args.circle_colour is not None,
+        args.circle_diameter is not None and not args.circle_diameter <= 0,
+        args.circle_separation is not None and not args.circle_separation < 0,
+        args.plate_width is not None and not args.plate_width < 0,
+        args.circles_per_plate is not None and not args.circles_per_plate <= 0,
+        args.plates is not None and not args.plates <= 0,
+        args.circle_expansion is not None,
+        args.circle_separation_tolerance is not None,
+        args.circles_cols_first is not None,
+        args.circles_right_left is not None,
+        args.circles_bottom_top is not None,
+        args.plates_cols_first is not None,
+        args.plates_bottom_top is not None,
+        args.plates_right_left is not None
+    ])
+
+
+def configuration_complete(args):
+    if args.whole_image:
+        return minimum_calibration(args)
+    else:
+        return all([
+            args.scale is not None,
+            (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
+            layout_defined(args)
+        ])

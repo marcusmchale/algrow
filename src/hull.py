@@ -1,14 +1,11 @@
 import numpy as np
 import logging
-import argparse
-
 from trimesh import PointCloud
 from alphashape import optimizealpha, alphashape
 import open3d as o3d
 
 from typing import Optional
-from ..image_loading import ImageLoaded
-from .loading import CalibrationImage
+from .image_loading import CalibrationImage
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +49,10 @@ class HullHolder:
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha
                 # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-                self.hull = PointCloud(self.points).convex_hull
+                try:
+                    self.hull = PointCloud(self.points).convex_hull
+                except Exception as e:
+                    import pdb; pdb.set_trace()
             else:
                 logger.debug("Constructing alpha shape")
                 # note the alphashape package uses the inverse of the alpha radius as alpha
@@ -82,20 +82,22 @@ class HullHolder:
         else:
             return None
 
+    @staticmethod
+    def get_from_mask(image: CalibrationImage, alpha, min_pixels, voxel_size):
+        if image.true_mask is None:
+            return None
 
-def hull_from_mask(image: CalibrationImage, mask: ImageLoaded, alpha, min_pixels):
-    image = image
-    mask_bool = np.all(mask.rgb == [1, 1, 1], axis=2)
-    if not np.sum(mask_bool):
-        logger.debug("No white pixels found in provided mask image")
-        return None
-    logger.debug(f"White pixels: {np.sum(mask_bool)}")
-    target = image.lab[mask_bool]
-    round_target = image.args.colour_rounding * np.round(target / image.args.colour_rounding)
-    unique_target, counts = np.unique(round_target, axis=0, return_counts=True)
-    colours = unique_target[counts >= min_pixels]
-    return HullHolder(colours, alpha)
-    #vertices = hh.hull.vertices
-    #hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in vertices]}'.replace("'", '"')
-    #logger.debug(f"Hull vertices from mask: {hull_vertices_string}")
-    #args.hull_vertices = vertices
+        mask_bool = image.true_mask.mask
+        if not np.sum(mask_bool):
+            logger.debug("No true values found in provided mask")
+            return None
+        logger.debug(f"White pixels: {np.sum(mask_bool)}")
+        idx = np.argwhere(mask_bool)
+        target = image.lab[idx[:, 0], idx[:, 1], :]
+        cloud = o3d.geometry.PointCloud()
+        cloud.points = o3d.utility.Vector3dVector(target)
+        cloud, _, indices = cloud.voxel_down_sample_and_trace(voxel_size, min_bound=[0, -128, -128], max_bound=[100, 127, 127])
+        common_indices = [i for i, j in enumerate(indices) if len(j) >= min_pixels]
+        cloud = cloud.select_by_index(common_indices)
+        colours = cloud.points
+        return HullHolder(colours, alpha)

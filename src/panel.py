@@ -11,7 +11,7 @@ class Panel:
     DEFAULTS = {
         str: "",
         float: 0.0,
-        int: 0,
+        int: 1,
         gui.ColorEdit: gui.Color(1.0, 1.0, 1.0)
     }
 
@@ -63,7 +63,10 @@ class Panel:
         self.layout.add_child(label)
 
     def add_button(self, key: str, on_clicked: Callable = None, tooltip: Optional[str] = None, toggleable=False, enabled=True):
+        button_layout = gui.Horiz()
         button = gui.Button(key)
+        button_layout.add_child(button)
+        button_layout.add_stretch()
         if on_clicked is not None:
             button.set_on_clicked(on_clicked)
         button.enabled = enabled
@@ -72,10 +75,10 @@ class Panel:
             button.is_on = True
         self.buttons[key] = button
         self.inputs_to_types[key] = bool
-        self.layout.add_child(button)
+        self.layout.add_child(button_layout)
 
     def add_button_pool(self, key):
-        layout = gui.Vert(self.margin, gui.Margins(self.margin*5))
+        layout = gui.Vert()
         self.layout.add_child(layout)
         self.button_pools[key] = ButtonPool(layout)
 
@@ -120,7 +123,6 @@ class Panel:
         input_layout.add_child(self.inputs[key])
         self.layout.add_child(input_layout)
 
-
     def get_value(self, key: str) -> Union[str, float, int, Tuple[float, float, float]]:
         input_type = self.inputs_to_types[key]
         if input_type == str:
@@ -136,7 +138,7 @@ class Panel:
                     self.inputs[key].color_value.blue
             ])
             return rgb
-        elif input_type == gui.Button:
+        elif input_type == bool:
             return self.buttons[key].is_on
 
 
@@ -184,7 +186,7 @@ class ButtonPool:
         self.buttons[key] = gui.WidgetProxy()
         self.buttons[key].set_widget(button)
         button_layout.add_child(self.buttons[key])
-        button_layout.add_fixed(20)
+        button_layout.add_stretch()
         self.layout.add_child(button_layout)
 
     def remove_button(self, key):

@@ -1,5 +1,5 @@
 from pathlib import Path
-from .options.parse_args import options
+from .options import options
 import logging
 import logging.config
 import logging.handlers
@@ -27,7 +27,6 @@ def logger_thread(queue):
 class ImageFilepathAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
         return '[%s] %s' % (self.extra['image_filepath'], msg), kwargs
-
 
 LOGGING_CONFIG = {
     'version': 1,
