@@ -24,7 +24,9 @@ from .logging import ImageFilepathAdapter, logger_thread, worker_log_configurer
 logger = logging.getLogger(__name__)
 
 
-def calculate(args):
+def calculate_area(args):
+    area_out = args.area_file
+
     logger.debug("Start calculations")
     # Construct alpha hull from target colours
     if args.hull_vertices is None or len(args.hull_vertices) < 4:
@@ -43,8 +45,9 @@ def calculate(args):
         raise ValueError("The provided vertices do not construct a complete hull with the chosen alpha parameter")
 
     # prepare output file for results
-    area_out = Path(args.out_dir, args.area_file)
-    area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+
+    area_header = ['File', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+
     logger.debug("Check file exists and if it already includes data from listed images")
     if area_out.is_file():  # if the file exists then check for any already processed images
         with open(area_out) as csv_file:
@@ -74,7 +77,6 @@ def calculate(args):
         csv_writer = writer(csv_file)
         if area_out.stat().st_size == 0:  # True if output file is empty
             csv_writer.writerow(area_header)
-
         if args.processes > 1:
             queue = multiprocessing.Manager().Queue(-1)
             lp = threading.Thread(target=logger_thread, args=(queue,))
@@ -118,7 +120,8 @@ def area_worker(filepath, alpha_hull, args, queue=None):
     adapter.debug(f"Processing file: {filepath}")
 
     result = ImageProcessor(filepath, alpha_hull, args).get_area()
-    filename = result["filename"]
+    filepath = Path(result["filename"])
+    filename = str(filepath)   # keep whole path in name so can detect already done more easily
 
     block_match = search(args.block_regex, str(filename))
     if block_match:
@@ -158,7 +161,7 @@ class ImageProcessor:
             layout = LayoutDetector(self.image).get_layout()
 
         if layout is None:
-            masked_lab = self.image.lab.reshape(-1, self.image.lab.shape[-1])
+            masked_lab = self.image.lab.reshape(-1, 3)
         else:
             masked_lab = self.image.lab[layout.mask]
 
@@ -183,7 +186,7 @@ class ImageProcessor:
 
         self.logger.debug("Create mask from distance threshold")
         if layout is None:
-            target_mask = inside
+            target_mask = inside.reshape(self.image.rgb.shape[0:2])
         else:
             target_mask = layout.mask.copy()
             target_mask[target_mask] = inside

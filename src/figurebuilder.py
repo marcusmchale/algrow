@@ -6,11 +6,11 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 from skimage.color import lab2rgb
-from matplotlib import gridspec, colors, animation, patheffects
+from matplotlib import gridspec,  animation, patheffects
 from matplotlib.figure import Figure, Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
-from skimage.morphology import binary_dilation, binary_erosion
+from skimage.morphology import binary_erosion
 from matplotlib.pyplot import imread
 
 
@@ -184,7 +184,6 @@ class FigureMatplot(FigureBase):
         #contour_dilate = binary_dilation(mask, footprint=np.full((5, 5), 1))
         #contour_dilate[mask] = False
         #image[contour_dilate] = (1, 1, 1)
-
         # erode is better as it only shows the selected areas.
         contour_erode = binary_erosion(mask, footprint=np.full((5, 5), 1))
         mask[contour_erode] = False
