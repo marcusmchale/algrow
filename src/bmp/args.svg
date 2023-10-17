@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   version="1.1"
+   id="svg55"
+   width="96"
+   height="96"
+   viewBox="0 0 96 96"
+   sodipodi:docname="args.svg"
+   inkscape:version="1.3 (1:1.3+202307231459+0e150ed6c4)"
+   inkscape:export-filename="args.png"
+   inkscape:export-xdpi="24"
+   inkscape:export-ydpi="24"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs59">
+    <inkscape:perspective
+       sodipodi:type="inkscape:persp3d"
+       inkscape:vp_x="8.0083537 : 5.2736502 : 1"
+       inkscape:vp_y="0 : 732.4479 : 0"
+       inkscape:vp_z="114.70591 : 5.2736502 : 1"
+       inkscape:persp3d-origin="61.357135 : -6.445516 : 1"
+       id="perspective1" />
+  </defs>
+  <sodipodi:namedview
+     id="namedview57"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="2.1323689"
+     inkscape:cx="65.889162"
+     inkscape:cy="63.07539"
+     inkscape:window-width="1452"
+     inkscape:window-height="1147"
+     inkscape:window-x="26"
+     inkscape:window-y="23"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="g61" />
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="Image"
+     id="g61">
+    <text
+       xml:space="preserve"
+       style="font-size:35.8504px;line-height:1.25;font-family:Calibri;-inkscape-font-specification:Calibri;letter-spacing:0px;word-spacing:0px;stroke-width:1"
+       x="2.5043037"
+       y="57.400227"
+       id="text1"><tspan
+         sodipodi:role="line"
+         id="tspan1"
+         x="2.5043037"
+         y="57.400227"
+         style="stroke-width:1">(L,a,b)</tspan></text>
+  </g>
+</svg>

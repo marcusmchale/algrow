@@ -19,10 +19,11 @@ from skimage.morphology import remove_small_holes, remove_small_objects
 from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess
 from .hull import HullHolder
 from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage
-from .layout import get_layout, Layout
+from .layout import get_layout, Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
 from .panel import Panel
 from .area_calculation import calculate_area
 from .analysis import analyse
+
 
 
 isMacOS = (platform.system() == "Darwin")
@@ -44,7 +45,7 @@ class AppWindow:
     MENU_LOAD_CONF = 3
     MENU_WRITE_CONF = 4
     MENU_LOAD_LAYOUT = 5
-    # MENU_SAMPLES = 3
+    MENU_LOAD_SAMPLES = 6
     MENU_QUIT = 7
 
     MENU_SCALE = 11
@@ -67,6 +68,7 @@ class AppWindow:
         self.window.set_on_layout(self._on_layout)
 
         self.image = None
+        self.image_window = None
         self.activity = Activities.NONE
 
         #selections
@@ -104,7 +106,8 @@ class AppWindow:
 
         self.lab_widget = self.get_lab_widget()
         self.info = self.get_info()
-        self.image_widget = self.get_image_widget()
+        self.image_widget = None
+
         self.debug_widget = self.get_debug_widget()
 
         self.tool_layout = gui.Horiz(0.5 * self.em, gui.Margins(0.5 * self.em))
@@ -119,10 +122,11 @@ class AppWindow:
         self.layout_panel = self.get_layout_panel()
 
         self.load_all_parameters()
-
         self.prepare_menu()
+        self.settings_panel = self.get_settings_panel()
 
     def prepare_menu(self):
+        logger.debug("Prepare menu")
         # ---- Menu ----
         # The menu is global (because the macOS menu is global), so only create
         # it once, no matter how many windows are created
@@ -130,11 +134,10 @@ class AppWindow:
             file_menu = gui.Menu()
             file_menu.add_item("Load Image", AppWindow.MENU_OPEN)
             file_menu.add_item("Load Mask", AppWindow.MENU_MASK)
-            #file_menu.add_item("Samples", AppWindow.MENU_SAMPLES)
             file_menu.add_item("Load Configuration", AppWindow.MENU_LOAD_CONF)
             file_menu.add_item("Load Layout", AppWindow.MENU_LOAD_LAYOUT)
+            file_menu.add_item("Load Samples", AppWindow.MENU_LOAD_SAMPLES)
             file_menu.add_item("Save Configuration", AppWindow.MENU_WRITE_CONF)
-            file_menu.set_enabled(AppWindow.MENU_MASK, False)
             if isMacOS:
                 app_menu = gui.Menu()
                 app_menu.add_item("About", AppWindow.MENU_ABOUT)
@@ -145,23 +148,17 @@ class AppWindow:
                 file_menu.add_item("Quit", AppWindow.MENU_QUIT)
             configuration_menu = gui.Menu()
             configuration_menu.add_item("Set scale", AppWindow.MENU_SCALE)
-            configuration_menu.set_enabled(AppWindow.MENU_SCALE, False)
             configuration_menu.add_item("Define Circle Colour", AppWindow.MENU_CIRCLE)
-            configuration_menu.set_enabled(AppWindow.MENU_CIRCLE, False)
             configuration_menu.add_item("Define Layout", AppWindow.MENU_LAYOUT)
-            configuration_menu.set_enabled(AppWindow.MENU_LAYOUT, False)
             configuration_menu.add_item("Define Target Hull", AppWindow.MENU_TARGET)
-            configuration_menu.set_enabled(AppWindow.MENU_TARGET, False)
-
-
             analysis_menu = gui.Menu()
             analysis_menu.add_item("Area", AppWindow.MENU_AREA)
-            analysis_menu.set_enabled(AppWindow.MENU_AREA, configuration_complete(self.args))
             analysis_menu.add_item("RGR", AppWindow.MENU_RGR)
-            analysis_menu.set_enabled(AppWindow.MENU_RGR, True)
 
             settings_menu = gui.Menu()
+            settings_menu.add_item("Settings", AppWindow.MENU_SHOW_SETTINGS)
             settings_menu.set_checked(AppWindow.MENU_SHOW_SETTINGS, True)
+
             help_menu = gui.Menu()
             help_menu.add_item("About", AppWindow.MENU_ABOUT)
             # todo add link to pdf with instructions and citation/paper when published to help menu
@@ -186,6 +183,7 @@ class AppWindow:
                 menu.add_menu("Settings", settings_menu)
                 menu.add_menu("Help", help_menu)
             self.app.menubar = menu
+            self.set_menu_enabled()
 
         # The menubar is global, but we need to connect the menu items to the
         # window, so that the window can call the appropriate function when the
@@ -194,6 +192,7 @@ class AppWindow:
         self.window.set_on_menu_item_activated(AppWindow.MENU_MASK, self._on_menu_mask)
         self.window.set_on_menu_item_activated(AppWindow.MENU_WRITE_CONF, self._on_menu_write_conf)
         self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_CONF, self._on_menu_load_conf)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_SAMPLES, self._on_menu_load_samples)
         self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_LAYOUT, self._on_menu_load_layout)
         self.window.set_on_menu_item_activated(AppWindow.MENU_QUIT, self._on_menu_quit)
         self.window.set_on_menu_item_activated(AppWindow.MENU_SCALE, self.start_scale)
@@ -256,7 +255,7 @@ class AppWindow:
 
     def get_scale_panel(self):
         logger.debug("Prepare scale panel")
-        scale_panel = Panel(gui.Vert, 0.5 * self.em, parent=self.tool_layout)
+        scale_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
         scale_panel.add_label("Scale parameters", self.fonts['large'])
         scale_panel.add_label("Shift-click on two points to draw a line", self.fonts['small'])
         scale_panel.add_input("px", float, tooltip="Length of line", on_changed=self.update_scale)
@@ -268,11 +267,11 @@ class AppWindow:
 
     def get_layout_panel(self):
         logger.debug("Prepare layout panel")
-        layout_panel = Panel(gui.Vert, 0.5 * self.em, parent=self.tool_layout)
+        layout_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
         layout_panel.add_label("Layout parameters", self.fonts['large'])
-        layout_horiz = Panel(gui.Horiz, 0.5 * self.em, parent=layout_panel)
-        layout_numbers = Panel(gui.Vert, 0.5 * self.em, parent=layout_horiz)
-        layout_buttons = Panel(gui.Vert, 0.5 * self.em, parent=layout_horiz)
+        layout_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), layout_panel)
+        layout_numbers = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
+        layout_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
 
         layout_numbers.add_label(
             "Shift-click on two points to draw a line\nand copy the value into measured fields", self.fonts['small']
@@ -289,7 +288,8 @@ class AppWindow:
         layout_numbers.add_input("circles", int, tooltip="Number of circles per plate")
         layout_numbers.add_input("plates", int, tooltip="Number of plates per image")
         layout_numbers.add_separation(2)
-        layout_numbers.add_label("Expansion factors", self.fonts['small'])
+        layout_numbers.add_label("Tolerance factors", self.fonts['small'])
+        layout_numbers.add_input("circle variability", float, tooltip="Higher values search for a broader range of circle diameters)")
         layout_numbers.add_input("circle expansion", float, tooltip="Applied to radius of circle for final region of interest (not used during search)")
         layout_numbers.add_input("circle separation tolerance", float, tooltip="Applied calculating cut height for plate clustering")
         layout_buttons.add_label("Plate ID incrementation", self.fonts['small'])
@@ -346,21 +346,38 @@ class AppWindow:
             return
 
         fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
-        circles, plates, fig = get_layout(self.image, fig)
+        self.image.args = self.args  # todo: should consider whether image should really be carrying the args at all...
+        try:
+            circles, plates, fig = get_layout(self.image, fig)
+
+        except ExcessPlatesException:
+            self.window.show_message_box("Error", "Excess plates detected")
+            plates = None
+        except InsufficientCircleDetection:
+            self.window.show_message_box("Error", "Insufficient circles detected")
+            plates = None
+        except InsufficientPlateDetection:
+            self.window.show_message_box("Error", "Insufficient plates detected")
+            plates = None
+
         if plates is None:
             self.layout_panel.buttons["save fixed layout"].enabled = False
             self.update_layout_image(fig.as_array())
             self.debug_widget.visible = True
             self.window.set_needs_layout()
         else:
-            self.layout = Layout(plates, self.image)  # Note ambiguous terms, plate layout from this and layout in o3d.
+            self.layout = Layout(plates, self.image)
+            # todo Note ambiguous terms, plate layout from this and layout in o3d,
+            # also fixed_layout - this is confusing
             self.layout_panel.buttons["save fixed layout"].enabled = True
             self.update_layout_image(self.layout.overlay)
             self.debug_widget.visible = True
             self.window.set_needs_layout()
 
+
     def load_layout_parameters(self):
         self.layout_panel.set_value("circle diameter", self.args.circle_diameter)
+        self.layout_panel.set_value("circle variability", self.args.circle_variability)
         self.layout_panel.set_value("circle separation", self.args.circle_separation)
         self.layout_panel.set_value("plate width", self.args.plate_width)
         self.layout_panel.set_value("circle expansion", self.args.circle_expansion)
@@ -392,6 +409,7 @@ class AppWindow:
 
     def save_layout(self):
         update_arg(self.args, "circle_diameter", self.layout_panel.get_value("circle diameter"))
+        update_arg(self.args, "circle_variability", self.layout_panel.get_value("circle variability"))
         update_arg(self.args, "circle_separation", self.layout_panel.get_value("circle separation"))
         update_arg(self.args, "plate_width", self.layout_panel.get_value("plate width"))
         update_arg(self.args, "circle_expansion", self.layout_panel.get_value("circle expansion"))
@@ -452,7 +470,7 @@ class AppWindow:
 
     def get_circle_panel(self):
         logger.debug("Prepare circle panel")
-        circle_panel = Panel(gui.ScrollableVert, 0.5 * self.em, parent=self.tool_layout)
+        circle_panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
         circle_panel.add_label("Circle colour parameters", self.fonts['large'])
         circle_panel.add_label("Shift-click to select pixels", self.fonts['small'])
         circle_panel.add_button("Clear", self.clear_circle_selection, tooltip="Clear selected pixels")
@@ -469,9 +487,9 @@ class AppWindow:
 
     def get_target_panel(self):
         logger.debug("Prepare target panel")
-        target_panel = Panel(gui.ScrollableVert, 0.5 * self.em, parent=self.tool_layout)
+        target_panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
         target_panel.add_label("Target hull parameters", self.fonts['large'])
-        target_horiz = Panel(gui.Horiz, self.em, parent=target_panel)
+        target_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), target_panel)
         self.add_target_buttons(target_horiz)
         self.add_selection_panel(target_horiz)
         self.add_prior_panel(target_horiz)
@@ -479,7 +497,7 @@ class AppWindow:
 
     def add_target_buttons(self, parent: Panel):
         logger.debug("Prepare target buttons")
-        target_buttons = Panel(gui.Vert, 0.5 * self.em, parent=parent)
+        target_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
         target_buttons.add_label("Shift-click to select voxels", self.fonts['small'])
         target_buttons.add_input(
             "alpha",
@@ -561,7 +579,7 @@ class AppWindow:
 
     def add_selection_panel(self, parent: Panel):
         logger.debug("Prepare selection panel")
-        selection_panel = Panel(gui.Vert, 0.5 * self.em, parent=parent)
+        selection_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
         selection_panel.add_label("selected", font_style=self.fonts['small'])
         selection_panel.add_button("clear", tooltip="Clear selected colours", on_clicked=self.clear_selection)
         selection_panel.add_button("reduce", tooltip="Keep only hull vertices", on_clicked=self.reduce_selection)
@@ -570,7 +588,7 @@ class AppWindow:
 
     def add_prior_panel(self, parent: Panel):
         logger.debug("Prepare prior panel")
-        prior_panel = Panel(gui.Vert, 0.5 * self.em, parent=parent)
+        prior_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
         prior_panel.add_label("priors", font_style=self.fonts['small'])
         prior_panel.add_button("clear", tooltip="Clear prior colours", on_clicked=self.clear_priors)
         prior_panel.add_button('reduce', tooltip="Keep only hull vertices", on_clicked=self.reduce_priors)
@@ -1154,6 +1172,7 @@ class AppWindow:
             logger.debug(f"Calculate distance from hull for {self.image.displayed_lab.reshape(-1, 3).shape[0]} pixels")
             distances = self.hull_holder.get_distances(self.image.displayed_lab)
             if distances is not None:
+                logger.debug(f"Use distances to create a target mask")
                 distances = distances.reshape(self.image.displayed_lab.shape[0:2])
                 target_mask = distances <= self.target_panel.get_value("delta")
                 if self.target_panel.get_value("fill"):
@@ -1397,8 +1416,24 @@ class AppWindow:
         self.window.close_dialog()
         self.load_layout(filepath)
 
+    def _on_menu_load_samples(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose samples descriptor file to load", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Samples files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_load_samples_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_load_samples_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_samples(filepath)
+
     def _on_menu_area(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose an image in a folder (all images in the folder will be analysed)", self.window.theme)
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose an image file", self.window.theme)
+        dlg.tooltip = "ALl images in the folder will be analysed"
         extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
         dlg.add_filter(" ".join(extensions), f"Supported image files ({', '.join(extensions)}")
         dlg.add_filter("", "All files")
@@ -1410,14 +1445,21 @@ class AppWindow:
     def _on_area_input_dialog_done(self, filename):
         selected_folder = Path(filename).parent
         self.window.close_dialog()
-        update_arg(self.args, "images", selected_folder)
-        if self.args.area_file is None:
+        # don't do recursive search in GUI, just take immediate grob
+        paths = [[p for p in Path(selected_folder).glob(f'*.{extension}')] for extension in IMAGE_EXTENSIONS]
+        paths = [p for sublist in paths for p in sublist]
+        update_arg(self.args, "images", paths)
+
+        area_out = Path(selected_folder, "area.csv")
+
+        while self.args.area_file is None:
             try:
-                update_arg(self.args, "area_file", Path(selected_folder, "area.csv"))
+                update_arg(self.args, "area_file", area_out)
             except FileExistsError:
-                # todo allow to configure area filepath in GUI
+                logger.warning(f"File already exists: {area_out}")
+                area_out = Path(selected_folder, f"area_{time.strftime('%Y%m%d-%H%M%S')}.csv")
                 # then cancel here and start again with new filename
-                logger.warning("Overwriting existing file")
+
         calculate_area(self.args)
 
     def _on_menu_rgr(self):
@@ -1425,31 +1467,24 @@ class AppWindow:
         extensions = [f".csv"]
         dlg.add_filter(" ".join(extensions), f"Supported area files ({', '.join(extensions)}")
         dlg.add_filter("", "All files")
-        # A file dialog MUST define on_cancel and on_done functions
         dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_rgr_dialog_done)
+        dlg.set_on_done(self._on_rgr_input_dialog_done)
         self.window.show_dialog(dlg)
 
     def _on_rgr_input_dialog_done(self, filename):
         filepath = Path(filename)
         self.window.close_dialog()
-        update_arg(self.args, "images", filepath.parent)
-
-
-    def _on_rgr_dialog_done(self, filename):
-        filepath = Path(filename)
-        self.window.close_dialog()
+        update_arg(self.args, "area_file", filepath)
         analyse(self.args)
-
 
     def _on_menu_quit(self):
         gui.Application.instance.quit()
 
     def _on_menu_toggle_settings_panel(self):
-        pass
-        #self._settings_panel.visible = not self._settings_panel.visible
-        #gui.Application.instance.menubar.set_checked(
-        #    AppWindow.MENU_SHOW_SETTINGS, self._settings_panel.visible)
+        self.settings_panel.visible = not self.settings_panel.visible
+        self.app.menubar.set_checked(
+            AppWindow.MENU_SHOW_SETTINGS, self.settings_panel.visible
+        )
 
     def _on_menu_about(self):
         # Show a simple dialog. Although the Dialog is actually a widget, you can
@@ -1482,15 +1517,27 @@ class AppWindow:
         self.window.close_dialog()
 
     def set_menu_enabled(self):
-        if self.image is not None:
+        if self.image is None:
+            self.app.menubar.set_enabled(self.MENU_MASK, False)
+            self.app.menubar.set_enabled(self.MENU_TARGET, False)
+            self.app.menubar.set_enabled(self.MENU_SCALE, False)
+            self.app.menubar.set_enabled(self.MENU_CIRCLE, False)
+            self.app.menubar.set_enabled(self.MENU_LAYOUT, False)
+        else:
             self.app.menubar.set_enabled(self.MENU_MASK, True)
             self.app.menubar.set_enabled(self.MENU_TARGET, True)
             self.app.menubar.set_enabled(self.MENU_SCALE, True)
             self.app.menubar.set_enabled(self.MENU_CIRCLE, True)
             self.app.menubar.set_enabled(self.MENU_LAYOUT, self.args.circle_colour is not None)
-        self.app.menubar.set_enabled(AppWindow.MENU_AREA, configuration_complete(self.args))
+        if configuration_complete(self.args):
+            self.app.menubar.set_enabled(AppWindow.MENU_AREA, True)
+            self.app.menubar.set_enabled(self.MENU_RGR, self.args.samples is not None)
+        else:
+            self.app.menubar.set_enabled(AppWindow.MENU_AREA, False)
+            self.app.menubar.set_enabled(self.MENU_RGR, False)
 
     def load_image(self, path):
+
         if self.image is not None:
             selected_points = self.image.cloud.select_by_index(list(self.target_indices)).points
             for lab in selected_points:
@@ -1508,6 +1555,7 @@ class AppWindow:
         self.set_menu_enabled()
 
         logger.debug("Load rgb image")
+        self.image_widget = self.get_image_widget()
         #self.image_widget.update_image(self.image.as_o3d)
         self.image_widget.visible = True
         self.image.prepare_cloud()
@@ -1612,11 +1660,11 @@ class AppWindow:
                 if isinstance(value, Enum):
                     value = value.name
                 elif arg == "images":
-                    import pdb; pdb.set_trace()
-                    if isinstance(value, list):
-                        f"\"{','.join([str(i) for i in value])}\""
-                    else:
-                        value = str(value)
+                    continue  # todo if want to write images then need to fix parser to handle it
+                    # if isinstance(value, list):
+                    #    value = f"\"{','.join([str(i) for i in value])}\""
+                    # else:
+                    #     value = str(value)
                 if arg == "circle_colour":
                     value = f"\"{','.join([str(i) for i in value])}\""
                 if arg == "hull_vertices":
@@ -1637,25 +1685,53 @@ class AppWindow:
     def load_configuration(self, filepath):
         logger.info(f"Load configuration parameters from conf file: {str(filepath)}")
         try:
-            args = options(filepath).parse_args()
+            parser = options(filepath)
+            args = parser.parse_args()
             self.args = postprocess(args)
             self.load_all_parameters()
             self.set_menu_enabled()
         except SystemExit:
             logger.warning(f"Failed to load configuration file")
             self.window.show_message_box("Error", "Invalid configuration file")
-        except FileNotFoundError as e:
-            self.window.show_message_box("Error", f"File not found: {e}")
         except FileExistsError as e:
             self.window.show_message_box("Error", f"The output file already exists in this folder: {e}")
+        except FileNotFoundError as e:
+            self.window.show_message_box("Error", f"File not found: {e}")
+
 
     def load_layout(self, filepath):
         logger.info("Load fixed layout file")
         self.args.fixed_layout = filepath
         # todo should parse the layout file to check if it is valid
+        self.set_menu_enabled()
 
+    def load_samples(self, filepath):
+        logger.info("Load samples descriptor file")
+        self.args.samples = filepath
+        # todo should parse the samples file to check if it is valid
+        self.set_menu_enabled()
 
+    def get_settings_panel(self):
+        logger.debug("Prepare settings panel")
+        settings_panel = Panel(gui.Vert(self.em, gui.Margins(self.em)), self.window)
+        layout_settings_panel = Panel(gui.CollapsableVert("Layout", self.em, gui.Margins(self.em)), settings_panel)
+        layout_settings_panel.add_checkbox("Whole Image", checked=self.args.whole_image, on_checked=self._on_whole_image)
+        layout_settings_panel.add_input(
+            "Fixed Layout", str,
+            value=str(self.args.fixed_layout),
+            on_changed=self._on_fixed_layout
+        )
+        settings_panel.visible = False
+        return settings_panel
 
+    def _on_whole_image(self, event=None):
+        # disable layout detection?
+        update_arg(self.args, "whole_image", self.settings_panel.get_value("Whole Image"))
 
-
-
+    def _on_fixed_layout(self, event=None):
+        filepath = Path(self.settings_panel.get_value("Fixed Layout"))
+        if not filepath.is_file():
+            logger.warning(f"Missing file: {str(filepath)}")
+            self.window.show_message_box("Error", f"Missing file: {str(filepath)}")
+            return
+        update_arg(self.args, "fixed_layout", filepath)

@@ -1,13 +1,13 @@
 from open3d.visualization import gui
 
 from typing import Callable, Type, Union, Optional, Dict, Tuple
-
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class Panel:
+
     DEFAULTS = {
         str: "",
         float: 0.0,
@@ -15,25 +15,34 @@ class Panel:
         gui.ColorEdit: gui.Color(1.0, 1.0, 1.0)
     }
 
-    def __init__(self, layout: Callable[[float, gui.Margins], gui.Layout1D], margin, parent=None):
-        self.layout = layout(margin, gui.Margins(margin * 2))
-        self.margin = margin
+    def __init__(
+            self,
+            layout: Union[gui.Layout1D, gui.LayoutContext],
+            parent: Union[gui.Window, gui.Layout1D, 'Panel'],
+            spacing=0,
+            margin=0
+    ):
+        self.layout = layout
         self.parent = parent
-        self.children = list()
+        self.spacing = 0
+        self.margin = 0
 
-        if self.parent is None or type(self.parent) != Panel:
-            self.inputs = dict()
-            self.inputs_to_types = dict()
-            self.buttons = dict()
-            self.button_pools = dict()
-            if self.parent is not None:
-                self.parent.add_child(self.layout)
-        else:
+        if isinstance(self.parent, Panel):
             self.inputs = self.parent.inputs
             self.inputs_to_types = self.parent.inputs_to_types
             self.buttons = self.parent.buttons
+            self.checkboxes = self.parent.checkboxes
             self.button_pools = self.parent.button_pools
             self.parent.add_child(self)
+        else:
+            self.inputs = dict()
+            self.inputs_to_types = dict()
+            self.buttons = dict()
+            self.checkboxes = dict()
+            self.button_pools = dict()
+            self.parent.add_child(self.layout)
+
+        self.children = list()
 
     @property
     def visible(self):
@@ -42,12 +51,9 @@ class Panel:
     @visible.setter
     def visible(self, visible: bool):
         self.layout.visible = visible
-        #for i in self.children:
-        #    i.layout.visible = visible
 
     def add_child(self, panel: 'Panel'):
         self.children.append(panel)
-
         self.layout.add_child(panel.layout)
 
     def add_stretch(self):
@@ -73,9 +79,27 @@ class Panel:
         if toggleable:
             button.toggleable = True
             button.is_on = True
+        if tooltip is not None:
+            button.tooltip = tooltip
         self.buttons[key] = button
-        self.inputs_to_types[key] = bool
+        self.inputs_to_types[key] = gui.Button
         self.layout.add_child(button_layout)
+
+    def add_checkbox(self, key: str, checked=True, on_checked: Callable = None, tooltip: Optional[str] = None, enabled=True):
+        checkbox_layout = gui.Horiz()
+        checkbox = gui.Checkbox(key)
+        checkbox_layout.add_child(checkbox)
+        checkbox_layout.add_stretch()
+        if on_checked is not None:
+            checkbox.set_on_checked(on_checked)
+        if tooltip is not None:
+            checkbox.tooltip = tooltip
+        checkbox.enabled = enabled
+        if checked is not None:
+            checkbox.checked = checked
+        self.checkboxes[key] = checkbox
+        self.inputs_to_types[key] = gui.Checkbox
+        self.layout.add_child(checkbox_layout)
 
     def add_button_pool(self, key):
         layout = gui.Vert()
@@ -131,6 +155,10 @@ class Panel:
             return self.inputs[key].double_value
         elif input_type == int:
             return self.inputs[key].int_value
+        elif input_type == gui.Button:
+            return self.buttons[key].is_on
+        elif input_type == gui.Checkbox:
+            return self.buttons[key].checked
         elif input_type == gui.Color:
             rgb = tuple([
                     self.inputs[key].color_value.red,
@@ -138,9 +166,6 @@ class Panel:
                     self.inputs[key].color_value.blue
             ])
             return rgb
-        elif input_type == bool:
-            return self.buttons[key].is_on
-
 
     def set_value(self, key: str, value: Union[str, float, int, gui.Color, bool, None]):
         input_type = self.inputs_to_types[key]
@@ -156,8 +181,10 @@ class Panel:
             self.inputs[key].int_value = value
         elif input_type == gui.Color:
             self.inputs[key].color_value = value
-        elif input_type == bool:
+        elif input_type == gui.Button:
             self.buttons[key].is_on = value
+        elif input_type == gui.Checkbox:
+            self.buttons[key].checked = value
 
 
 class ButtonPool:
@@ -201,4 +228,3 @@ class ButtonPool:
         for name, button in self.buttons.items():
             button.enabled = False
             button.visible = False
-
