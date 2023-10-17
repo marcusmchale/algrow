@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 logging.config.dictConfig(LOGGING_CONFIG)
 
 
-
-
 def algrow():
     arg_parser = options()
     args = arg_parser.parse_args()

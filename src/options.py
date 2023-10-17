@@ -49,13 +49,15 @@ def lab(s: str | tuple[float|int]):
 def image_path(s: str):
     if s is None:
         return None
+    elif isinstance(s, list):
+        return [Path(i) for i in s]
     elif Path(s).is_file():
         return [Path(s)]
     elif Path(s).is_dir():
         paths = [[p for p in Path(s).glob(f'**/*.{extension}')] for extension in IMAGE_EXTENSIONS]
         return [p for sublist in paths for p in sublist]
     else:
-        raise FileNotFoundError
+        raise FileNotFoundError(s)
 
 
 def existing_filepath(s: str):
@@ -63,7 +65,6 @@ def existing_filepath(s: str):
         return Path(s)
     else:
         logger.warning(f"File will be overwritten: {s}")
-        #raise FileNotFoundError(s)
 
 
 def new_filepath(s: str):
@@ -73,10 +74,14 @@ def new_filepath(s: str):
         return Path(s)
 
 
+def any_filepath(s: str):
+    return Path(s)
+
+
 arg_types = {
     "conf": str,
     "images": image_path,
-    "samples": str,
+    "samples": existing_filepath,
     "out_dir": str,
     "time_regex": str,
     "time_format": str,
@@ -97,12 +102,13 @@ arg_types = {
     "downscale": int,
     "remove": int,
     "fill": int,
-    "area_file": new_filepath,
+    "area_file": any_filepath,
     "fit_start": float,
     "fit_end": float,
     "scale": float,
     "fixed_layout": existing_filepath,
     "circle_diameter": float,
+    "circle_variability": float,
     "circle_expansion": float,
     "circle_separation": float,
     "circle_separation_tolerance": float,
@@ -255,6 +261,12 @@ def options(filepath=None):
         help="Diameter of surrounding circles in pixels",
         default=None,
         type=arg_types["circle_diameter"]
+    )
+    parser.add_argument(
+        "--circle_variability",
+        help="Variability of circle diameter for detection",
+        default=0.1,
+        type=arg_types["circle_variability"]
     )
     parser.add_argument(
         "--circle_expansion",
@@ -424,11 +436,12 @@ def minimum_calibration(args):
 def layout_defined(args):
     return args.fixed_layout is not None or all([
         args.circle_colour is not None,
-        args.circle_diameter is not None and not args.circle_diameter <= 0,
-        args.circle_separation is not None and not args.circle_separation < 0,
-        args.plate_width is not None and not args.plate_width < 0,
-        args.circles_per_plate is not None and not args.circles_per_plate <= 0,
-        args.plates is not None and not args.plates <= 0,
+        args.circle_diameter is not None and args.circle_diameter > 0,
+        args.circle_variability is not None and args.circle_variability >= 0,
+        args.circle_separation is not None and args.circle_separation >= 0,
+        args.plate_width is not None and args.plate_width > 0,
+        args.circles_per_plate is not None and args.circles_per_plate > 0,
+        args.plates is not None and args.plates > 0,
         args.circle_expansion is not None,
         args.circle_separation_tolerance is not None,
         args.circles_cols_first is not None,

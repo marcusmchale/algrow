@@ -19,7 +19,7 @@ from .figurebuilder import FigureBase
 logger = logging.getLogger(__name__)
 
 
-class ImageContentException(Exception):
+class ExcessPlatesException(Exception):
     pass
 
 
@@ -30,9 +30,6 @@ class InsufficientCircleDetection(Exception):
 class InsufficientPlateDetection(Exception):
     pass
 
-
-class OverlappingCircles(Exception):
-    pass
 
 
 class Plate:
@@ -50,7 +47,7 @@ class Layout:
     def __init__(self, plates, image: ImageLoaded):
         self.logger = ImageFilepathAdapter(logger, {"image_filepath": image.filepath})
         if plates is None:
-            raise ImageContentException("The layout could not be detected")
+            raise InsufficientPlateDetection("No plates detected")
         self.plates = plates
         self.image = image
         self.args = image.args
@@ -91,7 +88,6 @@ class Layout:
             circle_mask = self.get_circle_mask(circle)
             if np.logical_and(circles_mask, circle_mask).any():
                 overlapping_circles = True
-                # raise OverlappingCircles("Circles overlapping - try again with a lower circle_expansion factor")
             circles_mask = circles_mask | circle_mask
         if overlapping_circles:
             self.logger.info("Circles overlapping")
@@ -139,22 +135,24 @@ class LayoutDetector:
         edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
         return hough_circle(edges, hough_radii)
 
-    def find_n_circles(self, n, attempt=0, fig=None, allowed_overlap=0.3):
-        num_circles = int(n + n * attempt)
-        self.logger.debug(f"find {num_circles} circles")
+    def find_n_circles(self, n, fig=None, allowed_overlap=0.1):
         circle_radius_px = int(self.args.circle_diameter / 2)
-        # each attempt we expand the number of radii to assess
-        hough_radii = np.arange(circle_radius_px - (attempt + 1), circle_radius_px + (attempt + 1), 1)
+        radius_range = int(self.args.circle_variability * circle_radius_px)
+        hough_radii = np.arange(
+            circle_radius_px - radius_range,  # start
+            circle_radius_px + radius_range,  # stop
+            max(1, int(radius_range/5))  # step size from radius range for more consistent processing time
+            # todo : find a better way to determine an appropriate step size
+        )
+        self.logger.debug(f"Radius range to search for: {np.min(hough_radii), np.max(hough_radii)}")
         hough_result = self.hough_circles(self.distance, hough_radii)
         min_distance = int(self.args.circle_diameter * (1 - allowed_overlap))
-        self.logger.debug(f"minimum distance between circle centers: {min_distance}")
+        self.logger.debug(f"minimum distance allowed between circle centers: {min_distance}")
         _accum, cx, cy, rad = hough_circle_peaks(
             hough_result,
             hough_radii,
             min_xdistance=min_distance,
-            min_ydistance=min_distance,
-            num_peaks=num_circles  # each time we increase the target peak number by the number sought
-            # we are concurrently expanding the radii considered
+            min_ydistance=min_distance
         )
         # note the expansion factor appplied below to increase the search area for mask/superpixels
         self.logger.debug(f"mean detected circle radius: {np.around(np.mean(rad), decimals=0)}")
@@ -162,7 +160,7 @@ class LayoutDetector:
             (cx, cy, np.repeat(int((self.args.circle_diameter/2)*(1+self.args.circle_expansion)), len(cx)))
         ).squeeze(axis=0)
 
-        fig.plot_image(self.image.rgb, f"Atempt: {attempt +1}")
+        fig.plot_image(self.image.rgb, f"Circle detection")
         for c in circles:
             fig.add_circle((c[0], c[1]), c[2])
 
@@ -195,42 +193,27 @@ class LayoutDetector:
         if len(target_clusters) < n:
             raise InsufficientPlateDetection(f"Only {len(target_clusters)} plates found")
         elif len(target_clusters) > n:
-            raise ImageContentException(f"More than {n} plates found")
-        return clusters.flat, target_clusters
+            raise ExcessPlatesException(f"More than {n} plates found")
+        return clusters.flatten(), target_clusters
 
     def find_plates(self):
         fig = self.image.figures.new_figure("Detect plates", cols=2)
-        for i in range(5):  # try 5 times to find enough circles to make plates
-            try:
-                circles = self.find_n_circles(self.args.circles_per_plate * self.args.plates, i, fig)
-            except InsufficientCircleDetection:
-                continue
-            try:
-                clusters, target_clusters = self.find_plate_clusters(
-                    circles,
-                    self.args.circles_per_plate,
-                    self.args.plates,
-                    fig=fig
-                )
-            except InsufficientPlateDetection:
-                self.logger.debug(f"Insufficient plates detected - try again with detection of more circles")
-                continue
-            except ImageContentException:
-                self.logger.debug(f"More plates detected than were defined - reconsider layout parameters")
-                raise
-
-            fig.print()
-
-            self.logger.debug("Collect circles from target clusters into plates")
-            plates = [
-                Plate(
-                    cluster_id,
-                    circles[[i for i, j in enumerate(clusters) if j == cluster_id]],
-                ) for cluster_id in target_clusters
-            ]
-            return plates
-
-        raise InsufficientPlateDetection(f"Insufficient plates detected - consider modifying the layout configuration")
+        circles = self.find_n_circles(self.args.circles_per_plate * self.args.plates, fig)
+        clusters, target_clusters = self.find_plate_clusters(
+            circles,
+            self.args.circles_per_plate,
+            self.args.plates,
+            fig=fig
+        )
+        fig.print()
+        self.logger.debug("Collect circles from target clusters into plates")
+        plates = [
+            Plate(
+                cluster_id,
+                circles[[i for i, j in enumerate(clusters) if j == cluster_id]],
+            ) for cluster_id in target_clusters
+        ]
+        return plates
 
     def get_axis_clusters(self, axis_values, cut_height, fig, plate_id=None):
         if len(axis_values) == 1:
@@ -352,35 +335,22 @@ class LayoutLoader:
 
 def get_layout(image, fig):
     plt.close()  # in case existing plots
-
     layout_detector = LayoutDetector(image)
-    circles = None
-    plates = None
-    for i in range(5):  # try 5 times to find enough circles to make plates
-        try:
-            circles = layout_detector.find_n_circles(image.args.circles_per_plate * image.args.plates, i, fig)
-        except InsufficientCircleDetection:
-            logger.debug("Not enough circles found, relax parameters and try again")
-            continue
-        try:
-            clusters, target_clusters = layout_detector.find_plate_clusters(
-                circles,
-                image.args.circles_per_plate,
-                image.args.plates,
-                fig=fig
-            )
-            plates = [
-                Plate(
-                    cluster_id,
-                    circles[[i for i, j in enumerate(clusters) if j == cluster_id]],
-                ) for cluster_id in target_clusters
-            ]
-            plates = layout_detector.sort_plates(plates)
-            break
-        except InsufficientPlateDetection:
-            logger.debug(f"Try again with detection of more circles")
-            continue
-        except ImageContentException:
-            logger.debug(f"More plates were detected than defined")
-            break
+    logger.debug(f"find circles: {image.args.circles_per_plate * image.args.plates}")
+    circles = layout_detector.find_n_circles(image.args.circles_per_plate * image.args.plates, fig)
+    logger.debug(f"cluster into plates: {image.args.plates}")
+    clusters, target_clusters = layout_detector.find_plate_clusters(
+        circles,
+        image.args.circles_per_plate,
+        image.args.plates,
+        fig=fig
+    )
+    plates = [
+        Plate(
+            cluster_id,
+            circles[[i for i, j in enumerate(clusters) if j == cluster_id]],
+        ) for cluster_id in target_clusters
+    ]
+    logger.debug("Sort plates")
+    plates = layout_detector.sort_plates(plates)
     return circles, plates, fig
