@@ -298,7 +298,6 @@ class LayoutDetector:
         rotated_coords = rotate(plate.circles[:, 0:2], origin=closest_xy[0], degrees=rot_deg)
 
         cut_height = int(self.args.circle_separation)
-        #axis_values = np.array([c[int(rows_first)] for c in plate.circles])
         axis_values = np.array([int(c[int(rows_first)]) for c in rotated_coords])
         clusters = self.get_axis_clusters(axis_values, cut_height, fig, plate_id=plate.id)
 
