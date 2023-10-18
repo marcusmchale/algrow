@@ -100,8 +100,6 @@ apt install python3.10-venv
     - git clone https://github.com/marcusmchale/algrow
   -  Install python
     - sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev
-  - Install dependencies for wxpython build
-    - sudo apt install dpkg-dev build-essential python3-dev freeglut3 libgl1-mesa-dev libgstreamer-plugins-base1.0-dev libgtk-3-dev libjpeg-dev libnotify-dev libpng-dev libsdl2-dev libsm-dev libtiff-dev libwebkit2gtk-4.0-dev libxtst-dev
   - Set up virtual environment (recommended)
     - python3.10 -m venv venv
     - source ./venv/bin/activate

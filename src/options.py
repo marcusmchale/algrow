@@ -254,7 +254,7 @@ def options(filepath=None):
         "--area_file",
         help="Disc area filename for analysis",
         type=arg_types["area_file"],
-        default=None
+        default="area.csv"
     )
     parser.add_argument(
         "--circle_diameter",

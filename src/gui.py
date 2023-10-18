@@ -1223,12 +1223,18 @@ class AppWindow:
         logger.debug("get a copy of the displayed image to highlight")
         if target_mask is not None:
             target_colour = self.target_panel.get_value("target colour")
-            highlighted[target_mask] = target_colour
+            try:
+                highlighted[target_mask] = target_colour
+            except IndexError as e:
+                logger.debug(f"Error highlighting target: {e}")
 
         selected = self.get_selected_in_displayed()
         if selected is not None:
             selected_colour = self.target_panel.get_value("selection colour")
-            highlighted.reshape(-1, 3)[selected] = selected_colour
+            try:
+                highlighted.reshape(-1, 3)[selected] = selected_colour
+            except IndexError as e:
+                logger.debug(f"Error highlighting selected: {e}")
             to_render = o3d.geometry.Image(highlighted.astype(np.float32))
 
         def do_highlighting():
@@ -1665,6 +1671,8 @@ class AppWindow:
                     #    value = f"\"{','.join([str(i) for i in value])}\""
                     # else:
                     #     value = str(value)
+                elif arg == "area_file":
+                    continue
                 if arg == "circle_colour":
                     value = f"\"{','.join([str(i) for i in value])}\""
                 if arg == "hull_vertices":

@@ -18,6 +18,6 @@ setup(
         "scikit-image~=0.21.0",
         "alphashape~=1.3.1",
         "matplotlib~=3.7.1",
-        "wxPython~=4.2.1"
+        "open3d~=0.17.0"
     ]
 )
