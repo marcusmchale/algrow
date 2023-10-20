@@ -275,29 +275,26 @@ class LayoutDetector:
         # correct this by getting the rotation angle
         # get the two closest points to the origin (top left)
         closest_xy = plate.circles[:, 0:2][np.argpartition(np.linalg.norm(plate.circles[:, 0:2], axis=1), 1)[0:2]]
-        # get the angle (relative to the closest to origin) for these
+        # get the angle of the second closest point relative to the first
         # https://math.stackexchange.com/questions/1201337/finding-the-angle-between-two-points
         # https://stackoverflow.com/questions/31735499/calculate-angle-clockwise-between-two-points
         diff_xy = closest_xy[1] - closest_xy[0]
         rot_deg = np.rad2deg(np.arctan2(*diff_xy))
-        # now we don't know if these two points should be vertically aligned (0 degrees) or horizontally (90 degrees)
-        # find what they are closer to and correct accordingly
-        horizontal = bool(np.argmin([abs(rot_deg), abs(rot_deg-90)]))  # False (0) is vertical, True (1) is horizontal
-        if horizontal:
+        # we want to align vertically if closer to 0 degrees or horizontally if closer to 90 degrees
+        if abs(rot_deg) > 45:
             rot_deg = rot_deg-90
-         # now rot_deg is the negative of the required rotation
-        def rotate(p, origin=(0, 0), degrees=0):
+
+        def rotate(points, origin, degrees=0):
             # https://stackoverflow.com/questions/34372480/rotate-point-about-another-point-in-degrees-python
             angle = np.deg2rad(degrees)
-            R = np.array([[np.cos(angle), -np.sin(angle)],
-                          [np.sin(angle),  np.cos(angle)]])
+            rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle),  np.cos(angle)]])
             o = np.atleast_2d(origin)
-            p = np.atleast_2d(p)
-            return np.squeeze((R @ (p.T-o.T) + o.T).T)
+            p = np.atleast_2d(points)
+            return np.squeeze((rotation_matrix @ (p-o).T + o.T).T)
         
         rotated_coords = rotate(plate.circles[:, 0:2], origin=closest_xy[0], degrees=rot_deg)
 
-        cut_height = int(self.args.circle_separation)
+        cut_height = int(self.args.circle_diameter * 0.5)  # this seems like a suitable value
         axis_values = np.array([int(c[int(rows_first)]) for c in rotated_coords])
         clusters = self.get_axis_clusters(axis_values, cut_height, fig, plate_id=plate.id)
 
