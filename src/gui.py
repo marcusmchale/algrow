@@ -1127,7 +1127,7 @@ class AppWindow:
 
     def add_prior(self, lab: tuple[float, float, float]):
         self.prior_lab.add(lab)
-        rgb = lab2rgb(lab)
+        rgb = lab2rgb([lab])[0]
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
         b = gui.Button(key)
         b.background_color = gui.Color(*rgb)
@@ -1682,6 +1682,7 @@ class AppWindow:
             logger.debug(f"Finished writing to configuration file {str(filepath)}")
 
     def load_all_parameters(self):
+        logger.debug("Load parameters to GUI")
         self.load_layout_parameters()
         self.scale_panel.set_value("scale", self.args.scale)
         self.clear_selection()
@@ -1695,6 +1696,7 @@ class AppWindow:
         try:
             parser = options(filepath)
             args = parser.parse_args()
+            logger.debug("Update args")
             self.args = postprocess(args)
             self.load_all_parameters()
             self.set_menu_enabled()

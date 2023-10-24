@@ -270,19 +270,48 @@ class LayoutDetector:
             return plates
 
     def sort_circles(self, plate, fig: FigureBase, rows_first=True, left_right=True, top_bottom=True):
-        self.logger.debug(f"sort circles for plate {plate.id}")
+        if len(plate.circles) == 1:
+            return
+
         # sometimes rotation is significant such that the clustering fails.
         # correct this by getting the rotation angle
-        # get the two closest points to the origin (top left)
-        closest_xy = plate.circles[:, 0:2][np.argpartition(np.linalg.norm(plate.circles[:, 0:2], axis=1), 1)[0:2]]
-        # get the angle of the second closest point relative to the first
-        # https://math.stackexchange.com/questions/1201337/finding-the-angle-between-two-points
-        # https://stackoverflow.com/questions/31735499/calculate-angle-clockwise-between-two-points
-        diff_xy = closest_xy[1] - closest_xy[0]
-        rot_deg = np.rad2deg(np.arctan2(*diff_xy))
-        # we want to align vertically if closer to 0 degrees or horizontally if closer to 90 degrees
-        if abs(rot_deg) > 45:
-            rot_deg = rot_deg-90
+        # get the two closest points to each corner origin (top left)
+        self.logger.debug(f"sort circles for plate {plate.id}")
+
+        def get_rotation(a, b):
+            # get the angle of b relative to a
+            # https://math.stackexchange.com/questions/1201337/finding-the-angle-between-two-points
+            # https://stackoverflow.com/questions/31735499/calculate-angle-clockwise-between-two-points
+            diff_xy = b - a
+            deg = np.rad2deg(np.arctan2(*diff_xy))
+            # we want to align vertically if closer to 0 degrees or horizontally if closer to 90 degrees
+            if abs(deg) > 45:
+                deg = deg - 90
+            return deg
+
+        sorted_from_origin = plate.circles[:, 0:2][np.argsort(np.linalg.norm(plate.circles[:, 0:2], axis=1))]
+        if len(sorted_from_origin) == 2:
+            rot_deg = get_rotation(*sorted_from_origin)
+        else:
+            rotations = list()
+            # We are basically collecting from each corner, the presumed rotations assuming it is a square corner
+            # by having a few guesses we can handle some errors in the layout and/or circle detection
+            # we then take the median of these guesses.
+            rotations.append(get_rotation(sorted_from_origin[0], sorted_from_origin[1]))
+            rotations.append(get_rotation(sorted_from_origin[0], sorted_from_origin[2]))
+            rotations.append(get_rotation(sorted_from_origin[-2], sorted_from_origin[-1]))
+            rotations.append(get_rotation(sorted_from_origin[-3], sorted_from_origin[-1]))
+            flipped_y = plate.circles.copy()[:, 0:2]
+            flipped_y[:, 1] = self.image.rgb.shape[0] - flipped_y[:, 1]
+            flipped_y_sorted_from_origin = flipped_y[np.argsort(np.linalg.norm(flipped_y, axis=1))]
+            rotations.append(np.negative(get_rotation(flipped_y_sorted_from_origin[0], flipped_y_sorted_from_origin[1])))
+            rotations.append(np.negative(get_rotation(flipped_y_sorted_from_origin[0], flipped_y_sorted_from_origin[2])))
+            rotations.append(np.negative(get_rotation(flipped_y_sorted_from_origin[-2], flipped_y_sorted_from_origin[-1])))
+            rotations.append(np.negative(get_rotation(flipped_y_sorted_from_origin[-3], flipped_y_sorted_from_origin[-1])))
+            logger.debug(f"Calculated rotation suggestions: {rotations}")
+            rot_deg = np.median(rotations)
+            
+        logger.debug(f"Rotate plate {plate.id} before row clustering by {rot_deg}")
 
         def rotate(points, origin, degrees=0):
             # https://stackoverflow.com/questions/34372480/rotate-point-about-another-point-in-degrees-python
@@ -292,9 +321,9 @@ class LayoutDetector:
             p = np.atleast_2d(points)
             return np.squeeze((rotation_matrix @ (p-o).T + o.T).T)
         
-        rotated_coords = rotate(plate.circles[:, 0:2], origin=closest_xy[0], degrees=rot_deg)
+        rotated_coords = rotate(plate.circles[:, 0:2], origin=sorted_from_origin[0], degrees=rot_deg)
 
-        cut_height = int(self.args.circle_diameter * 0.5)  # this seems like a suitable value
+        cut_height = int(self.args.circle_diameter * 0.25)  # this seems like a suitable value
         axis_values = np.array([int(c[int(rows_first)]) for c in rotated_coords])
         clusters = self.get_axis_clusters(axis_values, cut_height, fig, plate_id=plate.id)
 
