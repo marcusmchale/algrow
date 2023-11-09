@@ -452,7 +452,6 @@ def layout_defined(args):
         args.plates_right_left is not None
     ])
 
-
 def configuration_complete(args):
     if args.whole_image:
         return minimum_calibration(args)

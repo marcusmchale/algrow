@@ -258,63 +258,33 @@ with similar images and to ensure consistency across multiple analyses.
     3. Analysis
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
-
-
-# todo
-  - if layout defined then mask for hull
-  - alternative to right-click for lab rotate view (navigation bar?)
-  - support scrolling through all loaded calibration images for scale, layout detection etc.
-   
+ 
   
 # To consider
-  - during hull definition, allow click to include a pixel value rather than just segment means?
-    - can we skip/simplify segmentation, e.g. just make a grid of regions with median colour for lab plot 
- 
-  - multiple target circle colours
-    - should be easy to implement with simple min distance calculation
-    - this was previously done when I had simple target colours, just need to reimplement for target circle
-    - probably not worth doing the whole hull distance procedure here.
+  - circle colour as hull rather than a fixed point
 
   - Process image filename during loading to provide date time block etc. rather than at the end
     - not necessary until writing out but might be useful for annotation in debugging loaded image.
     - useful to ensure representative sampling across blocks, and times during calibration
     
-  - GUI window for date, time, block regex from filename in calibration
-
-  - display hull vertices as colors in a panel for easy removal/addition to hull
-    - useful when refining and colours are supplied only as args for example 
-    - this would be a similar function to the existing include args button, just allowing more flexibility
-    
-  - Alternative/supplementary layout detection methods
-    - grid c.f. circles
-      - could find circles then build a grid for rectangular ROI definition
-    - for land plants it can be useful to include outside layout mask if contiguous with something inside layout mask
-      - this would mean processing the whole image for distance first
-  
-  - Support superpixel segmentation during area calculation (as was done in earlier versions)
-    - tradeoff: the time added for slic might be regained in the hull distance calculation
-    - without fill/remove/blurring this may be necessary/improve results 
-    - consideration: sometimes superpixel segmentation performs poorly, e.g. Palmaria
-  
-  - Downscaling images to speed up calibration, in particular the hull segmentation etc.
-
   - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
-    - consider seasonal adjustment for diurnal variation: https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
+    - consider seasonal adjustment for diurnal variation when calculating RGR
+      - https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
 
 
 # To explore
  - consider how the alpha parameter can allow for multiple disconnected regions
-   - assumes similar density in clouds but this is expected from SLIC
    - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
- - consider higher dimensional space e.g. texture features  
-   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
-   - maybe consider them as separate spaces/masks for target selection?
+
 
 
 # Beyond the current scope but maybe one day
+ - consider higher dimensional space e.g. texture features  
+   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
+   - maybe consider them as separate spaces/masks for target selection?
   - Consider developing image capture using libcamera2 and apscheduler - run as daemon
     - Consider not compressing to jpg
     - provide HDR (even with pi2 camera) by capturing a series of images at multiple exposures and compositing
@@ -323,7 +293,23 @@ with similar images and to ensure consistency across multiple analyses.
       - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
     - Note: IR didn't work well in testing with a fixed camera - very high background reflection from the water surface and plates/frames
 
-# During wxpython install you need opengl available:
-you might get this warning:
-  configure: WARNING: OpenGL libraries not available, disabling support for OpenGL
-if so then reinstall after e.g. sudo apt install freeglut3-dev
+
+# TODO
+- distance to hull for voxel rather than pixel?
+  - would be faster but less accurate
+  - might be preferred though as we have the mapping from voxel to pixel...
+
+
+
+Create a panel for analysis:
+  - tool to select folder/files
+  - provide regex input
+  - provide table of selected files (and regex parsed details - block, time)
+  - input field for number of processes to use
+  - allow defining whole image c.f layout detection (load fixed layout file here)
+  - load sample definition file here also (if provided then do RGR calculation)
+  - specify output directory
+  - button for "analyse/go"
+  	- do we need to run multithreading from main thread?
+  	- if do run in thread then add a warning that is running/progress bar
+  	
