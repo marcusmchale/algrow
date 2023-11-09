@@ -49,7 +49,8 @@ class FigureBase(ABC):
             img: np.array,
             label: str = None,
             color_bar=False,
-            picker=None
+            picker=None,
+            show_axes=True
     ):
         raise NotImplementedError
 
@@ -62,7 +63,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def add_circle(self, coords, radius):
+    def add_circle(self, coords, radius, linewidth=5):
         raise NotImplementedError
 
     @abstractmethod
@@ -90,7 +91,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def as_array(self):
+    def as_array(self, width, height):
         raise NotImplementedError
 
 
@@ -156,10 +157,14 @@ class FigureMatplot(FigureBase):
             img: np.array,
             label: str = None,
             color_bar=False,
-            picker=None
+            picker=None,
+            show_axes=True
     ):
         self.logger.debug("Add image")
         ax: Axes = self._add_plot()
+        if not show_axes:
+            ax.axis('off')
+            ax.margins(0, 0)
         if label:
             ax.set_title(label, loc="left")
         axes_image = ax.imshow(img, picker=picker)
@@ -208,16 +213,17 @@ class FigureMatplot(FigureBase):
             size=size,
             ha='center',
             va='center',
-            path_effects=[patheffects.withStroke(linewidth=1, foreground='white')]
+            path_effects=[patheffects.withStroke(linewidth=size/2, foreground='white')]
         )
 
-    def add_circle(self, coords, radius):
+    def add_circle(self, coords, radius, linewidth=5):
         self._current_axis.add_patch(
             Circle(
                 coords,
                 radius,
                 color="white",
-                fill=False
+                fill=False,
+                linewidth=linewidth
             )
         )
 
@@ -280,31 +286,35 @@ class FigureMatplot(FigureBase):
                 ".".join(["_".join([Path(self.image_filepath).stem, str(self.number), self.name]), suffix])
             ))
 
-    def print(self, large=False):
+    def print(self, large=False, margins=True):
         self.logger.debug(f"Save figure")
         if large:
-            self._fig.set_figheight(12 * self._shape[0])
-            self._fig.set_figwidth(16 * self._shape[1])
+            self._fig.set_figheight(6 * self._shape[0])
+            self._fig.set_figwidth(8 * self._shape[1])
         else:
             self._fig.set_figheight(3 * self._shape[0])
             self._fig.set_figwidth(4 * self._shape[1])
         out_path = self._get_filepath()
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        self._fig.savefig(str(out_path), dpi=300)
+        if margins:
+            self._fig.savefig(str(out_path), dpi=300)
+        else:
+            self._fig.savefig(str(out_path), dpi=300, bbox_inches='tight', pad_inches=0)
 
-    def as_array(self):
+    def as_array(self, width, height):
         self._fig.canvas.draw_idle()
         self._fig.canvas.flush_events()
+        self._fig.set_size_inches(width/100, height/100)
+        self._fig.tight_layout(pad=0)
         buf = io.BytesIO()
-        self._fig.savefig(buf, dpi=300)
+        #self._fig.savefig(buf, dpi=100, bbox_inches='tight', pad_inches=0)
+        self._fig.savefig(buf, dpi=100)
         buf.seek(0)
         img = imread(buf)
-        #import pdb; pdb.set_trace()
-        #from PIL import Image
-        #img = Image.open(buf)
-        #img.show()
         buf.close()
-        self.print()
+        # remove the alpha channel
+        img = img[:, :, :3]
+        #self.print(margins=False)
         return img
 
 
@@ -319,7 +329,8 @@ class FigureNone(FigureBase):
             img: np.array,
             label: str = None,
             color_bar=False,
-            picker=None
+            picker=None,
+            show_axes=True
     ):
         pass
 
@@ -332,7 +343,7 @@ class FigureNone(FigureBase):
     def add_outline(self, mask: np.ndarray):
         pass
 
-    def add_circle(self, coords, radius):
+    def add_circle(self, coords, radius, linewidth=5):
         pass
 
     def plot_dendrogram(self, dendrogram: np.ndarray, cut_height: float, label: str = None):
@@ -350,5 +361,5 @@ class FigureNone(FigureBase):
     def print(self, large=False):
         pass
 
-    def as_array(self):
+    def as_array(self, width, height):
         pass

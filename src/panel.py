@@ -105,6 +105,7 @@ class Panel:
         layout = gui.Vert()
         self.layout.add_child(layout)
         self.button_pools[key] = ButtonPool(layout)
+        layout.add_stretch()
 
     def add_separation(self, size):
         separation_height = size * self.margin

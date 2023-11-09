@@ -17,8 +17,7 @@ from alphashape import alphashape
 from trimesh import PointCloud
 import open3d as o3d
 
-from .layout import LayoutDetector, LayoutLoader
-from .image_loading import ImageLoaded
+from .image_loading import ImageLoaded, LayoutDetector, LayoutLoader
 from .logging import ImageFilepathAdapter, logger_thread, worker_log_configurer
 
 logger = logging.getLogger(__name__)
@@ -46,7 +45,7 @@ def calculate_area(args):
 
     # prepare output file for results
 
-    area_header = ['File', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+    area_header = ['File', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area', 'RGB', "Lab"]
 
     logger.debug("Check file exists and if it already includes data from listed images")
     if area_out.is_file():  # if the file exists then check for any already processed images
@@ -139,8 +138,10 @@ def area_worker(filepath, alpha_hull, args, queue=None):
             plate = record[0]
             unit = record[1]
             pixels = record[2]
+            rgb = record[3]
+            lab = record[4]
             area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
-            yield [filename, block, plate, unit, time, pixels, area]
+            yield [filename, block, plate, unit, time, pixels, area, rgb, lab]
 
     return list(format_result(result))
 
@@ -163,7 +164,7 @@ class ImageProcessor:
         if layout is None:
             masked_lab = self.image.lab.reshape(-1, 3)
         else:
-            masked_lab = self.image.lab[layout.mask]
+            masked_lab = self.image.lab[self.image.layout_mask]
 
         # see https://github.com/mikedh/trimesh/issues/1116
         # todo keep an eye on this as the alphashape package is likely to change around this
@@ -178,8 +179,8 @@ class ImageProcessor:
                 distance_image = distances_array.reshape(self.image.lab.shape[0:2])
             else:
                 distance_image = np.empty(self.image.lab.shape[0:2])
-                distance_image[layout.mask] = distances_array
-                distance_image[~layout.mask] = 0  # set masked region as 0
+                distance_image[self.image.layout_mask] = distances_array
+                distance_image[~self.image.layout_mask] = 0  # set masked region as 0
             hull_distance_figure = self.image.figures.new_figure('Hull distance')
             hull_distance_figure.plot_image(distance_image, color_bar=True)
             hull_distance_figure.print()
@@ -188,11 +189,13 @@ class ImageProcessor:
         if layout is None:
             target_mask = inside.reshape(self.image.rgb.shape[0:2])
         else:
-            target_mask = layout.mask.copy()
+            target_mask = self.image.layout_mask.copy()
             target_mask[target_mask] = inside
 
         fill_mask_figure = self.image.figures.new_figure("Fill mask")
         fill_mask_figure.plot_image(target_mask, "Raw mask")
+        # todo these rely on connected components consider labelling then sharing this across
+        #  rather than feeding both the boolean array
         if self.args.remove:
             self.logger.debug("Remove small objects in the mask")
             target_mask = remove_small_objects(target_mask, self.args.remove)
@@ -215,7 +218,9 @@ class ImageProcessor:
 
         if layout is None:
             pixels = np.count_nonzero(target_mask)
-            result["units"].append(("N/A", "N/A", pixels))
+            rgb = np.mean(self.image.rgb[target_mask], axis=0)
+            lab = np.mean(self.image.lab[target_mask], axis=0)
+            result["units"].append(("N/A", "N/A", pixels, rgb, lab))
         else:
             for p in layout.plates:
                 self.logger.debug(f"Processing plate {p.id}")
@@ -225,7 +230,13 @@ class ImageProcessor:
                     circle_mask = layout.get_circle_mask(c)
                     circle_target = circle_mask & target_mask
                     pixels = np.count_nonzero(circle_target)
-                    result["units"].append((p.id, unit, pixels))
+                    if pixels > 0:
+                        rgb = np.mean(self.image.rgb[circle_target], axis=0)
+                        lab = np.mean(self.image.lab[circle_target], axis=0)
+                    else:
+                        rgb = "NA"
+                        lab = "NA"
+                    result["units"].append((p.id, unit, pixels, rgb, lab))
                     overlay_figure.add_label(str(unit), (c[0], c[1]), "black", 5)
                     overlay_figure.add_circle((c[0], c[1]), c[2])
 

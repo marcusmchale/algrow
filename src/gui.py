@@ -8,22 +8,20 @@ import pandas as pd
 
 
 from enum import Enum
-from queue import Queue, Empty
 from pathlib import Path
 from open3d.visualization import gui, rendering
-from scipy.ndimage import zoom
-from skimage import draw
-from skimage.color import lab2rgb, deltaE_cie76, gray2rgb
+from skimage.color import lab2rgb
 from skimage.morphology import remove_small_holes, remove_small_objects
 
 from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess
 from .hull import HullHolder
-from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage
-from .layout import get_layout, Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
+from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage, LayoutLoader, LayoutDetector
+from .layout import Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
 from .panel import Panel
 from .area_calculation import calculate_area
 from .analysis import analyse
 
+from typing import Optional
 
 
 isMacOS = (platform.system() == "Darwin")
@@ -71,22 +69,13 @@ class AppWindow:
         self.image_window = None
         self.activity = Activities.NONE
 
-        #selections
-        self.circle_indices = set()
-        self.target_indices = set()
         self.prior_lab = set()
-        self.layout = None
         #
         self.hull_holder = None
 
         # these are for measuring and moving
         self.drag_start = None
         self.measure_start = None
-
-        # queues are used to free up the main (GUI) thread by performing some actions in the background
-        self.zoom_queue = Queue()
-        self.update_queue = Queue()
-        self.toggle_queue = Queue()
 
         # For more consistent spacing across systems we use font size rather than fixed pixels
         self.em = self.window.theme.font_size
@@ -108,8 +97,6 @@ class AppWindow:
         self.info = self.get_info()
         self.image_widget = None
 
-        self.debug_widget = self.get_debug_widget()
-
         self.tool_layout = gui.Horiz(0.5 * self.em, gui.Margins(0.5 * self.em))
         self.tool_layout.visible = False
         self.window.add_child(self.tool_layout)
@@ -118,6 +105,7 @@ class AppWindow:
 
         self.target_panel = self.get_target_panel()
         self.circle_panel = self.get_circle_panel()
+        self.update_circle_average()
 
         self.layout_panel = self.get_layout_panel()
 
@@ -147,10 +135,10 @@ class AppWindow:
                 file_menu.add_separator()
                 file_menu.add_item("Quit", AppWindow.MENU_QUIT)
             configuration_menu = gui.Menu()
-            configuration_menu.add_item("Set scale", AppWindow.MENU_SCALE)
-            configuration_menu.add_item("Define Circle Colour", AppWindow.MENU_CIRCLE)
-            configuration_menu.add_item("Define Layout", AppWindow.MENU_LAYOUT)
-            configuration_menu.add_item("Define Target Hull", AppWindow.MENU_TARGET)
+            configuration_menu.add_item("Scale", AppWindow.MENU_SCALE)
+            configuration_menu.add_item("Circle detection", AppWindow.MENU_CIRCLE)
+            configuration_menu.add_item("Circle layout", AppWindow.MENU_LAYOUT)
+            configuration_menu.add_item("Target colour", AppWindow.MENU_TARGET)
             analysis_menu = gui.Menu()
             analysis_menu.add_item("Area", AppWindow.MENU_AREA)
             analysis_menu.add_item("RGR", AppWindow.MENU_RGR)
@@ -235,16 +223,13 @@ class AppWindow:
         return widget
 
     def get_image_widget(self):
-        widget = gui.ImageWidget()
-        widget.visible = False
-        widget.set_on_mouse(self.on_mouse_image_widget)
-        self.window.add_child(widget)
-        return widget
-
-    def get_debug_widget(self):
-        widget = gui.ImageWidget()
-        widget.visible = False
-        self.window.add_child(widget)
+        if self.image_widget is None:
+            widget = gui.ImageWidget()
+            widget.visible = False
+            widget.set_on_mouse(self.on_mouse_image_widget)
+            self.window.add_child(widget)
+        else:
+            widget = self.image_widget
         return widget
 
     def get_info(self):
@@ -260,8 +245,7 @@ class AppWindow:
         scale_panel.add_label("Shift-click on two points to draw a line", self.fonts['small'])
         scale_panel.add_input("px", float, tooltip="Length of line", on_changed=self.update_scale)
         scale_panel.add_input("mm", float, tooltip="Physical distance", on_changed=self.update_scale)
-        scale_panel.add_input("scale", float, tooltip="Scale (px/mm)")
-        scale_panel.add_button("save", self.set_scale, tooltip="Save scale parameter")
+        scale_panel.add_input("scale", float, tooltip="Scale (px/mm)", on_changed=self.set_scale)
         scale_panel.add_input("line colour", gui.Color, value=gui.Color(1.0, 0.0, 0.0), tooltip="Set line colour")
         return scale_panel
 
@@ -280,75 +264,123 @@ class AppWindow:
         layout_numbers.add_input("line colour", gui.Color, value=gui.Color(1.0, 0.0, 0.0), tooltip="Set line colour")
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Measured parameters", self.fonts['small'])
-        layout_numbers.add_input("circle diameter", float, tooltip="Diameter of circle (px)")
-        layout_numbers.add_input("circle separation", float, tooltip="Maximum distance between edges of circles within a plate (px)")
-        layout_numbers.add_input("plate width", float, tooltip="Shortest dimension of plate edge (used to calculate plate cut-height)")
+        layout_numbers.add_input(
+            "circle diameter",
+            float,
+            tooltip="Diameter of circle (px)",  #used to detect circles and calculate plate cut height
+            on_changed=lambda event: update_arg(
+                self.args,
+                "circle_diameter",
+                event
+            )
+        )
+        layout_numbers.add_input(
+            "circle separation",
+            float,
+            tooltip="Maximum distance between edges of circles within a plate (px)",  # used to calculate plate cut height
+            on_changed=lambda event: update_arg(self.args, "circle_separation", event)
+        )
+        layout_numbers.add_input(
+            "plate width",
+            float,
+            tooltip="Shortest dimension of plate (px)",  # used to calculate cut height for clustering plates into rows or columns
+            on_changed=lambda event: update_arg(self.args, "plate_width", event)
+        )
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Counts", self.fonts['small'])
-        layout_numbers.add_input("circles", int, tooltip="Number of circles per plate")
-        layout_numbers.add_input("plates", int, tooltip="Number of plates per image")
+        layout_numbers.add_input(
+            "circles",
+            int,
+            tooltip="Number of circles per plate",
+            on_changed=lambda event: update_arg(self.args, "circles_per_plate", event)
+        )
+        layout_numbers.add_input(
+            "plates",
+            int,
+            tooltip="Number of plates per image",
+            on_changed=lambda event: update_arg(self.args, "plates", event)
+        )
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Tolerance factors", self.fonts['small'])
-        layout_numbers.add_input("circle variability", float, tooltip="Higher values search for a broader range of circle diameters)")
-        layout_numbers.add_input("circle expansion", float, tooltip="Applied to radius of circle for final region of interest (not used during search)")
-        layout_numbers.add_input("circle separation tolerance", float, tooltip="Applied calculating cut height for plate clustering")
+        layout_numbers.add_input(
+            "circle variability",
+            float,
+            tooltip="Higher values broaden the range of radii for circle detection",
+            on_changed=lambda event: update_arg(self.args, "circle_variability", event)
+        )
+        layout_numbers.add_input(
+            "circle expansion",
+            float,
+            tooltip="Applied to radius of detected circle to define the region of interest",
+            on_changed=lambda event: update_arg(self.args, "circle_expansion", event)
+        )
+        layout_numbers.add_input(
+            "circle separation tolerance",
+            float,
+            tooltip="Applied to cut height when clustering circles into plates",
+            on_changed=lambda event: update_arg(self.args, "circle_separation_tolerance", event)
+        )
         layout_buttons.add_label("Plate ID incrementation", self.fonts['small'])
-        layout_buttons.add_button(  #todo these should change text when toggled (e.g. plates in cols), use something like what was done with the button pool
+        layout_buttons.add_button(
             "plates in rows",
-            None,
+            lambda: self.toggle_layout_increment_button("plates in rows"),
             tooltip="Increment plates in rows",
             toggleable=True
         )
         layout_buttons.add_button(
             "plates start left",
-            None,
+            lambda: self.toggle_layout_increment_button("plates start left"),
             tooltip="Increment plates left to right",
             toggleable=True
         )
         layout_buttons.add_button(
             "plates start top",
-            None,
+            lambda: self.toggle_layout_increment_button("plates start top"),
             tooltip="Increment plates top to bottom",
             toggleable=True
         )
         layout_buttons.add_label("Circle ID incrementation", self.fonts['small'])
         layout_buttons.add_button(
             "circles in rows",
-            None,
+            lambda: self.toggle_layout_increment_button("circles in rows"),
             tooltip="Increment circles in rows",
             toggleable=True
         )
         layout_buttons.add_button(
             "circles start left",
-            None,
+            lambda: self.toggle_layout_increment_button("circles start left"),
             tooltip="Increment circles left to right",
             toggleable=True
         )
         layout_buttons.add_button(
             "circles start top",
-            None,
+            lambda: self.toggle_layout_increment_button("circles start top"),
             tooltip="Increment circles top to bottom",
             toggleable=True
         )
         layout_buttons.add_separation(2)
 
-        layout_buttons.add_button("save parameters", self.save_layout, tooltip="Save all parameters")
+        layout_buttons.add_button("detect layout", self.detect_layout, tooltip="detect layout using these parameters")
 
-        layout_buttons.add_button("test layout", self.test_layout, tooltip="Test layout detection")
-        layout_buttons.buttons['test layout'].enabled = layout_defined(self.args)
-
-        layout_buttons.add_button("save fixed layout", self._on_save_fixed, tooltip="Save fixed layout")
-        layout_buttons.buttons['save fixed layout'].enabled = self.layout is not None
+        layout_buttons.add_button("save fixed layout", self._on_save_fixed, tooltip="Save a fixed layout to a file")
+        if self.image is not None:
+            layout_buttons.buttons['save fixed layout'].enabled = self.image.layout is not None
         return layout_panel
 
-    def test_layout(self, event=None):
+    def detect_layout(self, event=None):
         if not self.save_layout():
             return
 
         fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
+        # creating fig to override the arg calibrated figure level
+        # we need this to display regardless of the image debug level
         self.image.args = self.args  # todo: should consider whether image should really be carrying the args at all...
         try:
-            circles, plates, fig = get_layout(self.image, fig)
+            layout_detector = LayoutDetector(self.image)
+            logger.debug(f"find circles: {self.args.circles_per_plate * self.args.plates}")
+            logger.debug(f"cluster into plates: {self.args.plates}")
+            plates = layout_detector.find_plates(custom_fig=fig)
+            plates = layout_detector.sort_plates(plates)
 
         except ExcessPlatesException:
             self.window.show_message_box("Error", "Excess plates detected")
@@ -362,18 +394,20 @@ class AppWindow:
 
         if plates is None:
             self.layout_panel.buttons["save fixed layout"].enabled = False
-            self.update_layout_image(fig.as_array())
-            self.debug_widget.visible = True
-            self.window.set_needs_layout()
         else:
-            self.layout = Layout(plates, self.image)
-            # todo Note ambiguous terms, plate layout from this and layout in o3d,
-            # also fixed_layout - this is confusing
+            self.change_layout(Layout(plates, self.image.rgb.shape[:2]))
             self.layout_panel.buttons["save fixed layout"].enabled = True
-            self.update_layout_image(self.layout.overlay)
-            self.debug_widget.visible = True
-            self.window.set_needs_layout()
 
+        if self.activity == Activities.LAYOUT and plates is None:
+            self.update_image_with_array(fig.as_array(self.image.rgb.shape[1], self.image.rgb.shape[0]))
+        else:
+            self.update_image_widget()
+
+    def change_layout(self, layout: Layout):
+        self.image.change_layout(layout)
+        # have to reset the cloud/voxel to image details as these won't map if layout is changed
+        self.image.cloud = None
+        self.image.voxel_to_image = None
 
     def load_layout_parameters(self):
         self.layout_panel.set_value("circle diameter", self.args.circle_diameter)
@@ -391,24 +425,8 @@ class AppWindow:
         self.layout_panel.buttons['circles start left'].is_on = not self.args.circles_right_left
         self.layout_panel.buttons['circles start top'].is_on = not self.args.circles_bottom_top
 
-
-    def save_target_parameters(self):
-        self.update_hull()
-        if self.hull_holder is None:
-            logger.debug("No points to save")
-            return
-        elif self.hull_holder.mesh is None:
-            logger.warning("Incomplete hull")
-        update_arg(self.args, "hull_vertices", list(map(tuple,  self.hull_holder.points)))
-        update_arg(self.args, "alpha", self.target_panel.get_value("alpha"))
-        update_arg(self.args, "delta", self.target_panel.get_value("delta"))
-        update_arg(self.args, "fill", self.target_panel.get_value("fill"))
-        update_arg(self.args, "remove", self.target_panel.get_value("remove"))
-
-        self.set_menu_enabled()
-
     def save_layout(self):
-        update_arg(self.args, "circle_diameter", self.layout_panel.get_value("circle diameter"))
+
         update_arg(self.args, "circle_variability", self.layout_panel.get_value("circle variability"))
         update_arg(self.args, "circle_separation", self.layout_panel.get_value("circle separation"))
         update_arg(self.args, "plate_width", self.layout_panel.get_value("plate width"))
@@ -422,7 +440,7 @@ class AppWindow:
         update_arg(self.args, "circles_cols_first", not self.layout_panel.get_value("circles in rows"))
         update_arg(self.args, "circles_right_left", not self.layout_panel.get_value("circles start left"))
         update_arg(self.args, "circles_bottom_top", not self.layout_panel.get_value("circles start top"))
-        self.layout_panel.buttons['test layout'].enabled = layout_defined(self.args)
+        #self.layout_panel.buttons['test layout'].enabled = layout_defined(self.args)
         self.set_menu_enabled()
 
         if layout_defined(self.args):
@@ -430,6 +448,31 @@ class AppWindow:
         else:
             self.window.show_message_box("Error", "Invalid layout definition")
             return False
+
+    def toggle_layout_increment_button(self, key):
+        key_to_arg = {  # negate values
+            "plates in rows": "plates_cols_first",
+            "plates start left": "plates_right_left",
+            "plates start top": "plates_bottom_top",
+            "circles in rows": "circles_cols_first",
+            "circles start left": "circles_right_left",
+            "circles start top": "circles_bottom_top"
+        }
+        key_to_alt = {  # alt text when false
+            "plates in rows": "plates in columns",
+            "plates start left": "plates start right",
+            "plates start top": "plates start bottom",
+            "circles in rows": "circles in columns",
+            "circles start left": "circles start right",
+            "circles start top": "circles start bottom"
+        }
+        update_arg(self.args, key_to_arg[key], not self.layout_panel.get_value(key))
+        self.layout_panel.buttons[key].text = key if self.layout_panel.get_value(key) else key_to_alt[key]
+        plates = self.image.layout.plates
+        layout_detector = LayoutDetector(self.image)
+        plates = layout_detector.sort_plates(plates)
+        self.image.change_layout(Layout(plates, self.image.rgb.shape[:2]))
+        self.update_image_widget()
 
     def _on_save_fixed(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save to", self.window.theme)
@@ -447,11 +490,11 @@ class AppWindow:
         self.save_fixed_layout(filepath)
 
     def save_fixed_layout(self, filepath):
-        if self.layout is None:
+        if self.image.layout is None:
             raise ValueError("Layout has not been defined")
 
         circles_dicts = list()
-        for i, p in enumerate(self.layout.plates):
+        for i, p in enumerate(self.image.layout.plates):
             for j, c in enumerate(p.circles):
                 circles_dicts.append({
                     "plate_id": i + 1,
@@ -473,16 +516,12 @@ class AppWindow:
         circle_panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
         circle_panel.add_label("Circle colour parameters", self.fonts['large'])
         circle_panel.add_label("Shift-click to select pixels", self.fonts['small'])
-        circle_panel.add_button("Clear", self.clear_circle_selection, tooltip="Clear selected pixels")
-        circle_panel.add_button("Save", self.save_circle_colour, tooltip="Save selected colour")
-        circle_panel.add_separation(2)
-        circle_panel.add_input(
-            "pixel colour",
-            gui.Color,
-            value=gui.Color(1.0, 1.0, 1.0),
-            tooltip="Set selected pixel colour",
-            on_changed=self.update_image_widget
-        )
+        circle_panel.add_label("Average colour:", self.fonts['small'])
+        circle_panel.add_button_pool("average")
+        circle_panel.add_button("Clear", self.clear_circle_selection, tooltip="Clear selection")
+        circle_panel.add_label("selected", font_style=self.fonts['small'])
+        circle_panel.add_button_pool("selection")
+        circle_panel.add_stretch()
         return circle_panel
 
     def get_target_panel(self):
@@ -500,6 +539,12 @@ class AppWindow:
         target_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
         target_buttons.add_label("Shift-click to select voxels", self.fonts['small'])
         target_buttons.add_input(
+            "min pixels",
+            int,
+            tooltip="Minimum number of pixels to display voxel in the 3D plot",
+            on_changed=self.update_lab_widget
+        )
+        target_buttons.add_input(
             "alpha",
             float,
             tooltip="Radius to connect vertices (0 for convex hull)",
@@ -514,45 +559,34 @@ class AppWindow:
         )
         target_buttons.set_value("delta", self.args.delta)
         target_buttons.add_input(
-            "min pixels",
-            int,
-            tooltip="Minimum number of pixels to display voxel in the 3D plot",
-            on_changed=self.set_min_pixels
+            "fill", int, tooltip="Fill holes smaller than this size", on_changed=self.update_fill
+        )
+        target_buttons.set_value("fill", self.args.fill)
+        target_buttons.add_input(
+            "remove", int, tooltip="Remove objects below this size", on_changed=self.update_remove
         )
         target_buttons.add_button("show hull", self.draw_hull, tooltip="Display hull in 3D plot", toggleable=True)
         target_buttons.add_button(
             "show selected",
-            self.update_image_widget,
+            self.toggle_show_selected,
             tooltip="Highlight pixels from selected voxels in image",
             toggleable=True
         )
         target_buttons.add_button(
             "show target",
-            self.update_image_widget,
+            self.toggle_show_target,
             tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
             toggleable=True
         )
-        target_buttons.add_input(
-            "fill", int, tooltip="Fill holes smaller than this size", on_changed=self.update_image_widget
-        )
-        target_buttons.set_value("fill", self.args.fill)
-        target_buttons.add_input(
-            "remove", int, tooltip="Remove objects below this size", on_changed=self.update_image_widget
-        )
         target_buttons.set_value("remove", self.args.remove)
-        target_buttons.add_separation(1)
+        #target_buttons.add_separation(1)
         target_buttons.add_button(
             "from mask",
             tooltip="Calculate hull vertices from target mask (uses min pixels and alpha)",
             on_clicked=self.hull_from_mask,
             enabled=False
         )
-        target_buttons.add_button(
-            "Save",
-            tooltip="Save selected points as arguments (consider reducing to hull vertices first)",
-            on_clicked=self.save_target_parameters
-        )
-        target_buttons.add_separation(2)
+
         target_buttons.add_input(
             "hull colour",
             gui.Color,
@@ -574,7 +608,7 @@ class AppWindow:
             tooltip="Set target highlighting colour",
             on_changed=self.update_image_widget
         )
-
+        target_buttons.add_stretch()
         return target_buttons
 
     def add_selection_panel(self, parent: Panel):
@@ -599,7 +633,6 @@ class AppWindow:
         self.info.visible = False
         self.lab_widget.visible = False
         self.image_widget.visible = False
-        self.debug_widget.visible = False
         self.tool_layout.visible = True
 
         self.target_panel.visible = False
@@ -617,7 +650,12 @@ class AppWindow:
         self.tool_layout.visible = True
         self.target_panel.visible = True
 
+        self.image.prepare_cloud()
+        self.setup_lab_axes()
+        self.update_lab_widget()
+        logger.debug("Here")
         self.update_image_widget()
+        logger.debug("There")
         self.window.set_needs_layout()
 
     def start_scale(self):
@@ -640,10 +678,8 @@ class AppWindow:
         self.image_widget.visible = True
         self.tool_layout.visible = True
         self.circle_panel.visible = True
-        self.debug_widget.visible = True
 
         self.update_image_widget()
-        self.update_distance_widget()
         self.window.set_needs_layout()
 
     def start_layout(self):
@@ -655,7 +691,12 @@ class AppWindow:
         self.tool_layout.visible = True
         self.layout_panel.visible = True
 
-        self.update_image_widget()
+        if self.image.layout is not None:
+            self.layout_panel.buttons["save fixed layout"].enabled = True
+            self.update_image_with_array(self.image.layout_overlay)
+        else:
+            self.layout_panel.buttons["save fixed layout"].enabled = False
+            self.update_image_widget()
         self.window.set_needs_layout()
 
     def _on_layout(self, layout_context):
@@ -666,11 +707,7 @@ class AppWindow:
         if self.image is not None:
             self.background_widget.visible = False
             tool_pref = self.tool_layout.calc_preferred_size(layout_context, gui.Widget.Constraints())
-
-            if self.activity in [Activities.CIRCLE, Activities.LAYOUT]:
-                tool_width = int(r.width/2)
-            else:
-                tool_width = tool_pref.width * self.tool_layout.visible
+            tool_width = tool_pref.width * self.tool_layout.visible
 
             toolbar_constraints = gui.Widget.Constraints()
             toolbar_constraints.width = tool_width
@@ -683,19 +720,13 @@ class AppWindow:
                 info_pref.height
             )
             self.lab_widget.frame = gui.Rect(r.x, r.y, tool_width, tool_width)
-            image_ratio = self.image.displayed.shape[0] / self.image.displayed.shape[1]  # height/width
-
-            self.debug_widget.frame = gui.Rect(r.x, r.y, tool_width, tool_width * image_ratio)
 
             height_used = (
                     self.info.frame.height * self.info.visible +
-                    self.lab_widget.frame.height * self.lab_widget.visible +
-                    self.debug_widget.frame.height * self.debug_widget.visible
+                    self.lab_widget.frame.height * self.lab_widget.visible
             )
             if self.lab_widget.visible:
                 tool_start_y = self.lab_widget.frame.get_bottom()
-            elif self.debug_widget.visible:
-                tool_start_y = self.debug_widget.frame.get_bottom()
             else:
                 tool_start_y = r.y
             self.tool_layout.frame = gui.Rect(
@@ -705,35 +736,18 @@ class AppWindow:
                 r.height - height_used
             )
 
-            # if not sized to fill :
-            #  - we get deadspace if just in window and deadspace doesn't render properly
-            #  - we could fix this with a stretch in a panel, but then we get forced to have a scrollbar
-            #    and scrollbar doesn't provide a position to compute the pixels (as far as I can tell)
-            # so we ensure we always fill the space such that the coords have a consistent origin
-            # find which axis (width or height) is greater
-            #
-            # we also need to handle the pop of a debug image below the image
-            image_width = r.width - (tool_width * self.tool_layout.visible)
             image_start_x = self.tool_layout.frame.get_right() * self.tool_layout.visible
-
-            # Then we find where there is space to fill
-            if r.height >= image_width * image_ratio:  # space in height so fix to fill this
-                image_frame_height = r.height
-                image_frame_width = image_frame_height / image_ratio
-            else:  # space in width so fix, rely on stretch to fill this
-                image_frame_width = image_width
-                image_frame_height = image_frame_width * image_ratio
-
-            # need to handle debug panel when visible:
-            self.image_widget.frame = gui.Rect(image_start_x, r.y, image_frame_width, image_frame_height)
-            self.image_widget.frame = gui.Rect(image_start_x, r.y, image_frame_width, image_frame_height)
+            self.image_widget.frame = gui.Rect(image_start_x, r.y, r.width - image_start_x, r.height)
 
 
     def on_mouse_lab_widget(self, event):
+
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(
                 gui.KeyModifier.SHIFT):
+            logger.debug("Shift-click on lab")
 
             def depth_callback(depth_image):
+                logger.debug("Depth callback running")
                 # Coordinates are expressed in absolute coordinates of the
                 # window, but to dereference the image correctly we need them
                 # relative to the origin of the widget. Note that even if the
@@ -741,37 +755,66 @@ class AppWindow:
                 # exists it also takes up space in the window (except on macOS).
                 x = event.x - self.lab_widget.frame.x
                 y = event.y - self.lab_widget.frame.y
+                logger.debug(f"Lab widget coords: {x, y}")
+
+                sphere_lab = None
+                nearest_index = None
 
                 # have a reasonable selection radius and just get the point closest to the camera within that
                 def nearest_within(radius):
+                    logger.debug(f"Find nearest coords in depth image within {radius} of clicked")
                     image = np.asarray(depth_image)
                     ys = np.arange(0, image.shape[0])
                     xs = np.arange(0, image.shape[1])
-                    mask = (xs[np.newaxis,:]-x)**2 + (ys[:,np.newaxis]-y)**2 >= radius**2
+                    mask = (xs[np.newaxis, :]-x)**2 + (ys[:, np.newaxis]-y)**2 >= radius**2
                     masked_array = np.ma.masked_array(image, mask=mask)
-                    nearest_index = masked_array.argmin(fill_value=1)
-                    return self.image.pixel_to_coord(image, nearest_index)
+                    nearest = masked_array.argmin(fill_value=1)
+                    # argmin returns 0 if masked as it is an integer array, just need to make sure it isn't in mask
+                    if mask.reshape(-1)[nearest]:
+                        # if in mask just return the original coords, we found nothing there anyway
+                        return x, y
+                    logger.debug(f"nearest index: {nearest}")
+                    coords = np.unravel_index(nearest, image.shape)[::-1]
+                    return coords
 
                 x, y = nearest_within(3)
+                logger.debug(f"Search for object at coords: {x, y}")
                 # Note that np.asarray() reverses the axes.
                 depth = np.asarray(depth_image)[y, x]
 
-                if depth == 1.0:  # 1 if clicked on nothing (i.e. the far plane)
-                    nearest_index = None
-                else:
+                if depth != 1.0:  # depth is 1.0 if clicked on nothing (i.e. the far plane)
+                    logger.debug("Get Lab coords from x,y")
                     world = self.lab_widget.scene.camera.unproject(
                         x, y, depth, self.lab_widget.frame.width,
                         self.lab_widget.frame.height
                     )
-                    # get from world coords to the nearest point in the input array
-                    nearest_index = self.get_nearest_index_from_coords(world)
+                    # first check if there is a sphere at these coords in priors (i.e. won't be found in cloud)
+
+                    logger.debug(f"Checking for sphere at {world}")
+                    for lab in self.prior_lab:
+                        logger.debug(f"Existing prior: {lab}")
+                        logger.debug(f"Distance from world: {lab-world}")
+                        if all(abs(lab - world) <= self.args.voxel_size / 2):  # i.e. within the sphere radius
+                            sphere_lab = lab
+                            logger.debug(f"Match within sphere radius of : {lab}")
+                            break
+                    if sphere_lab is None:
+                        logger.debug(f"No sphere found at {world}, looking for closest point")
+                        # otherwise get the nearest point from the cloud to these world coords
+                        nearest_index = self.get_nearest_index_from_coords(world)
+                else:
+                    logger.debug("Nothing found at this point")
                 # This is not called on the main thread, so we need to
                 # post to the main thread to safely access UI items.
 
                 def update_selected():
-                    if nearest_index is not None:
+                    logger.debug(f"Update selected")
+                    if sphere_lab is not None:
+                        logger.debug(f"Update sphere at {sphere_lab}")
+                        self.remove_prior(sphere_lab)
+                    elif nearest_index is not None:
+                        logger.debug(f"Update voxel: {nearest_index}")
                         self.toggle_voxel(nearest_index)
-                        #self.window.set_needs_layout()
 
                 self.app.post_to_main_thread(self.window, update_selected)
 
@@ -780,26 +823,31 @@ class AppWindow:
         return gui.Widget.EventCallbackResult.IGNORED
 
     def get_nearest_index_from_coords(self, coords):
+        logger.debug("get nearest index from coordinates in Lab")
         single_point_cloud = o3d.geometry.PointCloud()
         single_point_cloud.points = o3d.utility.Vector3dVector(o3d.utility.Vector3dVector([coords]))
         dist = self.image.cloud.compute_point_cloud_distance(single_point_cloud)
-        return np.argmin(dist)
+        voxel_index = np.argmin(dist)
+        logger.debug(f"Voxel found: {voxel_index}")
+        return voxel_index
 
     def clear_selection(self, event=None):
-        if self.image is None:
+        if self.image is None or self.image.cloud is None or not self.image.voxel_indices:
             return
 
-        selected_points = self.image.cloud.select_by_index(list(self.target_indices)).points
+        selected_points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
         for lab in selected_points:
             lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
             self.lab_widget.scene.remove_geometry(lab_text)
-        self.target_indices.clear()
+
+        self.image.voxel_indices.clear()
         self.target_panel.button_pools['selection'].clear()
+
         self.update_hull()
         self.update_image_widget()
 
     def clear_priors(self, event=None):
-        if self.image is None:
+        if self.image is None or not self.prior_lab:
             return
 
         self.prior_lab.clear()
@@ -811,7 +859,7 @@ class AppWindow:
         if self.hull_holder.mesh is not None:
             hull_vertices = self.hull_holder.hull.vertices
             to_remove = list()
-            for i in self.target_indices:
+            for i in self.image.voxel_indices:
                 lab = self.image.cloud.points[i]
                 if lab not in hull_vertices:
                     lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
@@ -819,7 +867,7 @@ class AppWindow:
                     self.target_panel.button_pools['selection'].remove_button(i)
                     to_remove.append(i)
             logger.debug(f"Removing selected points: {len(to_remove)}")
-            [self.target_indices.remove(i) for i in to_remove]
+            [self.image.voxel_indices.remove(i) for i in to_remove]
 
     def reduce_priors(self, event=None):
         if self.hull_holder.mesh is not None:
@@ -836,15 +884,21 @@ class AppWindow:
         self.update_hull()
 
     def clear_circle_selection(self, event=None):
-        self.circle_indices.clear()
+        if self.image is None:
+            return
+
+        self.image.circle_indices.clear()
+        self.circle_panel.button_pools['selection'].clear()
         self.update_image_widget()
-        self.update_distance_widget()
-        self.args.circle_colour = None
+        self.update_circle_average()
 
     def save_circle_colour(self, event=None):
-        circle_lab = self.image.lab.reshape(-1, 3)[list(self.circle_indices)]
-        circle_lab = tuple(np.mean(circle_lab, axis=0))
-        update_arg(self.args, "circle_colour", circle_lab)
+        if self.image and self.image.circle_indices:
+            circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.circle_indices)]
+            circle_lab = tuple(np.mean(circle_lab, axis=0))
+            update_arg(self.args, "circle_colour", circle_lab)
+        else:
+            update_arg(self.args, "circle_colour", None)
         self.set_menu_enabled()
 
     def update_scale(self, event=None):
@@ -853,6 +907,7 @@ class AppWindow:
         if px and mm:
             scale = float(np.around(px / mm, decimals=4))
             self.scale_panel.set_value("scale", scale)
+            self.set_scale()
 
     def set_scale(self, event=None):
         logger.debug("save scale to args")
@@ -861,42 +916,85 @@ class AppWindow:
         self.set_menu_enabled()
 
     def update_alpha(self, event=None):
+        alpha = self.target_panel.get_value("alpha")
+        update_arg(self.args, "alpha", self.target_panel.get_value("alpha"))
         if self.hull_holder is not None:
-            self.hull_holder.update_alpha(self.target_panel.get_value("alpha"))
+            self.hull_holder.update_alpha(alpha)
             self.update_hull()
-            self.update_image_widget()
+        self.update_target()
 
     def update_delta(self, event=None):
-        self.update_image_widget()
+        delta = self.target_panel.get_value("delta")
+        update_arg(self.args, "delta", delta)
+        self.update_target()
 
-    def set_min_pixels(self, event=None):
-        self.update_lab_widget()
+    def update_fill(self, event=None):
+        fill = self.target_panel.get_value("fill")
+        update_arg(self.args, "fill", fill)
+        self.update_target()
+
+    def update_remove(self, event=None):
+        remove = self.target_panel.get_value("remove")
+        update_arg(self.args, "remove", remove)
+        self.update_target()
 
     def image_widget_to_image_coords(self, event_x, event_y):
-        #logger.debug(f"event x,y: {event_x, event_y}")
-        #logger.debug(f"frame x,y: {self.image_widget.frame.x, self.image_widget.frame.y}")
-        frame_x = event_x - self.image_widget.frame.x  # todo this fails when scrollbar present
+        logger.debug(f"event x,y: {event_x, event_y}")
+        logger.debug(f"frame x,y: {self.image_widget.frame.x, self.image_widget.frame.y}")
+        # frame spacing depends on image ratio
+        # due to scaling, when image height is less than frame height there is a margin equally split
+        frame_width = self.image_widget.frame.width
+        frame_height = self.image_widget.frame.height
+        logger.debug(f"Frame dimensions: {frame_width, frame_height}")
+        frame_ratio = frame_height / frame_width
+        image_ratio = self.image.height / self.image.width
+        logger.debug(f"Image ratio: {image_ratio}")
+        if image_ratio > frame_ratio:
+            # i.e. space in width
+            logger.debug(f"frame width: {frame_width}")
+            frame_image_width = frame_height / image_ratio
+            logger.debug(f"Framed image width: {frame_image_width}")
+            frame_space_width = frame_width - frame_image_width
+            x_offset = frame_space_width/2
+            logger.debug(f"x offset: {x_offset}")
+        else:
+            x_offset = 0
+            frame_image_width = frame_width
+        if image_ratio < frame_ratio:
+            # i.e. space in height
+            logger.debug(f"frame height: {frame_height}")
+            frame_image_height = frame_width * image_ratio
+            logger.debug(f"Framed image height: {frame_image_height}")
+            frame_space_height = frame_height - frame_image_height
+            y_offset = frame_space_height/2
+            logger.debug(f"y offset: {y_offset}")
+        else:
+            y_offset = 0
+            frame_image_height = frame_height
+
+        frame_x = event_x - self.image_widget.frame.x
         frame_y = event_y - self.image_widget.frame.y
-        #logger.debug(f"frame coords: {frame_x, frame_y}")
-        frame_fraction_x = frame_x / self.image_widget.frame.width
-        frame_fraction_y = frame_y / self.image_widget.frame.height
-
-        #frame spacing depends on image ratio due to scaling, when image height is less than frame height there is a margin equally split
-
-        displayed_image_x = np.floor(self.image.width * frame_fraction_x)
-        displayed_image_y = np.floor(self.image.height * frame_fraction_y)
-        #logger.debug(f"displayed coords: {displayed_image_x, displayed_image_y}")
+        logger.debug(f"frame coords: {frame_x, frame_y}")
+        framed_image_x = frame_x - x_offset
+        framed_image_y = frame_y - y_offset
+        logger.debug(f"frame image coords: {framed_image_x, framed_image_y}")
+        image_fraction_x = framed_image_x / frame_image_width
+        image_fraction_y = framed_image_y / frame_image_height
+        #displayed_image_x = np.floor(self.image.width * image_fraction_x)
+        displayed_image_x = self.image.width * image_fraction_x
+        #displayed_image_y = np.floor(self.image.height * image_fraction_y)
+        displayed_image_y = self.image.height * image_fraction_y
+        logger.debug(f"displayed coords: {displayed_image_x, displayed_image_y}")
         image_x = np.floor((displayed_image_x*self.image.zoom_factor)) + self.image.displayed_start_x
         image_y = np.floor((displayed_image_y*self.image.zoom_factor)) + self.image.displayed_start_y
-        #logger.debug(f"image coords: {image_x, image_y}")
+        logger.debug(f"image coords: {image_x, image_y}")
         x = int(image_x)
         y = int(image_y)
+        # todo still not quite perfect, particularly at very high zoom levels
+        #  maybe a rounding error/indexing error or something to do with using fractions?
+        # it is workable mostly though...
         return x, y
 
-    def image_to_displayed_coords(self, x, y):  # todo , this seems to be redundant with some of the image functions
-        x = int(np.floor((x - self.image.displayed_start_x) / self.image.zoom_factor))
-        y = int(np.floor((y - self.image.displayed_start_y) / self.image.zoom_factor))
-        return x, y
 
     def on_mouse_image_widget(self, event):
 
@@ -906,20 +1004,20 @@ class AppWindow:
             gui.MouseEvent.Type.WHEEL
         ]:
             x, y = self.image_widget_to_image_coords(event.x, event.y)
+            if not all([x >= 0, x < self.image.width, y >= 0, y < self.image.height]):
+                return gui.Widget.EventCallbackResult.IGNORED
 
             if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(
                     gui.KeyModifier.SHIFT):
 
                 if self.activity == Activities.TARGET:
-                    # logger.debug(f"Image coordinates: {x, y}")
-                    pixel_index = self.image.coord_to_pixel(self.image.rgb, x, y)
-                    voxel_index = self.image.image_to_voxel[pixel_index]
-                    # logger.debug(f"Voxel index {voxel_index}")
-                    if voxel_index is not None:
+                    voxel_index = self.image.voxel_map[y, x]
+                    if voxel_index >= 0:  # -1 used for mask
                         self.toggle_voxel(voxel_index)
 
                 elif self.activity == Activities.CIRCLE:
-                    self.toggle_circle_pixel(x, y)
+                    pixel_index = self.image.coord_to_pixel(x, y)
+                    self.toggle_circle_pixel(pixel_index)
 
                 elif self.activity == Activities.SCALE:
                     line_colour = self.scale_panel.get_value("line colour")
@@ -938,7 +1036,6 @@ class AppWindow:
                         self.measure_start = None
 
             elif event.type == gui.MouseEvent.Type.WHEEL:
-                # the queue is used to defer zooming rather than do it for each event
                 # only attempt to zoom if not already at limit
                 if event.wheel_dy > 0 and self.image.zoom_index == len(self.image.divisors) - 1:
                     pass
@@ -963,147 +1060,60 @@ class AppWindow:
             return gui.Widget.EventCallbackResult.HANDLED
         return gui.Widget.EventCallbackResult.IGNORED
 
-    def draw_line(self, x, y, line_colour):
+    def draw_line(self, x, y, line_colour) -> Optional[float]:  # returns the length of the line if drawn else None
+        logger.debug("Draw line")
         if self.measure_start is None:
             self.measure_start = (x, y)
-            start_x, start_y = self.image_to_displayed_coords(*self.measure_start)
-            displayed = self.image.displayed.copy()
-            disk = draw.disk((start_y, start_x), 5, shape=displayed.shape)
-            displayed[disk] = line_colour
-            to_render = o3d.geometry.Image(displayed.astype(np.float32))
-            self.image_widget.update_image(to_render)
+            self.image_widget.update_image(self.image.get_displayed_with_disk(x, y, line_colour))
             return None
         else:
             measure_end = (x, y)
-            start_x, start_y = self.image_to_displayed_coords(*self.measure_start)
-            end_x, end_y = self.image_to_displayed_coords(*measure_end)
-            displayed = self.image.displayed.copy()
-            yy, xx, val = draw.line_aa(start_y, start_x, end_y, end_x)
-            line_vals = np.multiply.outer(val, line_colour)
-            displayed[yy, xx] = line_vals
-            to_render = o3d.geometry.Image(displayed.astype(np.float32))
-            self.image_widget.update_image(to_render)
             distance = float(np.around(np.linalg.norm(
                 np.array(self.measure_start) - np.array(measure_end)
             ), decimals=1))
             logger.debug(f"distance:{distance}")
+            self.image_widget.update_image(
+                self.image.get_displayed_with_line(*self.measure_start, *measure_end, line_colour)
+            )
             return distance
 
     def zoom_image(self, x, y, dy):
-        if not self.zoom_queue.empty():  # if existing zoom requests in queue then we just add them
-            logger.debug("added to zoom queue")
-            self.zoom_queue.put((x, y, dy))
-        else:  # if empty we add but start a thread to watch for more then calculate
-            logger.debug("adding to queue and preparing thread to catch more")
-            self.zoom_queue.put((x, y, dy))
+        logger.debug(f"Zooming at {x, y}, zoom factor {self.image.zoom_factor}")
+        self.image.zoom(x, y, dy)
+        self.update_image_widget()
 
-            def zoom_aggregate():
-                time.sleep(0.1)  # wait a bit in case more requests are coming in
-                zoom_increment = 0
-                zoom_x = None
-                zoom_y = None
-                start = True
-                while True:
-                    try:
-                        zx, zy, dy = self.zoom_queue.get(False)
-                        if start:
-                            zoom_x = zx
-                            zoom_y = zy
-                            start = False
-                        zoom_increment += dy  # collect the delta from each event
-                    except Empty:
-                        self.zoom_queue.put((zoom_x, zoom_y, zoom_increment))
-                        logger.debug(f"Finished aggregating queue: increment = {zoom_increment}")
-                        break
-
-                while True:
-                    try:
-                        zoom_x, zoom_y, zoom_increment = self.zoom_queue.get(False)
-                        if zoom_increment != 0 and zoom_x is not None:
-                            cropped_rescaled, start_x, start_y = self.image.calculate_zoom(
-                                zoom_x,
-                                zoom_y,
-                                zoom_increment
-                            )
-                            logger.debug("Calculated zoom")
-
-                            def do_zoom():
-                                logger.debug(f"Zooming at {x, y}, zoom factor {self.image.zoom_factor}")
-                                self.image.apply_zoom(cropped_rescaled, start_x, start_y)
-                                self.update_image_widget()
-
-                                if not self.zoom_queue.empty:
-                                    # check if any more came in since we processed the queue,
-                                    # we may need to start again
-                                    logger.debug("Restart zoom watcher")
-                                    self.app.run_in_thread(zoom_aggregate)
-
-                            self.app.post_to_main_thread(self.window, do_zoom)
-
-                    except Empty:
-                        break
-
-            self.app.run_in_thread(zoom_aggregate)
-
-    def toggle_circle_pixel(self, x, y):
+    def toggle_circle_pixel(self, pixel_index):
         logger.debug("toggle circle pixel")
-        pixel_index = self.image.coord_to_pixel(self.image.rgb, x, y)
-        if pixel_index in self.circle_indices:
+        lab = self.image.lab.reshape(-1, 3)[pixel_index]
+        rgb = self.image.rgb.reshape(-1, 3)[pixel_index]
+        if pixel_index in self.image.circle_indices:
             logger.debug(f"remove pixel index: {pixel_index}")
-            self.circle_indices.remove(pixel_index)
+            self.image.circle_indices.remove(pixel_index)
+            self.circle_panel.button_pools['selection'].remove_button(pixel_index)
         else:
             logger.debug(f"add pixel index: {pixel_index}")
-            self.circle_indices.add(pixel_index)
+            self.image.circle_indices.add(pixel_index)
+            self.add_circle_button(pixel_index, lab, rgb)
         self.update_image_widget()
-        self.update_distance_widget()
+        self.save_circle_colour()
+        self.update_circle_average()
 
-    def toggle_voxel(self, lab_index):
-        if not self.toggle_queue.empty():
-            self.toggle_queue.put(lab_index)
+    def toggle_voxel(self, voxel_index):
+        logger.debug(f"Toggle voxel: {voxel_index}")
+        selected_lab = self.image.cloud.points[voxel_index]
+        selected_rgb = self.image.cloud.colors[voxel_index]
+        if voxel_index in self.image.voxel_indices:
+            logger.debug(f"Remove: {selected_lab}")
+            self.image.voxel_indices.remove(voxel_index)
+            self.remove_sphere(selected_lab)
+            self.target_panel.button_pools['selection'].remove_button(voxel_index)
         else:
-            self.toggle_queue.put(lab_index)
-
-            def toggle_aggregate():
-                time.sleep(0.2)  # wait in case more come in
-                indices = set()
-
-                while True:
-                    try:
-                        ind = self.toggle_queue.get(False)
-                        if ind in indices:
-                            indices.remove(ind)
-                        else:
-                            indices.add(ind)
-                    except Empty:
-                        logger.debug("Finished agregating selected toggles")
-                        break
-
-                def do_toggle():
-
-                    for i in indices:
-                        selected_lab = self.image.cloud.points[i]
-                        selected_rgb = self.image.cloud.colors[i]
-
-                        if i in self.target_indices:
-                            logger.debug(f"Remove: {selected_lab}")
-                            self.target_indices.remove(i)
-                            self.remove_sphere(selected_lab)
-                            self.target_panel.button_pools['selection'].remove_button(i)
-                        else:
-                            self.target_indices.add(i)
-                            self.add_sphere(selected_lab, selected_rgb)
-                            self.add_voxel_button(i, selected_lab, selected_rgb)
-                        logger.debug("get selected points to update hull holder")
-
-                    self.update_hull()
-                    self.update_image_widget()
-                    if not self.toggle_queue.empty():
-                        logger.debug("Restarting toggle watcher")
-                        self.app.run_in_thread(toggle_aggregate)
-
-                self.app.post_to_main_thread(self.window, do_toggle)
-
-            self.app.run_in_thread(toggle_aggregate)
+            logger.debug(f"Add: {selected_lab}")
+            self.image.voxel_indices.add(voxel_index)
+            self.add_sphere(selected_lab, selected_rgb)
+            self.add_voxel_button(voxel_index, selected_lab, selected_rgb)
+        logger.debug("get selected points to update hull holder")
+        self.update_hull()
 
     def add_voxel_button(self, lab_index: int, lab, rgb):
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
@@ -1111,6 +1121,23 @@ class AppWindow:
         b.background_color = gui.Color(*rgb)
         self.target_panel.button_pools['selection'].add_button(lab_index, b)
         b.set_on_clicked(lambda: self.toggle_voxel(lab_index))
+
+    def add_circle_button(self, pixel_index: int, lab, rgb):
+        key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
+        b = gui.Button(key)
+        b.background_color = gui.Color(*rgb)
+        self.circle_panel.button_pools['selection'].add_button(pixel_index, b)
+        b.set_on_clicked(lambda: self.toggle_circle_pixel(pixel_index))
+
+    def update_circle_average(self):
+        pool = self.circle_panel.button_pools['average']
+        lab = self.args.circle_colour
+        if lab is None:
+            pool.clear()
+        else:
+            b = gui.Button('average')
+            b.background_color = gui.Color(*lab2rgb(lab))
+            pool.add_button('average', b)
 
     def add_sphere(self, lab, rgb):
         logger.debug(f"Adding sphere for {lab}")
@@ -1128,6 +1155,7 @@ class AppWindow:
     def add_prior(self, lab: tuple[float, float, float]):
         self.prior_lab.add(lab)
         rgb = lab2rgb([lab])[0]
+        self.add_sphere(lab, rgb)
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
         b = gui.Button(key)
         b.background_color = gui.Color(*rgb)
@@ -1143,169 +1171,149 @@ class AppWindow:
         self.update_image_widget()
 
     def update_hull(self):
-        if self.target_indices:
-            points = self.image.cloud.select_by_index(list(self.target_indices)).points
+        logger.debug("Update hull")
+        if self.image.voxel_indices:
+            points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
             points.extend(self.prior_lab)
         else:
             points = list(self.prior_lab)
 
         logger.debug(f"Update hull points {len(points)}")
-        self.hull_holder = HullHolder(points, self.target_panel.get_value("alpha"))
-        if self.hull_holder is not None:
+        if len(points) > 0:
+            self.hull_holder = HullHolder(points, self.target_panel.get_value("alpha"))
             self.draw_hull()
+            self.update_target()
+            update_arg(self.args, "hull_vertices", list(map(tuple, self.hull_holder.points)))
+            self.set_menu_enabled()
 
-    def get_selected_in_displayed(self):
-        if self.target_panel.buttons['show selected'].is_on:
-            logger.debug("show selected")
-            selected = [j for i in list(self.target_indices) for j in self.image.indices[i]]
-            return self.image.indices_in_displayed(selected)
+    def update_target(self, _event=None):
+        if self.target_panel.buttons['show target'].is_on:
+            logger.debug("Update target highlighting (and dice coefficient if true mask is provided)")
+            #self.image.target_mask, dice = self.get_target_mask()
+            self.image.target_mask = self.get_target_mask_from_voxels()
+            dice = self.calculate_dice(self.image.target_mask)
+            self.update_info(dice)
+        self.update_image_widget()
+
+    def calculate_dice(self, target_mask):
+        if self.image.true_mask is None or target_mask is None:
+            return None
         else:
+            logger.debug("Compare target mask to true mask")
+            true_mask = self.image.true_mask
+            tp = np.sum(true_mask[target_mask])
+            tn = np.sum(~true_mask[~target_mask])
+            fp = np.sum(~true_mask[target_mask])
+            fn = np.sum(true_mask[~target_mask])
+            sensitivity = (tp / (tp + fn))
+            specificity = (tn / (tn + fp))
+            accuracy = (tp + tn) / (tp + tn + fp + fn)
+            dice = 2 * tp / ((2 * tp) + fp + fn)
+            logger.info(
+                f"Dice coefficient: {dice}, "
+                f" Accuracy: {accuracy}, "
+                f"Sensitivity: {sensitivity}, "
+                f"Specificity: {specificity}"
+            )
+            return dice
+
+    def get_target_mask_from_voxels(self):
+        if self.hull_holder is None or self.hull_holder.mesh is None:
+            logger.debug("No target hull prepared")
             return None
 
-    def get_displayed_target_mask(self):
-        if all([
-            self.target_panel.buttons['show target'].is_on,
-            self.hull_holder is not None,
-            self.hull_holder.mesh is not None
-        ]):
-            logger.debug("Show target")
-            logger.debug(f"Calculate distance from hull for {self.image.displayed_lab.reshape(-1, 3).shape[0]} pixels")
-            distances = self.hull_holder.get_distances(self.image.displayed_lab)
-            if distances is not None:
-                logger.debug(f"Use distances to create a target mask")
-                distances = distances.reshape(self.image.displayed_lab.shape[0:2])
-                target_mask = distances <= self.target_panel.get_value("delta")
-                if self.target_panel.get_value("fill"):
-                    logger.debug("Fill small holes")
-                    target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
-                if self.target_panel.get_value("remove"):
-                    logger.debug("Remove small objects")
-                    target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
-                if self.image.true_mask is not None:
-                    logger.debug("Compare target mask to true mask")
-                    true_mask = self.image.displayed_true_mask
-                    tp = np.sum(true_mask[target_mask])
-                    tn = np.sum(~true_mask[~target_mask])
-                    fp = np.sum(~true_mask[target_mask])
-                    fn = np.sum(true_mask[~target_mask])
-                    sensitivity = (tp / (tp + fn))
-                    specificity = (tn / (tn + fp))
-                    accuracy = (tp + tn) / (tp + tn + fp + fn)
-                    dice = 2 * tp / ((2 * tp) + fp + fn)
-                    logger.info(
-                        f"Dice coefficient: {dice},  Accuracy: {accuracy}, Sensitivity: {sensitivity}, Specificity: {specificity}")
-                else:
-                    dice = None
-                logger.debug("prepare image to render")
-                target_mask = zoom(
-                    target_mask,
-                    self.image.divisors[self.image.zoom_index],
-                    order=0,
-                    grid_mode=True,
-                    mode='nearest'
-                )
-                return target_mask, dice
-        return None, None
+        logger.debug("Prepare target mask")
+        logger.debug(f"Calculate distance from hull")
+        distances = self.hull_holder.get_distances(self.image.cloud.points)
+        if distances is None:
+            return None
 
-    def highlight_target(self):
-        logger.debug("Highlight from queue")
-        time.sleep(0.3)
-        while True:
-            try:
-                self.update_queue.get(False)  # we wait for calls to stop before calculating highlighting
-                # todo should be getting any new selected from queue instead of just waiting
-            except Empty:
-                break
+        logger.debug(f"Use distances to create a target mask")
+        target_mask = np.zeros(self.image.lab.shape[:2], dtype='bool')
+        distances = distances[self.image.voxel_map]
+        target_mask = distances <= self.target_panel.get_value("delta")
+        # fix for -1 indices representing the mask  # todo this is still clunky, consider refactoring
+        target_mask[self.image.voxel_map == -1] = 0
 
-        highlighted = self.image.displayed.copy()  # make a copy
+        if self.target_panel.get_value("fill"):
+            logger.debug("Fill small holes")
+            target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
+        if self.target_panel.get_value("remove"):
+            logger.debug("Remove small objects")
+            target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
 
-        target_mask, dice = self.get_displayed_target_mask()
-        logger.debug("get a copy of the displayed image to highlight")
-        if target_mask is not None:
-            target_colour = self.target_panel.get_value("target colour")
-            try:
-                highlighted[target_mask] = target_colour
-            except IndexError as e:
-                logger.debug(f"Error highlighting target: {e}")
+        return target_mask
 
-        selected = self.get_selected_in_displayed()
-        if selected is not None:
-            selected_colour = self.target_panel.get_value("selection colour")
-            try:
-                highlighted.reshape(-1, 3)[selected] = selected_colour
-            except IndexError as e:
-                logger.debug(f"Error highlighting selected: {e}")
-            to_render = o3d.geometry.Image(highlighted.astype(np.float32))
+    def get_target_mask(self):
+        if self.hull_holder is None or self.hull_holder.mesh is None:
+            logger.debug("No target hull prepared")
+            return None, None
 
-        def do_highlighting():
-            logger.debug("Do highlight")
-            self.image_widget.update_image(to_render)
-            self.update_info(dice)
+        logger.debug("Prepare target mask")
+        logger.debug(f"Calculate distance from hull")
+        if self.image.layout is None:
+            distances = self.hull_holder.get_distances(self.image.lab)
+        else:
+            distances = self.hull_holder.get_distances(self.image.lab[self.image.layout_mask])
 
-            self.window.set_needs_layout()
-            if not self.update_queue.empty:
-                logger.debug("Restart highlight aggregation")
-                self.app.run_in_thread(self.highlight_target)
+        if distances is not None:
+            logger.debug(f"Use distances to create a target mask")
+            target = distances <= self.target_panel.get_value("delta")
+            if self.image.layout is None:
+                target_mask = target.reshape(self.image.lab.shape[:2])
+            else:
+                target_mask = np.zeros(self.image.lab.shape[:2], dtype='bool')
+                target_mask[self.image.layout_mask] = target
 
-        self.app.post_to_main_thread(self.window, do_highlighting)
+            if self.target_panel.get_value("fill"):
+                logger.debug("Fill small holes")
+                target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
+            if self.target_panel.get_value("remove"):
+                logger.debug("Remove small objects")
+                target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
+            return target_mask
+
+    def toggle_show_target(self):
+        if self.target_panel.buttons['show target'].is_on:
+            self.update_target()
+        else:
+            self.update_image_widget()
+
+    def toggle_show_selected(self):
+        self.update_image_widget()
 
     def update_image_widget(self, _event=None):
         logger.debug(f"update image widget")
         if self.activity == Activities.TARGET:
-            self.app.run_in_thread(self.highlight_target)
+            if self.target_panel.buttons['show target'].is_on:
+                target_colour = self.target_panel.get_value("target colour")
+            else:
+                target_colour = None
+            if self.target_panel.buttons['show selected'].is_on:
+                selected_colour = self.target_panel.get_value("selection colour")
+            else:
+                selected_colour = None
+            self.image_widget.update_image(
+                self.image.get_displayed_with_target(
+                    target_colour=target_colour,
+                    selected_colour=selected_colour
+                )
+            )
         elif self.activity == Activities.CIRCLE:
-            self.highlight_circle_pixels()
+            self.image_widget.update_image(self.image.get_displayed_as_circle_distance())
+        elif self.activity == Activities.LAYOUT:
+            self.image_widget.update_image(self.image.get_displayed_with_layout())
         else:
-            to_render = o3d.geometry.Image(self.image.displayed.astype(np.float32))
-            self.image_widget.update_image(to_render)
-        self.window.set_needs_layout()
+            self.image_widget.update_image(self.image.get_displayed_with_target())
+        logger.debug("Image update complete")
         return gui.Widget.EventCallbackResult.HANDLED
 
-    def update_layout_image(self, array):
-        logger.debug(f"update layout widget")
-        to_render = o3d.geometry.Image(array.astype(np.float32))
-        self.debug_widget.update_image(to_render)
-        self.window.set_needs_layout()
-        return gui.Widget.EventCallbackResult.HANDLED
-
-    def update_distance_widget(self, _event=None):
-        logger.debug("update distance widget")
-        if self.activity == Activities.CIRCLE:
-            distance_image = self.get_distance_image()
-            if distance_image is not None:
-                to_render = o3d.geometry.Image(gray2rgb(distance_image).astype(np.float32))
-                self.debug_widget.update_image(to_render)
-            else:
-                to_render = o3d.geometry.Image(np.zeros_like(self.image.rgb).astype(np.float32))
-                self.debug_widget.update_image(to_render)
-        return gui.Widget.EventCallbackResult.HANDLED
-
-    def get_distance_image(self):
-        if self.activity == Activities.CIRCLE and self.circle_indices:
-            logger.debug("get distance image")
-            if self.args.circle_colour is None:
-                circle_lab = self.image.lab.reshape(-1, 3)[list(self.circle_indices)]
-                circle_lab = np.mean(circle_lab, axis=0)
-            else:
-                circle_lab = self.args.circle_colour
-
-            circles_like = np.full_like(self.image.lab, circle_lab)
-            return 1-deltaE_cie76(self.image.lab, circles_like)/255
-        else:
-            return None
-
-    def highlight_circle_pixels(self):
-        logger.debug("highlight circle pixels")
-        if self.circle_indices:
-            highlighted = self.image.displayed.copy()
-            colour = self.circle_panel.get_value("pixel colour")
-            displayed_indices = self.image.indices_in_displayed(self.circle_indices)
-            highlighted.reshape(-1, 3)[displayed_indices] = colour
-            to_render = o3d.geometry.Image(highlighted.astype(np.float32))
-        else:
-            to_render = o3d.geometry.Image(self.image.displayed.astype(np.float32))
-        logger.debug("update image")
+    def update_image_with_array(self, array):
+        logger.debug(f"update image widget with an array")
+        displayed = self.image.apply_zoom(array)
+        to_render = o3d.geometry.Image(displayed.astype(np.float32))
         self.image_widget.update_image(to_render)
+        return gui.Widget.EventCallbackResult.HANDLED
 
     def update_info(self, dice=None):
         if self.image is None:
@@ -1352,7 +1360,6 @@ class AppWindow:
         dlg.set_on_cancel(self._on_file_dialog_cancel)
         dlg.set_on_done(self._on_load_image_dialog_done)
         self.window.show_dialog(dlg)
-
 
     def _on_file_dialog_cancel(self):
         self.window.close_dialog()
@@ -1543,32 +1550,31 @@ class AppWindow:
             self.app.menubar.set_enabled(self.MENU_RGR, False)
 
     def load_image(self, path):
-
         if self.image is not None:
-            selected_points = self.image.cloud.select_by_index(list(self.target_indices)).points
-            for lab in selected_points:
-                lab = tuple(lab)
-                self.add_prior(lab)
-            self.clear_selection()
-            self.circle_indices.clear()
+            logger.debug("Unload existing image and copy layout if found")
+            if self.image.cloud is not None:
+                selected_points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
+                self.clear_selection()
+                # add the previously selected points back as priors for the new plot
+                for lab in selected_points:
+                    lab = tuple(lab)
+                    self.add_prior(lab)
 
+        logger.debug("Load new image")
         self.image = CalibrationImage(ImageLoaded(path, self.args))
+
         self.info.visible = True
         self.update_info()
 
         self.target_panel.buttons['from mask'].enabled = False
-
         self.set_menu_enabled()
 
-        logger.debug("Load rgb image")
+        logger.debug("Display new image")
         self.image_widget = self.get_image_widget()
         #self.image_widget.update_image(self.image.as_o3d)
         self.image_widget.visible = True
-        self.image.prepare_cloud()
-        self.setup_lab_axes()
-        self.update_lab_widget()
         self.update_image_widget()
-        self.update_distance_widget()
+        self.update_lab_widget()
 
     def load_true_mask(self, path):
         try:
@@ -1629,20 +1635,25 @@ class AppWindow:
         self.lab_widget.setup_camera(60, bbox, bbox.get_center())
         self.lab_widget.look_at(center, [-200, 0, 0], [-1, 1, 0])
 
-    def update_lab_widget(self):
-        logger.debug("Update lab widget")
-        logger.debug("Filter by pixels per voxel")
-        common_indices = [i for i, j in enumerate(self.image.indices) if len(j) >= self.target_panel.get_value("min pixels")]
-        cloud = self.image.cloud.select_by_index(common_indices)
-        # need to remap indices from source cloud due to radius downsampling
-        logger.debug(f"cloud size : {len(cloud.points)}")
+    def update_lab_widget(self, _event=None):
+        if self.activity == Activities.TARGET:
+            logger.debug("Update lab widget")
+            logger.debug("Filter by pixels per voxel")
+            if self.image.cloud is None:
+                self.image.prepare_cloud()
 
-        # Lab is not visible yet but is still loaded here
-        self.lab_widget.scene.remove_geometry("points")
+            common_indices = [i for i, j in enumerate(self.image.voxel_to_image) if len(j) >= self.target_panel.get_value("min pixels")]
+            logger.debug(f"Selected voxels: {len(common_indices)}")
+            cloud = self.image.cloud.select_by_index(common_indices)
+            # need to remap indices from source cloud due to radius downsampling
+            logger.debug(f"cloud size : {len(cloud.points)}")
 
-        logger.debug("Add point cloud to scene")
-        self.lab_widget.scene.add_geometry("points", cloud, self.point_material)
-        self.update_hull()
+            # Lab is not visible yet but is still loaded here
+            self.lab_widget.scene.remove_geometry("points")
+
+            logger.debug("Add point cloud to scene")
+            self.lab_widget.scene.add_geometry("points", cloud, self.point_material)
+            self.update_hull()
 
     def export_image(self, path):
         def on_image(image):
@@ -1683,13 +1694,29 @@ class AppWindow:
 
     def load_all_parameters(self):
         logger.debug("Load parameters to GUI")
+        if self.args.scale is not None:
+            self.scale_panel.set_value("scale", self.args.scale)
+
+        logger.debug("Reset circle colour")
+        self.clear_circle_selection()
+        self.update_circle_average()
+
+        logger.debug("Reset layout")
         self.load_layout_parameters()
-        self.scale_panel.set_value("scale", self.args.scale)
+
+        logger.debug("Clear existing selected hull vertices")
         self.clear_selection()
+        logger.debug("Clear existing priors")
         self.clear_priors()
+        logger.debug("add points from configuration file as priors")
         if self.args.hull_vertices is not None:
             for lab in self.args.hull_vertices:
                 self.add_prior(lab)
+        logger.debug("detect layout and prepare lab cloud")
+        if self.image is not None:
+            self.detect_layout()
+            self.image.prepare_cloud()
+            self.update_lab_widget()
 
     def load_configuration(self, filepath):
         logger.info(f"Load configuration parameters from conf file: {str(filepath)}")
@@ -1700,6 +1727,7 @@ class AppWindow:
             self.args = postprocess(args)
             self.load_all_parameters()
             self.set_menu_enabled()
+            logger.debug("Configuration loaded")
         except SystemExit:
             logger.warning(f"Failed to load configuration file")
             self.window.show_message_box("Error", "Invalid configuration file")
@@ -1708,11 +1736,14 @@ class AppWindow:
         except FileNotFoundError as e:
             self.window.show_message_box("Error", f"File not found: {e}")
 
-
     def load_layout(self, filepath):
         logger.info("Load fixed layout file")
         self.args.fixed_layout = filepath
-        # todo should parse the layout file to check if it is valid
+        if self.image is not None:
+            layout_loader = LayoutLoader(self.image)
+            # todo consider wrapping the below in try/except
+            layout = layout_loader.get_layout()
+            self.change_layout(layout)
         self.set_menu_enabled()
 
     def load_samples(self, filepath):
