@@ -4,11 +4,12 @@ import numpy as np
 
 import multiprocessing
 import threading
+import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from pathlib import Path
 from csv import reader, writer
-from re import search
+
 from datetime import datetime
 
 from skimage.morphology import remove_small_holes, remove_small_objects
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 def calculate_area(args):
     area_out = args.area_file
+    logger.debug(f"Output to {Path(area_out).resolve()}")
 
     logger.debug("Start calculations")
     # Construct alpha hull from target colours
@@ -62,7 +64,7 @@ def calculate_area(args):
                 )
                 if len(image_filepaths) == 0:
                     logger.info("No image files remain to be processed")
-                    return
+                    raise FileNotFoundError("No image files remain to be processed")
             except StopIteration:
                 logger.debug("Existing output file is only a single line (likely header only)")
                 image_filepaths = args.images
@@ -122,16 +124,24 @@ def area_worker(filepath, alpha_hull, args, queue=None):
     filepath = Path(result["filename"])
     filename = str(filepath)   # keep whole path in name so can detect already done more easily
 
-    block_match = search(args.block_regex, str(filename))
-    if block_match:
-        block = block_match.group(1)
-    else:
-        block = None
-    time_match = search(args.time_regex, str(filename))
-    if time_match:
-        time = datetime(*[int(time_match[i]) for i in range(1, 6)]).isoformat(sep=" ")
-    else:
-        time = None
+    block = None
+    time = None
+
+    filename_groups = re.compile(args.filename_regex).groupindex
+    filename_search = re.search(args.filename_regex, filename)
+
+    if filename_search is not None:
+        if 'block' in filename_groups:
+            block = filename_search.group(filename_groups['block'])
+
+        time_values = ['year', 'month', 'day', 'hour', 'minute', 'second']
+        for i, tv in enumerate(time_values):
+            if tv not in filename_groups:
+                time_values = time_values[0:i]
+                break
+        time_tuple = tuple(int(filename_search.group(filename_groups[tv])) for tv in time_values)
+        if time_tuple:
+            time = datetime(*time_tuple)
 
     def format_result(raw_result):
         for record in raw_result["units"]:
@@ -154,10 +164,10 @@ class ImageProcessor:
         self.logger = ImageFilepathAdapter(logger, {'image_filepath': str(filepath)})
 
     def get_area(self):
-        if self.args.whole_image:
-            layout = None
-        elif self.args.fixed_layout is not None:
+        if self.args.fixed_layout is not None:
             layout = LayoutLoader(self.image).get_layout()
+        elif not self.args.detect_layout:
+            layout = None
         else:
             layout = LayoutDetector(self.image).get_layout()
 
@@ -218,8 +228,8 @@ class ImageProcessor:
 
         if layout is None:
             pixels = np.count_nonzero(target_mask)
-            rgb = np.mean(self.image.rgb[target_mask], axis=0)
-            lab = np.mean(self.image.lab[target_mask], axis=0)
+            rgb = np.median(self.image.rgb[target_mask], axis=0)
+            lab = np.median(self.image.lab[target_mask], axis=0)
             result["units"].append(("N/A", "N/A", pixels, rgb, lab))
         else:
             for p in layout.plates:
@@ -231,8 +241,8 @@ class ImageProcessor:
                     circle_target = circle_mask & target_mask
                     pixels = np.count_nonzero(circle_target)
                     if pixels > 0:
-                        rgb = np.mean(self.image.rgb[circle_target], axis=0)
-                        lab = np.mean(self.image.lab[circle_target], axis=0)
+                        rgb = np.median(self.image.rgb[circle_target], axis=0)
+                        lab = np.median(self.image.lab[circle_target], axis=0)
                     else:
                         rgb = "NA"
                         lab = "NA"

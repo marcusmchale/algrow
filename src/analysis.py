@@ -3,6 +3,8 @@ import logging
 from pandas import read_csv, to_datetime, merge, Timedelta  # todo consider replacing the existing use of csv reader/writer with pandas?
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,11 +36,10 @@ class AreaAnalyser:
                 sep=",",
                 names=self.area_header,
                 header=0,
-                usecols=["ImageFile", "Unit", "Area"],
-                dtype={"ImageFile": str, "Unit": int, 'Area': np.float64}
+                dtype={"ImageFile": str, "Unit": int, 'Area': np.float64, 'Block': str, 'Time': str}
             )
-            area_df["Time"] = to_datetime(area_df["ImageFile"].str.extract(self.args.time_regex))
-            area_df["Block"] = area_df["ImageFile"].str.extract(self.args.block_regex).astype(int)
+            area_df["Time"] = to_datetime(area_df["Time"])
+
         return area_df
 
     def _load_id(self, id_csv):
@@ -49,7 +50,7 @@ class AreaAnalyser:
                 sep=",",
                 names=["Block", "Unit", "Group"],
                 header=0,
-                dtype={"Block": int, "Unit": int, 'Area': np.float64}
+                dtype={"Block": str, "Unit": int, 'Area': np.float64}
             )
         return id_df
 
@@ -65,7 +66,7 @@ class AreaAnalyser:
         try:
             rss = svd[0][0]
         except IndexError:
-            return None, None, None
+            return intercept, slope, np.nan
         return intercept, slope, rss
 
     def fit_all(self, fit_start, fit_end):
@@ -121,14 +122,15 @@ class AreaAnalyser:
                     ax.plot(
                         group.index.get_level_values("Time"),
                         np.exp(group.slope * group.elapsed_m + group.intercept),
-                        linestyle = "dashed" if outliers and name in outliers else "solid"
+                        linestyle="dashed" if outliers and name in outliers else "solid"
                     )
+            ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
         ax.legend(loc='upper left')
         ax.tick_params(axis='x', labelrotation=45)
         return ax
 
     def summarise(self):
-        summary = self.df[["Group", "RGR", "RSS"]].droplevel("Time").drop_duplicates().dropna()
+        summary = self.df[["Group", "RGR", "RSS"]].droplevel("Time").drop_duplicates()  # .dropna()
         if summary.size != 0:
             d = np.sqrt(summary.RSS)
             # identify atypical models from RSS
@@ -173,7 +175,7 @@ class AreaAnalyser:
                 to_plot_fit = summary[(summary.Group == group)].index.to_list()
                 outliers = summary[summary.ModelFitOutlier].index.to_list()
                 fig, ax = plt.subplots()
-                self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers = outliers)
+                self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers=outliers)
                 plt.tight_layout()
                 plt.savefig(Path(group_plot_dir, f"{group}.png"))
                 plt.close(fig)
