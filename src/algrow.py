@@ -29,7 +29,8 @@ def algrow():
         try:
             launch_gui(args)
         except Exception as e:
-            logger.debug(f"Error running GUI required for configuration: {e}")
+            logger.error(f"Error running GUI required for configuration: {e}")
+            raise
         if not configuration_complete(args):
             logger.warning("Configuration is not complete")
         else:

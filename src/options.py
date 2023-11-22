@@ -5,7 +5,7 @@ from configargparse import ArgumentParser
 from itertools import chain
 from enum import IntEnum
 from pathlib import Path
-
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,34 +60,22 @@ def image_path(s: str):
         raise FileNotFoundError(s)
 
 
-def existing_filepath(s: str):
-    if Path(s).is_file():
-        return Path(s)
-    else:
-        logger.warning(f"File will be overwritten: {s}")
-
-
-def new_filepath(s: str):
-    if Path(s).is_file():
-        raise FileExistsError(s)
+def filepath(s: Optional[str]):
+    if s is None:
+        return None
     else:
         return Path(s)
-
-
-def any_filepath(s: str):
-    return Path(s)
 
 
 arg_types = {
     "conf": str,
     "images": image_path,
-    "samples": existing_filepath,
+    "samples": filepath,
     "out_dir": str,
-    "time_regex": str,
-    "time_format": str,
-    "block_regex": str,
+    "filename_regex": str,
     "animations": bool,
     "processes": int,
+    "detect_layout": bool,
     "image_debug": debug_level,
     "loglevel": debug_level,
     "voxel_size": float,
@@ -102,11 +90,11 @@ arg_types = {
     "downscale": int,
     "remove": int,
     "fill": int,
-    "area_file": any_filepath,
+    "area_file": filepath,
     "fit_start": float,
     "fit_end": float,
     "scale": float,
-    "fixed_layout": existing_filepath,
+    "fixed_layout": filepath,
     "circle_diameter": float,
     "circle_variability": float,
     "circle_expansion": float,
@@ -143,7 +131,7 @@ def options(filepath=None):
         action='append')
     parser.add_argument(
         "-s", "--samples",
-        help="Input csv file with sample identities (block, unit, group)",
+        help="Input csv file with sample identities in columns (block, unit, group)",
         type=arg_types["samples"],
         default=None
     )
@@ -155,22 +143,21 @@ def options(filepath=None):
         type=arg_types["out_dir"]
     )
     parser.add_argument(
-        "-l",
-        "--fixed_layout",
-        help="Path to a plate layout definition file (generated during calibration by setting fixed layout)",
-        default=None,
-        type=arg_types["fixed_layout"]
-    )
-    parser.add_argument(
-        "-w", "--whole_image",
-        help="Run without layout definition to calculate target area for the entire image",
-        action='store_true'
-    )
-    parser.add_argument(
         "-p", "--processes",
         help="Number of processes to launch (images to concurrently process)",
         default=1,
         type=arg_types["processes"]
+    )
+    parser.add_argument(
+        "-l", "--detect_layout",
+        help="Run without layout definition to calculate target area for the entire image",
+        type=arg_types["detect_layout"]
+    )
+    parser.add_argument(
+        "--fixed_layout",
+        help="Path to a plate layout definition file (generated during calibration by setting fixed layout)",
+        default=None,
+        type=arg_types["fixed_layout"]
     )
     parser.add_argument(
         "-d", "--image_debug",
@@ -185,25 +172,9 @@ def options(filepath=None):
         default="INFO"
     )
     parser.add_argument(
-        "--time_regex",
-        help="Regex pattern to identify date time string from filename",
-        type=arg_types["time_regex"]
-    )
-    parser.add_argument(
-        "--time_format",
-        help="String format pattern to read datetime object from regex match",
-        type=arg_types["time_format"]
-    )
-    parser.add_argument(
-        "--block_regex",
-        help="Regex pattern to identify block string from filename",
-        type=arg_types["block_regex"]
-    )
-    parser.add_argument(
-        "--voxel_size",
-        help="Size of voxel in colourspace projection to display a point during hull calibration",
-        type=arg_types["voxel_size"],
-        default=1
+        "--filename_regex",
+        help="Regex pattern to capture named groups from filename (year, month, day, hour, minute, second, block)",
+        type=arg_types["filename_regex"]
     )
     parser.add_argument(
         "--circle_colour",
@@ -229,12 +200,6 @@ def options(filepath=None):
         help="Maximum distance outside of target polygon to consider as target",
         type=arg_types["delta"],
         default=1.0
-    )
-    parser.add_argument(
-        "--downscale",
-        help="Downscale by this factor",
-        type=arg_types["downscale"],
-        default=1
     )
     parser.add_argument(
         "-r",
@@ -340,6 +305,12 @@ def options(filepath=None):
         default=None,
         type=arg_types["scale"]
     )
+    parser.add_argument(  # todo parameter isn't handled well, need to scale all, e.g. diameter, scale etc. on both ends
+        "--downscale",
+        help="Downscale by this factor",
+        type=arg_types["downscale"],
+        default=1
+    )
     parser.add_argument(
         "--fit_start",
         help="Start (day) for RGR calculation",
@@ -352,7 +323,13 @@ def options(filepath=None):
         type=arg_types["fit_end"],
         default=float('inf')
     )
-
+    # GUI only options
+    parser.add_argument(
+        "--voxel_size",
+        help="Size of voxel in colourspace projection to display a point during hull calibration",
+        type=arg_types["voxel_size"],
+        default=1
+    )
     return parser
 
 
@@ -388,6 +365,7 @@ def update_arg(args, arg, val, temporary=False):
     else:
         adapter = logger
 
+    # flatten tuples and lists thereof used for e.g. colours into strings
     if isinstance(val, list) and isinstance(val[0], tuple):
         val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
         # coerce to known type:
@@ -408,6 +386,7 @@ def update_arg(args, arg, val, temporary=False):
             adapter.debug("Issue with updating arg")
             raise
 
+    # now update
     if vars(args)[arg] is None:
         if temporary:
             adapter.debug(f"Setting {arg}: {val_str}")
@@ -452,12 +431,13 @@ def layout_defined(args):
         args.plates_right_left is not None
     ])
 
+
 def configuration_complete(args):
-    if args.whole_image:
+    if args.fixed_layout or not args.detect_layout:
         return minimum_calibration(args)
     else:
         return all([
             args.scale is not None,
-            (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
+            (args.hull_vertices is not None and len(args.hull_vertices) >= 4),  # todo this can fail when alpha is set
             layout_defined(args)
         ])

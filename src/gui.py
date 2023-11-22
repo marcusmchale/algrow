@@ -1,11 +1,11 @@
 import logging
 import argparse
-import time
+import datetime
 import open3d as o3d
 import platform
 import numpy as np
 import pandas as pd
-
+import re
 
 from enum import Enum
 from pathlib import Path
@@ -13,7 +13,7 @@ from open3d.visualization import gui, rendering
 from skimage.color import lab2rgb
 from skimage.morphology import remove_small_holes, remove_small_objects
 
-from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess
+from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess, DebugEnum
 from .hull import HullHolder
 from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage, LayoutLoader, LayoutDetector
 from .layout import Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
@@ -35,6 +35,8 @@ class Activities(Enum):
     CIRCLE = 2
     LAYOUT = 3
     TARGET = 4
+    AREA = 5
+    RGR = 6
 
 
 class AppWindow:
@@ -42,8 +44,6 @@ class AppWindow:
     MENU_MASK = 2
     MENU_LOAD_CONF = 3
     MENU_WRITE_CONF = 4
-    MENU_LOAD_LAYOUT = 5
-    MENU_LOAD_SAMPLES = 6
     MENU_QUIT = 7
 
     MENU_SCALE = 11
@@ -51,11 +51,9 @@ class AppWindow:
     MENU_LAYOUT = 13
     MENU_TARGET = 14
 
-
     MENU_AREA = 21
     MENU_RGR = 22
 
-    MENU_SHOW_SETTINGS = 30
     MENU_ABOUT = 40
 
     def __init__(self, width, height, fonts, args):
@@ -95,7 +93,7 @@ class AppWindow:
 
         self.lab_widget = self.get_lab_widget()
         self.info = self.get_info()
-        self.image_widget = None
+        self.image_widget = self.get_image_widget()
 
         self.tool_layout = gui.Horiz(0.5 * self.em, gui.Margins(0.5 * self.em))
         self.tool_layout.visible = False
@@ -105,13 +103,15 @@ class AppWindow:
 
         self.target_panel = self.get_target_panel()
         self.circle_panel = self.get_circle_panel()
-        self.update_circle_average()
+        self.update_displayed_circle_colour()
 
         self.layout_panel = self.get_layout_panel()
 
+        self.area_panel = self.get_area_panel()
+        self.rgr_panel = self.get_rgr_panel()
+
         self.load_all_parameters()
         self.prepare_menu()
-        self.settings_panel = self.get_settings_panel()
 
     def prepare_menu(self):
         logger.debug("Prepare menu")
@@ -123,8 +123,6 @@ class AppWindow:
             file_menu.add_item("Load Image", AppWindow.MENU_OPEN)
             file_menu.add_item("Load Mask", AppWindow.MENU_MASK)
             file_menu.add_item("Load Configuration", AppWindow.MENU_LOAD_CONF)
-            file_menu.add_item("Load Layout", AppWindow.MENU_LOAD_LAYOUT)
-            file_menu.add_item("Load Samples", AppWindow.MENU_LOAD_SAMPLES)
             file_menu.add_item("Save Configuration", AppWindow.MENU_WRITE_CONF)
             if isMacOS:
                 app_menu = gui.Menu()
@@ -141,11 +139,7 @@ class AppWindow:
             configuration_menu.add_item("Target colour", AppWindow.MENU_TARGET)
             analysis_menu = gui.Menu()
             analysis_menu.add_item("Area", AppWindow.MENU_AREA)
-            analysis_menu.add_item("RGR", AppWindow.MENU_RGR)
-
-            settings_menu = gui.Menu()
-            settings_menu.add_item("Settings", AppWindow.MENU_SHOW_SETTINGS)
-            settings_menu.set_checked(AppWindow.MENU_SHOW_SETTINGS, True)
+            analysis_menu.add_item("Growth", AppWindow.MENU_RGR)
 
             help_menu = gui.Menu()
             help_menu.add_item("About", AppWindow.MENU_ABOUT)
@@ -161,14 +155,12 @@ class AppWindow:
                 menu.add_menu("File", file_menu)
                 menu.add_menu("Configuration", configuration_menu)
                 menu.add_menu("Analysis", analysis_menu)
-                menu.add_menu("Settings", settings_menu)
                 # Don't include help menu unless it has something more than
 
             else:
                 menu.add_menu("File", file_menu)
                 menu.add_menu("Configuration", configuration_menu)
                 menu.add_menu("Analysis", analysis_menu)
-                menu.add_menu("Settings", settings_menu)
                 menu.add_menu("Help", help_menu)
             self.app.menubar = menu
             self.set_menu_enabled()
@@ -180,17 +172,13 @@ class AppWindow:
         self.window.set_on_menu_item_activated(AppWindow.MENU_MASK, self._on_menu_mask)
         self.window.set_on_menu_item_activated(AppWindow.MENU_WRITE_CONF, self._on_menu_write_conf)
         self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_CONF, self._on_menu_load_conf)
-        self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_SAMPLES, self._on_menu_load_samples)
-        self.window.set_on_menu_item_activated(AppWindow.MENU_LOAD_LAYOUT, self._on_menu_load_layout)
         self.window.set_on_menu_item_activated(AppWindow.MENU_QUIT, self._on_menu_quit)
         self.window.set_on_menu_item_activated(AppWindow.MENU_SCALE, self.start_scale)
         self.window.set_on_menu_item_activated(AppWindow.MENU_CIRCLE, self.start_circle)
         self.window.set_on_menu_item_activated(AppWindow.MENU_LAYOUT, self.start_layout)
         self.window.set_on_menu_item_activated(AppWindow.MENU_TARGET, self.start_target)
-        self.window.set_on_menu_item_activated(AppWindow.MENU_AREA, self._on_menu_area)
-        self.window.set_on_menu_item_activated(AppWindow.MENU_RGR, self._on_menu_rgr)
-
-        self.window.set_on_menu_item_activated(AppWindow.MENU_SHOW_SETTINGS, self._on_menu_toggle_settings_panel)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_AREA, self.start_area)
+        self.window.set_on_menu_item_activated(AppWindow.MENU_RGR, self.start_rgr)
         self.window.set_on_menu_item_activated(AppWindow.MENU_ABOUT, self._on_menu_about)
         # ----
 
@@ -223,13 +211,10 @@ class AppWindow:
         return widget
 
     def get_image_widget(self):
-        if self.image_widget is None:
-            widget = gui.ImageWidget()
-            widget.visible = False
-            widget.set_on_mouse(self.on_mouse_image_widget)
-            self.window.add_child(widget)
-        else:
-            widget = self.image_widget
+        widget = gui.ImageWidget()
+        widget.visible = False
+        widget.set_on_mouse(self.on_mouse_image_widget)
+        self.window.add_child(widget)
         return widget
 
     def get_info(self):
@@ -426,7 +411,7 @@ class AppWindow:
         self.layout_panel.buttons['circles start top'].is_on = not self.args.circles_bottom_top
 
     def save_layout(self):
-
+        update_arg(self.args, "circle_diameter", self.layout_panel.get_value("circle diameter"))
         update_arg(self.args, "circle_variability", self.layout_panel.get_value("circle variability"))
         update_arg(self.args, "circle_separation", self.layout_panel.get_value("circle separation"))
         update_arg(self.args, "plate_width", self.layout_panel.get_value("plate width"))
@@ -468,10 +453,11 @@ class AppWindow:
         }
         update_arg(self.args, key_to_arg[key], not self.layout_panel.get_value(key))
         self.layout_panel.buttons[key].text = key if self.layout_panel.get_value(key) else key_to_alt[key]
-        plates = self.image.layout.plates
-        layout_detector = LayoutDetector(self.image)
-        plates = layout_detector.sort_plates(plates)
-        self.image.change_layout(Layout(plates, self.image.rgb.shape[:2]))
+        if self.image is not None and self.image.layout is not None:
+            plates = self.image.layout.plates
+            layout_detector = LayoutDetector(self.image)
+            plates = layout_detector.sort_plates(plates)
+            self.image.change_layout(Layout(plates, self.image.rgb.shape[:2]))
         self.update_image_widget()
 
     def _on_save_fixed(self):
@@ -513,31 +499,30 @@ class AppWindow:
 
     def get_circle_panel(self):
         logger.debug("Prepare circle panel")
-        circle_panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
-        circle_panel.add_label("Circle colour parameters", self.fonts['large'])
-        circle_panel.add_label("Shift-click to select pixels", self.fonts['small'])
-        circle_panel.add_label("Average colour:", self.fonts['small'])
-        circle_panel.add_button_pool("average")
-        circle_panel.add_button("Clear", self.clear_circle_selection, tooltip="Clear selection")
-        circle_panel.add_label("selected", font_style=self.fonts['small'])
-        circle_panel.add_button_pool("selection")
-        circle_panel.add_stretch()
-        return circle_panel
+        panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
+        panel.add_label("Circle colour parameters", self.fonts['large'])
+        panel.add_label("Shift-click to select pixels", self.fonts['small'])
+        panel.add_button("Clear", self.clear_circle_selection_and_save, tooltip="Clear selection")
+        panel.add_button_pool("circle colour")
+        panel.add_label("selected", font_style=self.fonts['small'])
+        panel.add_button_pool("selection")
+        panel.add_stretch()
+        return panel
 
     def get_target_panel(self):
         logger.debug("Prepare target panel")
-        target_panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
-        target_panel.add_label("Target hull parameters", self.fonts['large'])
-        target_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), target_panel)
+        panel = Panel(gui.ScrollableVert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
+        panel.add_label("Target hull parameters", self.fonts['large'])
+        target_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), panel)
         self.add_target_buttons(target_horiz)
         self.add_selection_panel(target_horiz)
         self.add_prior_panel(target_horiz)
-        return target_panel
+        return panel
 
     def add_target_buttons(self, parent: Panel):
         logger.debug("Prepare target buttons")
         target_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
-        target_buttons.add_label("Shift-click to select voxels", self.fonts['small'])
+        target_buttons.add_label("Shift-click to select voxels or pixels", self.fonts['small'])
         target_buttons.add_input(
             "min pixels",
             int,
@@ -613,21 +598,337 @@ class AppWindow:
 
     def add_selection_panel(self, parent: Panel):
         logger.debug("Prepare selection panel")
-        selection_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
-        selection_panel.add_label("selected", font_style=self.fonts['small'])
-        selection_panel.add_button("clear", tooltip="Clear selected colours", on_clicked=self.clear_selection)
-        selection_panel.add_button("reduce", tooltip="Keep only hull vertices", on_clicked=self.reduce_selection)
-        selection_panel.add_button_pool("selection")
-        return selection_panel
+        panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
+        panel.add_label("selected", font_style=self.fonts['small'])
+        panel.add_button("clear", tooltip="Clear selected colours", on_clicked=self.clear_selection)
+        panel.add_button("reduce", tooltip="Keep only hull vertices", on_clicked=self.reduce_selection)
+        panel.add_button_pool("selection")
+        return panel
 
     def add_prior_panel(self, parent: Panel):
         logger.debug("Prepare prior panel")
-        prior_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
-        prior_panel.add_label("priors", font_style=self.fonts['small'])
-        prior_panel.add_button("clear", tooltip="Clear prior colours", on_clicked=self.clear_priors)
-        prior_panel.add_button('reduce', tooltip="Keep only hull vertices", on_clicked=self.reduce_priors)
-        prior_panel.add_button_pool("priors")
-        return prior_panel
+        panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), parent)
+        panel.add_label("priors", font_style=self.fonts['small'])
+        panel.add_button("clear", tooltip="Clear prior colours", on_clicked=self.clear_priors)
+        panel.add_button('reduce', tooltip="Keep only hull vertices", on_clicked=self.reduce_priors)
+        panel.add_button_pool("priors")
+        return panel
+
+    def get_area_panel(self):
+        logger.debug("Prepare area panel")
+        panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.window)
+        panel.add_label("Area calculation", self.fonts['large'])
+
+        file_selection_panel = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), panel)
+        file_selection_panel.add_button("Add directory", on_clicked=self._on_select_image_directory)
+        file_selection_panel.add_button("Add file", on_clicked=self._on_select_image_file)
+        file_selection_panel.add_button("Remove selected", lambda: panel.remove_selected_from_list("filename"))
+        file_selection_panel.add_button("Remove all", lambda: panel.clear_list("filename"))
+
+        file_details_panel = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), panel)
+
+        def parse_filenames():
+            files = panel.list_view_lists["filename"]
+            update_arg(self.args, "images", files)
+            if files:
+                try:
+                    filename_groups = re.compile(self.args.filename_regex).groupindex
+                    filename_searches = [re.search(self.args.filename_regex, f) for f in files]
+                    if 'block' in filename_groups:
+                        blocks = [b.group(filename_groups['block']) if b else "" for b in filename_searches]
+                    else:
+                        blocks = list()
+                    panel.list_view_lists["block"] = blocks
+                    time_values = ['year', 'month', 'day', 'hour', 'minute', 'second']
+                    for i, tv in enumerate(time_values):
+                        if tv not in filename_groups:
+                            time_values = time_values[0:i]
+                            break
+                    time_tuples = [
+                        tuple(
+                            int(t.group(filename_groups[tv])) if t else None for tv in time_values
+                        ) for t in filename_searches
+                    ]
+                    panel.list_view_lists["time"] = [
+                        str(datetime.datetime(*tt)) if tt and all([n is not None for n in tt]) else "" for tt in time_tuples
+                    ]
+                    panel.list_views["block"].set_items(panel.list_view_lists["block"])
+                    panel.list_views["time"].set_items(panel.list_view_lists["time"])
+                except Exception as e:
+                    logger.debug(e)
+                    pass
+
+        file_details_panel.add_list_view("filename", callback=parse_filenames)
+        file_details_panel.add_list_view("block")
+        file_details_panel.add_list_view("time")
+
+        def update_regex(pattern):
+            update_arg(self.args, 'filename_regex', pattern)
+            parse_filenames()
+
+        panel.add_input(
+            "filename regex",
+            str,
+            value=self.args.filename_regex,
+            tooltip="Regex to capture named groups from filename (year, month, day, hour, minute, second, block)",
+            on_changed=lambda event: update_regex(event)
+        )
+        panel.add_checkbox(
+            "detect layout",
+            checked=self.args.detect_layout,
+            on_checked=lambda event: update_arg(self.args, "detect_layout", panel.get_value('detect layout')),
+            tooltip="Use configuration to detect layout"
+        )
+        panel.add_path_select(
+            "fixed layout",
+            on_add=self._on_select_layout,
+            on_remove=self._on_remove_layout,
+            tooltip="Fixed layout, layout detection will not be applied if this is specified",
+            value=self.args.fixed_layout
+        )
+        panel.add_input(
+            "processes",
+            int,
+            value=self.args.processes,
+            tooltip="Number of parallel processes to run",
+            on_changed=lambda event: update_arg(self.args, "processes", event)
+        )
+        panel.add_combobox(
+            "debugging images",
+            [i.name for i in DebugEnum],
+            lambda s, i: update_arg(self.args, "image_debug", s)
+        )
+        panel.add_path_select(
+            "output directory",
+            on_add=self._on_select_output_directory,
+            on_remove=self._on_remove_output_directory,
+            tooltip="Output path, area.tsv will be created (or appended to) in this folder",
+            value=str(Path(self.args.out_dir).resolve())
+        )
+        panel.add_button("Calculate", on_clicked=self.calculate_area)
+
+        panel.visible = False
+        return panel
+
+    def calculate_area(self, _event=None):
+        if configuration_complete(self.args):
+            # todo add progress bar or similar
+            try:
+                calculate_area(self.args)
+            except Exception as e:
+                self.window.show_message_box("Error", f"Exception: {e}")
+        else:
+            self.window.show_message_box("Error", "Configuration is incomplete")
+
+    def calculate_rgr(self, _event = None):
+        if not self.args.area_file:
+            self.window.show_message_box("Error", f"No area file selected")
+        elif not self.args.area_file.is_file():
+            self.window.show_message_box("Error", f"Area file not found")
+        elif not self.args.samples:
+            self.window.show_message_box("Error", f"No samples file selected")
+        elif not self.args.samples.is_file:
+            self.window.show_message_box("Error", f"Samples file not found")
+        else:
+            try:
+                analyse(self.args)
+            except Exception as e:
+                self.window.show_message_box("Error", f"Exception: {e}")
+
+    def _on_select_image_directory(self):
+        logger.debug("Launch image selection directory dialog")
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose a directory", self.window.theme)
+        dlg.tooltip = "Select a directory of images"
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_image_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_image_file(self):
+        logger.debug("Launch image selection file dialog")
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose a file", self.window.theme)
+        dlg.tooltip = "Select an image file"
+        extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
+        dlg.add_filter(" ".join(extensions), f"Supported image files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_image_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_image_dialog_done(self, path: str):
+        self.window.close_dialog()
+
+        path = Path(path)
+        if path.is_dir():
+            files = list()
+            for ext in IMAGE_EXTENSIONS:
+                files.extend(path.glob(f"*.{ext}"))
+        elif path.is_file():
+            files = [path]
+        else:
+            raise FileNotFoundError
+        files = [str(f) for f in files]
+        self.area_panel.add_to_list("filename", files)
+        self.window.set_needs_layout()
+
+    def _on_select_layout(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose layout file to load", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Layout files ({', '.join(extensions)}")
+        dlg.add_filter("", "All files")
+        # A file dialog MUST define on_cancel and on_done functions
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_layout_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_layout_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_layout(filepath)
+
+    def load_layout(self, filepath):
+        logger.info("Load fixed layout file")
+        update_arg(self.args, "fixed_layout", filepath)
+        if self.image is not None:
+            layout_loader = LayoutLoader(self.image)
+            layout = layout_loader.get_layout()
+            self.change_layout(layout)
+        self.area_panel.path_select_labels['fixed layout'].text = str(self.args.fixed_layout) if self.args.fixed_layout else ""
+        if filepath is not None:
+            self.area_panel.set_value('detect layout', False)
+        # todo should parse the file to ensure it is valid
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def _on_remove_layout(self):
+        logger.info("Remove fixed layout file")
+        update_arg(self.args, "fixed_layout", None)
+        self.area_panel.path_select_labels['fixed layout'].text = str(self.args.fixed_layout) if self.args.samples else ""
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def _on_select_output_directory(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN_DIR, "Choose output directory", self.window.theme)
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_output_directory_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_output_directory_dialog_done(self, path):
+        folder = Path(path)
+        self.window.close_dialog()
+        update_arg(self.args, "out_dir", folder)
+        self.area_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
+        self.rgr_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
+        self.window.set_needs_layout()
+
+    def _on_remove_output_directory(self):
+        update_arg(self.args, "out_dir", None)
+        self.area_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.samples else ""
+        self.rgr_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.samples else ""
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def get_rgr_panel(self):
+        logger.debug("Prepare RGR panel")
+        panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.window)
+        panel.add_label("Growth rate analysis", self.fonts['large'])
+        panel.add_path_select(
+            "area file",
+            on_add=self._on_select_area,
+            on_remove=self._on_remove_area,
+            tooltip="AlGrow area file",
+            value=str(self.args.area_file.resolve() if self.args.area_file and self.args.area_file.is_file() else "")
+        )
+        panel.add_path_select(
+            "samples map",
+            on_add=self._on_select_samples,
+            on_remove=self._on_remove_samples,
+            tooltip="Sample ID map, used to establish sample groups",
+            value=str(self.args.samples.resolve() if self.args.samples else "")
+        )
+        panel.add_path_select(
+            "output directory",
+            on_add=self._on_select_output_directory,
+            on_remove=self._on_remove_output_directory,
+            tooltip="Output path, area.tsv will be created (or appended to) in this folder",
+            value=str(Path(self.args.out_dir).resolve())
+        )
+        panel.add_input(
+            "Start day",
+            float,
+            value=self.args.fit_start,
+            tooltip="First timepoint to consider in the fit (in days relative to first timepoint)",
+            on_changed=lambda event: update_arg(self.args, "fit_start", event)
+        )
+        panel.add_input(
+            "End day",
+            float,
+            value=self.args.fit_end,
+            tooltip="Last timepoint to consider in the fit (in days relative to first timepoint)",
+            on_changed=lambda event: update_arg(self.args, "fit_end", event)
+        )
+        panel.add_button("Calculate", on_clicked=self.calculate_rgr)
+        panel.visible = False
+
+        return panel
+
+    def _on_select_samples(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose samples descriptor file to load", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Samples files ({', '.join(extensions)})")
+        dlg.add_filter("", "All files")
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_samples_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_samples_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_samples(filepath)
+
+    def load_samples(self, filepath):
+        logger.info("Load samples descriptor file")
+        update_arg(self.args, "samples", filepath)
+        self.rgr_panel.path_select_labels['samples map'].text = str(self.args.samples) if self.args.samples else ""
+        # todo should parse the file to ensure it is valid
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def _on_remove_samples(self):
+        logger.info("Remove samples descriptor file")
+        update_arg(self.args, "samples", None)
+        self.rgr_panel.path_select_labels['samples map'].text = str(self.args.samples) if self.args.samples else ""
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def _on_select_area(self):
+        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose area file to load", self.window.theme)
+        extensions = [f".csv"]
+        dlg.add_filter(" ".join(extensions), f"Area files ({', '.join(extensions)})")
+        dlg.add_filter("", "All files")
+        dlg.set_on_cancel(self._on_file_dialog_cancel)
+        dlg.set_on_done(self._on_select_area_dialog_done)
+        self.window.show_dialog(dlg)
+
+    def _on_select_area_dialog_done(self, filename):
+        filepath = Path(filename)
+        self.window.close_dialog()
+        self.load_area(filepath)
+
+    def load_area(self, filepath):
+        logger.info("Load area file")
+        update_arg(self.args, "area_file", filepath)
+        self.rgr_panel.path_select_labels['area file'].text = str(self.args.area_file) if self.args.area_file else ""
+        # todo should parse the file to ensure it is valid
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
+
+    def _on_remove_area(self):
+        logger.info("Remove area file")
+        update_arg(self.args, "area_file", None)
+        self.rgr_panel.path_select_labels['area file'].text = str(self.args.area_file) if self.args.area_file else ""
+        self.set_menu_enabled()
+        self.window.set_needs_layout()
 
     def hide_all(self):
         self.info.visible = False
@@ -639,6 +940,8 @@ class AppWindow:
         self.scale_panel.visible = False
         self.circle_panel.visible = False
         self.layout_panel.visible = False
+        self.area_panel.visible = False
+        self.rgr_panel.visible = False
 
     def start_target(self):
         self.activity = Activities.TARGET
@@ -653,9 +956,7 @@ class AppWindow:
         self.image.prepare_cloud()
         self.setup_lab_axes()
         self.update_lab_widget()
-        logger.debug("Here")
         self.update_image_widget()
-        logger.debug("There")
         self.window.set_needs_layout()
 
     def start_scale(self):
@@ -699,13 +1000,32 @@ class AppWindow:
             self.update_image_widget()
         self.window.set_needs_layout()
 
+    def start_area(self):
+        self.activity = Activities.AREA
+        self.hide_all()
+        self.area_panel.visible = True
+        self.window.set_needs_layout()
+
+    def start_rgr(self):
+        self.activity = Activities.RGR
+        self.hide_all()
+        self.rgr_panel.visible = True
+        self.window.set_needs_layout()
+
     def _on_layout(self, layout_context):
         r = self.window.content_rect
         if self.activity == Activities.NONE:
             self.background_widget.visible = True
             self.background_widget.frame = gui.Rect(r.x, r.y, r.width, r.height)
-        if self.image is not None:
+        else:
             self.background_widget.visible = False
+
+        if self.activity == Activities.AREA:
+            self.area_panel.layout.frame = gui.Rect(r.x, r.y, r.width, r.height)
+        elif self.activity == Activities.RGR:
+            self.rgr_panel.layout.frame = gui.Rect(r.x, r.y, r.width, r.height)
+
+        if self.image is not None:
             tool_pref = self.tool_layout.calc_preferred_size(layout_context, gui.Widget.Constraints())
             tool_width = tool_pref.width * self.tool_layout.visible
 
@@ -739,12 +1059,11 @@ class AppWindow:
             image_start_x = self.tool_layout.frame.get_right() * self.tool_layout.visible
             self.image_widget.frame = gui.Rect(image_start_x, r.y, r.width - image_start_x, r.height)
 
-
     def on_mouse_lab_widget(self, event):
 
         if event.type == gui.MouseEvent.Type.BUTTON_DOWN and event.is_modifier_down(
                 gui.KeyModifier.SHIFT):
-            logger.debug("Shift-click on lab")
+            logger.debug("Shift-click occurred on lab widget")
 
             def depth_callback(depth_image):
                 logger.debug("Depth callback running")
@@ -777,7 +1096,7 @@ class AppWindow:
                     coords = np.unravel_index(nearest, image.shape)[::-1]
                     return coords
 
-                x, y = nearest_within(3)
+                x, y = nearest_within(10)
                 logger.debug(f"Search for object at coords: {x, y}")
                 # Note that np.asarray() reverses the axes.
                 depth = np.asarray(depth_image)[y, x]
@@ -794,7 +1113,8 @@ class AppWindow:
                     for lab in self.prior_lab:
                         logger.debug(f"Existing prior: {lab}")
                         logger.debug(f"Distance from world: {lab-world}")
-                        if all(abs(lab - world) <= self.args.voxel_size / 2):  # i.e. within the sphere radius
+                        if all(abs(lab - world) <= self.args.voxel_size):
+                            # i.e. near to within the sphere radius (a grid and expanded but seems close enough for now)
                             sphere_lab = lab
                             logger.debug(f"Match within sphere radius of : {lab}")
                             break
@@ -837,8 +1157,7 @@ class AppWindow:
 
         selected_points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
         for lab in selected_points:
-            lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
-            self.lab_widget.scene.remove_geometry(lab_text)
+            self.remove_sphere(lab)
 
         self.image.voxel_indices.clear()
         self.target_panel.button_pools['selection'].clear()
@@ -850,6 +1169,8 @@ class AppWindow:
         if self.image is None or not self.prior_lab:
             return
 
+        for lab in self.prior_lab:
+            self.remove_sphere(lab)
         self.prior_lab.clear()
         self.target_panel.button_pools['priors'].clear()
         self.update_hull()
@@ -883,23 +1204,32 @@ class AppWindow:
             [self.prior_lab.remove(lab) for lab in to_remove]
         self.update_hull()
 
-    def clear_circle_selection(self, event=None):
+    def clear_circle_selection_and_save(self, _event=None):
         if self.image is None:
             return
-
         self.image.circle_indices.clear()
         self.circle_panel.button_pools['selection'].clear()
+        self.save_circle_colour()  # just this is different from the below
+        self.update_displayed_circle_colour()
         self.update_image_widget()
-        self.update_circle_average()
+
+    def clear_circle_selection(self):
+        if self.image is None:
+            return
+        self.image.circle_indices.clear()
+        self.circle_panel.button_pools['selection'].clear()
+        self.update_displayed_circle_colour()
+        self.update_image_widget()
+
 
     def save_circle_colour(self, event=None):
         if self.image and self.image.circle_indices:
             circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.circle_indices)]
             circle_lab = tuple(np.mean(circle_lab, axis=0))
             update_arg(self.args, "circle_colour", circle_lab)
+            self.set_menu_enabled()
         else:
             update_arg(self.args, "circle_colour", None)
-        self.set_menu_enabled()
 
     def update_scale(self, event=None):
         px = self.scale_panel.get_value('px')
@@ -994,7 +1324,6 @@ class AppWindow:
         #  maybe a rounding error/indexing error or something to do with using fractions?
         # it is workable mostly though...
         return x, y
-
 
     def on_mouse_image_widget(self, event):
 
@@ -1094,9 +1423,9 @@ class AppWindow:
             logger.debug(f"add pixel index: {pixel_index}")
             self.image.circle_indices.add(pixel_index)
             self.add_circle_button(pixel_index, lab, rgb)
-        self.update_image_widget()
+        self.update_displayed_circle_colour()
         self.save_circle_colour()
-        self.update_circle_average()
+        self.update_image_widget()
 
     def toggle_voxel(self, voxel_index):
         logger.debug(f"Toggle voxel: {voxel_index}")
@@ -1129,15 +1458,15 @@ class AppWindow:
         self.circle_panel.button_pools['selection'].add_button(pixel_index, b)
         b.set_on_clicked(lambda: self.toggle_circle_pixel(pixel_index))
 
-    def update_circle_average(self):
-        pool = self.circle_panel.button_pools['average']
+    def update_displayed_circle_colour(self):
+        pool = self.circle_panel.button_pools['circle colour']
         lab = self.args.circle_colour
         if lab is None:
             pool.clear()
         else:
-            b = gui.Button('average')
+            b = gui.Button('circle colour')
             b.background_color = gui.Color(*lab2rgb(lab))
-            pool.add_button('average', b)
+            pool.add_button('circle colour', b)
 
     def add_sphere(self, lab, rgb):
         logger.debug(f"Adding sphere for {lab}")
@@ -1181,10 +1510,12 @@ class AppWindow:
         logger.debug(f"Update hull points {len(points)}")
         if len(points) > 0:
             self.hull_holder = HullHolder(points, self.target_panel.get_value("alpha"))
-            self.draw_hull()
-            self.update_target()
             update_arg(self.args, "hull_vertices", list(map(tuple, self.hull_holder.points)))
-            self.set_menu_enabled()
+        else:
+            self.hull_holder = None
+        self.draw_hull()
+        self.update_target()
+        self.set_menu_enabled()
 
     def update_target(self, _event=None):
         if self.target_panel.buttons['show target'].is_on:
@@ -1229,7 +1560,6 @@ class AppWindow:
             return None
 
         logger.debug(f"Use distances to create a target mask")
-        target_mask = np.zeros(self.image.lab.shape[:2], dtype='bool')
         distances = distances[self.image.voxel_map]
         target_mask = distances <= self.target_panel.get_value("delta")
         # fix for -1 indices representing the mask  # todo this is still clunky, consider refactoring
@@ -1335,14 +1665,10 @@ class AppWindow:
     def draw_hull(self, event=None):
         if self.lab_widget.scene is not None:
             logger.debug("Remove existing mesh")
-            try:
-                self.lab_widget.scene.remove_geometry('mesh')
-            except Exception as e:
-                logger.debug(f'mesh not found {e}')
+            self.lab_widget.scene.remove_geometry('mesh')
         if all([
             self.target_panel.buttons['show hull'].is_on,
-            self.hull_holder is not None,
-            self.hull_holder.mesh is not None
+            self.hull_holder is not None and self.hull_holder.mesh is not None
         ]):
             logger.debug("Add mesh to scene")
             hull_colour = self.target_panel.get_value("hull colour")
@@ -1414,90 +1740,8 @@ class AppWindow:
         self.window.close_dialog()
         self.load_configuration(filepath)
 
-    def _on_menu_load_layout(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose layout file to load", self.window.theme)
-        extensions = [f".csv"]
-        dlg.add_filter(" ".join(extensions), f"Layout files ({', '.join(extensions)}")
-        dlg.add_filter("", "All files")
-        # A file dialog MUST define on_cancel and on_done functions
-        dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_load_layout_dialog_done)
-        self.window.show_dialog(dlg)
-
-    def _on_load_layout_dialog_done(self, filename):
-        filepath = Path(filename)
-        self.window.close_dialog()
-        self.load_layout(filepath)
-
-    def _on_menu_load_samples(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose samples descriptor file to load", self.window.theme)
-        extensions = [f".csv"]
-        dlg.add_filter(" ".join(extensions), f"Samples files ({', '.join(extensions)}")
-        dlg.add_filter("", "All files")
-        # A file dialog MUST define on_cancel and on_done functions
-        dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_load_samples_dialog_done)
-        self.window.show_dialog(dlg)
-
-    def _on_load_samples_dialog_done(self, filename):
-        filepath = Path(filename)
-        self.window.close_dialog()
-        self.load_samples(filepath)
-
-    def _on_menu_area(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose an image file", self.window.theme)
-        dlg.tooltip = "ALl images in the folder will be analysed"
-        extensions = [f".{s}" for s in IMAGE_EXTENSIONS]
-        dlg.add_filter(" ".join(extensions), f"Supported image files ({', '.join(extensions)}")
-        dlg.add_filter("", "All files")
-        # A file dialog MUST define on_cancel and on_done functions
-        dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_area_input_dialog_done)
-        self.window.show_dialog(dlg)
-
-    def _on_area_input_dialog_done(self, filename):
-        selected_folder = Path(filename).parent
-        self.window.close_dialog()
-        # don't do recursive search in GUI, just take immediate grob
-        paths = [[p for p in Path(selected_folder).glob(f'*.{extension}')] for extension in IMAGE_EXTENSIONS]
-        paths = [p for sublist in paths for p in sublist]
-        update_arg(self.args, "images", paths)
-
-        area_out = Path(selected_folder, "area.csv")
-
-        while self.args.area_file is None:
-            try:
-                update_arg(self.args, "area_file", area_out)
-            except FileExistsError:
-                logger.warning(f"File already exists: {area_out}")
-                area_out = Path(selected_folder, f"area_{time.strftime('%Y%m%d-%H%M%S')}.csv")
-                # then cancel here and start again with new filename
-
-        calculate_area(self.args)
-
-    def _on_menu_rgr(self):
-        dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose area file to analyse", self.window.theme)
-        extensions = [f".csv"]
-        dlg.add_filter(" ".join(extensions), f"Supported area files ({', '.join(extensions)}")
-        dlg.add_filter("", "All files")
-        dlg.set_on_cancel(self._on_file_dialog_cancel)
-        dlg.set_on_done(self._on_rgr_input_dialog_done)
-        self.window.show_dialog(dlg)
-
-    def _on_rgr_input_dialog_done(self, filename):
-        filepath = Path(filename)
-        self.window.close_dialog()
-        update_arg(self.args, "area_file", filepath)
-        analyse(self.args)
-
     def _on_menu_quit(self):
         gui.Application.instance.quit()
-
-    def _on_menu_toggle_settings_panel(self):
-        self.settings_panel.visible = not self.settings_panel.visible
-        self.app.menubar.set_checked(
-            AppWindow.MENU_SHOW_SETTINGS, self.settings_panel.visible
-        )
 
     def _on_menu_about(self):
         # Show a simple dialog. Although the Dialog is actually a widget, you can
@@ -1542,12 +1786,10 @@ class AppWindow:
             self.app.menubar.set_enabled(self.MENU_SCALE, True)
             self.app.menubar.set_enabled(self.MENU_CIRCLE, True)
             self.app.menubar.set_enabled(self.MENU_LAYOUT, self.args.circle_colour is not None)
-        if configuration_complete(self.args):
-            self.app.menubar.set_enabled(AppWindow.MENU_AREA, True)
-            self.app.menubar.set_enabled(self.MENU_RGR, self.args.samples is not None)
-        else:
-            self.app.menubar.set_enabled(AppWindow.MENU_AREA, False)
-            self.app.menubar.set_enabled(self.MENU_RGR, False)
+
+        self.app.menubar.set_enabled(self.MENU_AREA, True)
+        self.app.menubar.set_enabled(self.MENU_RGR, True)
+
 
     def load_image(self, path):
         if self.image is not None:
@@ -1570,8 +1812,6 @@ class AppWindow:
         self.set_menu_enabled()
 
         logger.debug("Display new image")
-        self.image_widget = self.get_image_widget()
-        #self.image_widget.update_image(self.image.as_o3d)
         self.image_widget.visible = True
         self.update_image_widget()
         self.update_lab_widget()
@@ -1674,16 +1914,17 @@ class AppWindow:
                 logger.debug(f"arg:{arg}, value:{value}")
                 if value is None:
                     continue
-                if isinstance(value, Enum):
+                elif isinstance(value, Enum):
                     value = value.name
-                elif arg == "images":
+                elif isinstance(value, Path):
+                    value = str(value.resolve())
+
+                if arg == "images":
                     continue  # todo if want to write images then need to fix parser to handle it
                     # if isinstance(value, list):
                     #    value = f"\"{','.join([str(i) for i in value])}\""
                     # else:
                     #     value = str(value)
-                elif arg == "area_file":
-                    continue
                 if arg == "circle_colour":
                     value = f"\"{','.join([str(i) for i in value])}\""
                 if arg == "hull_vertices":
@@ -1699,7 +1940,6 @@ class AppWindow:
 
         logger.debug("Reset circle colour")
         self.clear_circle_selection()
-        self.update_circle_average()
 
         logger.debug("Reset layout")
         self.load_layout_parameters()
@@ -1709,12 +1949,25 @@ class AppWindow:
         logger.debug("Clear existing priors")
         self.clear_priors()
         logger.debug("add points from configuration file as priors")
+
         if self.args.hull_vertices is not None:
             for lab in self.args.hull_vertices:
                 self.add_prior(lab)
         logger.debug("detect layout and prepare lab cloud")
+
+        self.area_panel.set_value("filename regex", self.args.filename_regex)
+        if self.args.fixed_layout:
+            self.area_panel.path_select_labels['fixed layout'].text = str(Path(self.args.fixed_layout).resolve())
+            self.area_panel.checkboxes['detect layout'].checked = False
+        else:
+            self.area_panel.checkboxes['detect layout'].checked = self.args.detect_layout
+        self.area_panel.path_select_labels['output directory'].text = str(Path(self.args.out_dir).resolve()) if self.args.out_dir else ""
+        self.area_panel.set_value("processes", self.args.processes)
+
         if self.image is not None:
-            self.detect_layout()
+            self.update_image_widget()
+            if self.args.detect_layout and not self.args.fixed_layout:
+                self.detect_layout()
             self.image.prepare_cloud()
             self.update_lab_widget()
 
@@ -1727,6 +1980,7 @@ class AppWindow:
             self.args = postprocess(args)
             self.load_all_parameters()
             self.set_menu_enabled()
+            self.window.set_needs_layout()
             logger.debug("Configuration loaded")
         except SystemExit:
             logger.warning(f"Failed to load configuration file")
@@ -1735,44 +1989,3 @@ class AppWindow:
             self.window.show_message_box("Error", f"The output file already exists in this folder: {e}")
         except FileNotFoundError as e:
             self.window.show_message_box("Error", f"File not found: {e}")
-
-    def load_layout(self, filepath):
-        logger.info("Load fixed layout file")
-        self.args.fixed_layout = filepath
-        if self.image is not None:
-            layout_loader = LayoutLoader(self.image)
-            # todo consider wrapping the below in try/except
-            layout = layout_loader.get_layout()
-            self.change_layout(layout)
-        self.set_menu_enabled()
-
-    def load_samples(self, filepath):
-        logger.info("Load samples descriptor file")
-        self.args.samples = filepath
-        # todo should parse the samples file to check if it is valid
-        self.set_menu_enabled()
-
-    def get_settings_panel(self):
-        logger.debug("Prepare settings panel")
-        settings_panel = Panel(gui.Vert(self.em, gui.Margins(self.em)), self.window)
-        layout_settings_panel = Panel(gui.CollapsableVert("Layout", self.em, gui.Margins(self.em)), settings_panel)
-        layout_settings_panel.add_checkbox("Whole Image", checked=self.args.whole_image, on_checked=self._on_whole_image)
-        layout_settings_panel.add_input(
-            "Fixed Layout", str,
-            value=str(self.args.fixed_layout),
-            on_changed=self._on_fixed_layout
-        )
-        settings_panel.visible = False
-        return settings_panel
-
-    def _on_whole_image(self, event=None):
-        # disable layout detection?
-        update_arg(self.args, "whole_image", self.settings_panel.get_value("Whole Image"))
-
-    def _on_fixed_layout(self, event=None):
-        filepath = Path(self.settings_panel.get_value("Fixed Layout"))
-        if not filepath.is_file():
-            logger.warning(f"Missing file: {str(filepath)}")
-            self.window.show_message_box("Error", f"Missing file: {str(filepath)}")
-            return
-        update_arg(self.args, "fixed_layout", filepath)

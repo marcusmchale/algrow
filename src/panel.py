@@ -1,6 +1,7 @@
 from open3d.visualization import gui
 
-from typing import Callable, Type, Union, Optional, Dict, Tuple
+from collections import defaultdict
+from typing import Callable, Type, Union, Optional, Dict, Tuple, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,8 @@ class Panel:
         str: "",
         float: 0.0,
         int: 1,
-        gui.ColorEdit: gui.Color(1.0, 1.0, 1.0)
+        gui.ColorEdit: gui.Color(1.0, 1.0, 1.0),
+        gui.Checkbox: True
     }
 
     def __init__(
@@ -34,6 +36,11 @@ class Panel:
             self.checkboxes = self.parent.checkboxes
             self.button_pools = self.parent.button_pools
             self.parent.add_child(self)
+            self.list_views = self.parent.list_views
+            self.list_view_lists = self.parent.list_view_lists
+            self.list_view_callbacks = self.parent.list_view_callbacks
+            self.path_select_labels = self.parent.path_select_labels
+            self.comboboxes = self.parent.comboboxes
         else:
             self.inputs = dict()
             self.inputs_to_types = dict()
@@ -41,6 +48,11 @@ class Panel:
             self.checkboxes = dict()
             self.button_pools = dict()
             self.parent.add_child(self.layout)
+            self.list_views = dict()
+            self.list_view_lists = defaultdict(list)
+            self.list_view_callbacks = defaultdict(callable)
+            self.path_select_labels = defaultdict(lambda: gui.Label(""))
+            self.comboboxes = dict()
 
         self.children = list()
 
@@ -84,6 +96,35 @@ class Panel:
         self.buttons[key] = button
         self.inputs_to_types[key] = gui.Button
         self.layout.add_child(button_layout)
+
+    def add_path_select(
+            self,
+            key: str,
+            on_add: Callable,
+            on_remove: Callable,
+            value=None,
+            tooltip: Optional[str] = None,
+            enabled=True
+    ):
+        layout = gui.Horiz()
+        button = gui.Button(key)
+        if tooltip is not None:
+            button.tooltip = tooltip
+        button.enabled = enabled
+
+        if value is not None:
+            label = gui.Label(value)
+        else:
+            label = gui.Label("")
+
+        remove = gui.Button("-")
+        remove.set_on_clicked(on_remove)
+        self.path_select_labels[key] = label
+        button.set_on_clicked(on_add)
+        layout.add_child(button)
+        layout.add_child(remove)
+        layout.add_child(label)
+        self.layout.add_child(layout)
 
     def add_checkbox(self, key: str, checked=True, on_checked: Callable = None, tooltip: Optional[str] = None, enabled=True):
         checkbox_layout = gui.Horiz()
@@ -148,6 +189,56 @@ class Panel:
         input_layout.add_child(self.inputs[key])
         self.layout.add_child(input_layout)
 
+    def add_combobox(self, key: str, items: list, callback: Callable):
+        layout = gui.Horiz()
+        layout.add_child(gui.Label(key))
+        combobox = gui.Combobox()
+        layout.add_child(combobox)
+        self.comboboxes[key] = combobox
+        for i in items:
+            combobox.add_item(i)
+        combobox.set_on_selection_changed(callback)
+        self.layout.add_child(layout)
+
+    def add_list_view(
+            self,
+            key: str,
+            callback=None,  # to be called whenever value is changed
+            n=10
+    ):
+        vert = gui.Vert(self.margin, gui.Margins(self.margin))
+        vert.add_child(gui.Label(key))
+        list_view = gui.ListView()
+        list_view.set_max_visible_items(n)
+        self.list_views[key] = list_view
+        self.list_views[key].set_items(self.list_view_lists[key])
+        vert.add_child(list_view)
+        self.layout.add_child(vert)
+        if callback:
+            self.list_view_callbacks[key] = callback
+
+    def add_to_list(self, key: str, values: List[str]):
+        self.list_view_lists[key] += [i for i in values if i not in self.list_view_lists[key]]
+        self.list_views[key].set_items(self.list_view_lists[key])
+        if key in self.list_view_callbacks:
+            self.list_view_callbacks[key]()
+
+    def remove_from_list(self, key: str, values: List[str]):
+        self.list_view_lists[key] = [i for i in self.list_view_lists[key] if i not in values]
+        self.list_views[key].set_items(self.list_view_lists[key])
+        if key in self.list_view_callbacks:
+            self.list_view_callbacks[key]()
+
+    def remove_selected_from_list(self, key):
+        selected = self.list_views[key].selected_value
+        self.remove_from_list(key, [selected])
+
+    def clear_list(self, key):
+        self.list_view_lists[key].clear()
+        self.list_views[key].set_items(self.list_view_lists[key])
+        if key in self.list_view_callbacks:
+            self.list_view_callbacks[key]()
+
     def get_value(self, key: str) -> Union[str, float, int, Tuple[float, float, float]]:
         input_type = self.inputs_to_types[key]
         if input_type == str:
@@ -159,7 +250,7 @@ class Panel:
         elif input_type == gui.Button:
             return self.buttons[key].is_on
         elif input_type == gui.Checkbox:
-            return self.buttons[key].checked
+            return self.checkboxes[key].checked
         elif input_type == gui.Color:
             rgb = tuple([
                     self.inputs[key].color_value.red,
@@ -185,7 +276,7 @@ class Panel:
         elif input_type == gui.Button:
             self.buttons[key].is_on = value
         elif input_type == gui.Checkbox:
-            self.buttons[key].checked = value
+            self.checkboxes[key].checked = value
 
 
 class ButtonPool:

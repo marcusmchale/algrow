@@ -262,23 +262,20 @@ with similar images and to ensure consistency across multiple analyses.
   
 # To consider
   - circle colour as hull rather than a fixed point
-
-  - Process image filename during loading to provide date time block etc. rather than at the end
-    - not necessary until writing out but might be useful for annotation in debugging loaded image.
-    - useful to ensure representative sampling across blocks, and times during calibration
-    
+  
   - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
-    - consider seasonal adjustment for diurnal variation when calculating RGR
+    - seasonal adjustment for diurnal variation when calculating RGR
+      - eg. ARIMA x11
+      - may not be so important if using complete days of data, but would help with outlier detection
       - https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
 
 
 # To explore
  - consider how the alpha parameter can allow for multiple disconnected regions
    - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
-
 
 
 # Beyond the current scope but maybe one day
@@ -295,21 +292,10 @@ with similar images and to ensure consistency across multiple analyses.
 
 
 # TODO
-- distance to hull for voxel rather than pixel?
-  - would be faster but less accurate
-  - might be preferred though as we have the mapping from voxel to pixel...
+  -whole image analysis, test in the absence of layout specified
 
-
-
-Create a panel for analysis:
-  - tool to select folder/files
-  - provide regex input
-  - provide table of selected files (and regex parsed details - block, time)
-  - input field for number of processes to use
-  - allow defining whole image c.f layout detection (load fixed layout file here)
-  - load sample definition file here also (if provided then do RGR calculation)
-  - specify output directory
-  - button for "analyse/go"
-  	- do we need to run multithreading from main thread?
-  	- if do run in thread then add a warning that is running/progress bar
-  	
+# Note 
+-  that these interactive representations of pixel colour can improve:
+  - understanding of colour representations that can then be feed back into design of imaging apparatus
+ - we haven't used other colour representations (RGB, HSV) as we focused on distance, 
+    - but the alpha hull would still be useful in other colourspaces.
