@@ -79,8 +79,10 @@ class AppWindow:
         self.em = self.window.theme.font_size
 
         # we need a generic material for the 3d plot
+        # todo refactor as a mapping i.e. self.materials: dict()
         self.point_material = self.get_material("point")
         self.line_material = self.get_material("line")
+        self.mesh_material = self.get_material("mesh")
 
         # prepare widgets, layouts and panels
         self.labels = list()  # used to store and subsequently remove 3d labels - todo remove by type?
@@ -192,6 +194,9 @@ class AppWindow:
             material = rendering.MaterialRecord()
             material.shader = "unlitLine"
             material.line_width = 0.2 * self.window.theme.font_size
+        elif key == "mesh":
+            material = rendering.MaterialRecord()
+            material.shader = "defaultLit"
         else:
             raise KeyError("material type is not defined")
         return material
@@ -348,6 +353,7 @@ class AppWindow:
         layout_buttons.add_button("detect layout", self.detect_layout, tooltip="detect layout using these parameters")
 
         layout_buttons.add_button("save fixed layout", self._on_save_fixed, tooltip="Save a fixed layout to a file")
+        layout_buttons.add_button("clear layout", self.change_layout, tooltip="clear detected or loaded layout")
         if self.image is not None:
             layout_buttons.buttons['save fixed layout'].enabled = self.image.layout is not None
         return layout_panel
@@ -388,11 +394,17 @@ class AppWindow:
         else:
             self.update_image_widget()
 
-    def change_layout(self, layout: Layout):
+    def change_layout(self, layout: Optional[Layout] = None):
+        if not isinstance(layout, Layout):
+            layout = None
+            self.layout_panel.buttons["save fixed layout"].enabled = False
         self.image.change_layout(layout)
         # have to reset the cloud/voxel to image details as these won't map if layout is changed
         self.image.cloud = None
         self.image.voxel_to_image = None
+
+        if layout is None:  # just so when this is called by the button it resets it, otherwise is updated elsewhere
+            self.update_image_widget()
 
     def load_layout_parameters(self):
         self.layout_panel.set_value("circle diameter", self.args.circle_diameter)
@@ -696,7 +708,8 @@ class AppWindow:
         panel.add_combobox(
             "debugging images",
             [i.name for i in DebugEnum],
-            lambda s, i: update_arg(self.args, "image_debug", s)
+            lambda s, i: update_arg(self.args, "image_debug", s),
+            value=self.args.image_debug
         )
         panel.add_path_select(
             "output directory",
@@ -786,17 +799,23 @@ class AppWindow:
         self.window.close_dialog()
         self.load_layout(filepath)
 
-    def load_layout(self, filepath):
+    def load_layout(self, filepath: Optional[Path] = None):
         logger.info("Load fixed layout file")
-        update_arg(self.args, "fixed_layout", filepath)
+        if filepath is None:
+            if self.args.fixed_layout is None:
+                return
+            else:
+                self.area_panel.set_value('detect layout', False)
+        else:
+            update_arg(self.args, "fixed_layout", filepath)
+
         if self.image is not None:
             layout_loader = LayoutLoader(self.image)
             layout = layout_loader.get_layout()
             self.change_layout(layout)
         self.area_panel.path_select_labels['fixed layout'].text = str(self.args.fixed_layout) if self.args.fixed_layout else ""
-        if filepath is not None:
-            self.area_panel.set_value('detect layout', False)
-        # todo should parse the file to ensure it is valid
+        # todo should parse the file to ensure it is valid, this will probably break with exceptions using
+        # e.g. when change image dimensions with existing fixed layout
         self.set_menu_enabled()
         self.window.set_needs_layout()
 
@@ -814,12 +833,15 @@ class AppWindow:
         self.window.show_dialog(dlg)
 
     def _on_select_output_directory_dialog_done(self, path):
-        folder = Path(path)
-        self.window.close_dialog()
+        folder = Path(path).resolve()
         update_arg(self.args, "out_dir", folder)
+        if self.args.out_dir:
+            update_arg(self.args, "area_file", Path(folder, "area.csv"))
         self.area_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
         self.rgr_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
+        self.rgr_panel.path_select_labels['area file'].text = str(self.args.area_file) if self.args.area_file else ""
         self.window.set_needs_layout()
+        self.window.close_dialog()
 
     def _on_remove_output_directory(self):
         update_arg(self.args, "out_dir", None)
@@ -1186,13 +1208,16 @@ class AppWindow:
                     lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
                     self.lab_widget.scene.remove_geometry(lab_text)
                     self.target_panel.button_pools['selection'].remove_button(i)
-                    to_remove.append(i)
+                    to_remove.append((i, lab_text))
             logger.debug(f"Removing selected points: {len(to_remove)}")
-            [self.image.voxel_indices.remove(i) for i in to_remove]
+            for i, lab_text in to_remove:
+                self.image.voxel_indices.remove(i)
+                self.prior_lab.remove(lab_text)
 
     def reduce_priors(self, event=None):
         if self.hull_holder.mesh is not None:
             hull_vertices = self.hull_holder.hull.vertices
+
             to_remove = list()
             for lab in self.prior_lab:
                 if lab not in hull_vertices:
@@ -1201,7 +1226,9 @@ class AppWindow:
                     self.target_panel.button_pools['priors'].remove_button(lab_text)
                     to_remove.append(lab)
             logger.debug(f"Removing selected points: {len(to_remove)}")
-            [self.prior_lab.remove(lab) for lab in to_remove]
+            for lab in to_remove:
+                self.prior_lab.remove(lab)
+                self.remove_sphere(lab)
         self.update_hull()
 
     def clear_circle_selection_and_save(self, _event=None):
@@ -1475,7 +1502,7 @@ class AppWindow:
         sphere.paint_uniform_color(rgb)
         sphere.compute_vertex_normals()
         sphere.translate(lab)
-        self.lab_widget.scene.add_geometry(key, sphere, self.point_material)
+        self.lab_widget.scene.add_geometry(key, sphere, self.mesh_material)
 
     def remove_sphere(self, lab):
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
@@ -1531,7 +1558,8 @@ class AppWindow:
             return None
         else:
             logger.debug("Compare target mask to true mask")
-            true_mask = self.image.true_mask
+
+            true_mask = self.image.true_mask.mask
             tp = np.sum(true_mask[target_mask])
             tn = np.sum(~true_mask[~target_mask])
             fp = np.sum(~true_mask[target_mask])
@@ -1574,34 +1602,37 @@ class AppWindow:
 
         return target_mask
 
-    def get_target_mask(self):
-        if self.hull_holder is None or self.hull_holder.mesh is None:
-            logger.debug("No target hull prepared")
-            return None, None
-
-        logger.debug("Prepare target mask")
-        logger.debug(f"Calculate distance from hull")
-        if self.image.layout is None:
-            distances = self.hull_holder.get_distances(self.image.lab)
-        else:
-            distances = self.hull_holder.get_distances(self.image.lab[self.image.layout_mask])
-
-        if distances is not None:
-            logger.debug(f"Use distances to create a target mask")
-            target = distances <= self.target_panel.get_value("delta")
-            if self.image.layout is None:
-                target_mask = target.reshape(self.image.lab.shape[:2])
-            else:
-                target_mask = np.zeros(self.image.lab.shape[:2], dtype='bool')
-                target_mask[self.image.layout_mask] = target
-
-            if self.target_panel.get_value("fill"):
-                logger.debug("Fill small holes")
-                target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
-            if self.target_panel.get_value("remove"):
-                logger.debug("Remove small objects")
-                target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
-            return target_mask
+    #def get_target_mask(self): This is the old version where I didn't compute distance from voxels
+    # keeping it as I might want to provide an option (slower) to keep doing this as it is more consistent
+    # with the way it is handled in the final analysis.
+    #    if self.hull_holder is None or self.hull_holder.mesh is None:
+    #        logger.debug("No target hull prepared")
+    #        return None, None
+    #
+    #    logger.debug("Prepare target mask")
+    #    logger.debug(f"Calculate distance from hull")
+    #    if self.image.layout is None:
+    #        distances = self.hull_holder.get_distances(self.image.lab)
+    #    else:
+    #        distances = self.hull_holder.get_distances(self.image.lab[self.image.layout_mask])
+    #
+    #    if distances is not None:
+    #        logger.debug(f"Use distances to create a target mask")
+    #        target = distances <= self.target_panel.get_value("delta")
+    #        logger.debug(f"Target pixels {np.sum(target)}")
+    #        if self.image.layout is None:
+    #            target_mask = target.reshape(self.image.lab.shape[:2])
+    #        else:
+    #            target_mask = np.zeros(self.image.lab.shape[:2], dtype='bool')
+    #            target_mask[self.image.layout_mask] = target
+    #
+    #        if self.target_panel.get_value("fill"):
+    #            logger.debug("Fill small holes")
+    #            target_mask = remove_small_holes(target_mask, self.target_panel.get_value("fill"))
+    #        if self.target_panel.get_value("remove"):
+    #            logger.debug("Remove small objects")
+    #            target_mask = remove_small_objects(target_mask, self.target_panel.get_value("remove"))
+    #        return target_mask
 
     def toggle_show_target(self):
         if self.target_panel.buttons['show target'].is_on:
@@ -1674,7 +1705,7 @@ class AppWindow:
             hull_colour = self.target_panel.get_value("hull colour")
             self.hull_holder.mesh.compute_vertex_normals()
             self.hull_holder.mesh.paint_uniform_color(hull_colour)
-            self.lab_widget.scene.add_geometry("mesh", self.hull_holder.mesh, self.point_material)
+            self.lab_widget.scene.add_geometry("mesh", self.hull_holder.mesh, self.mesh_material)
 
     def _on_menu_open(self):
         dlg = gui.FileDialog(gui.FileDialog.OPEN, "Choose image to load", self.window.theme)
@@ -1751,7 +1782,7 @@ class AppWindow:
 
         # Add the text
         dlg_layout = gui.Vert(self.em, gui.Margins(self.em, self.em, self.em, self.em))
-        dlg_layout.add_child(gui.Label("AlGrow Calibration GUI"))
+        dlg_layout.add_child(gui.Label("AlGrow Calibration GUI "))
 
         # Add the Ok button. We need to define a callback function to handle the click.
         ok = gui.Button("OK")
@@ -1911,7 +1942,7 @@ class AppWindow:
         with open(filepath, 'w') as text_file:
             for arg in vars(self.args):
                 value = getattr(self.args, arg)
-                logger.debug(f"arg:{arg}, value:{value}")
+                logger.debug(f"Writing arg:{arg}, value:{value}")
                 if value is None:
                     continue
                 elif isinstance(value, Enum):
@@ -1937,6 +1968,18 @@ class AppWindow:
         logger.debug("Load parameters to GUI")
         if self.args.scale is not None:
             self.scale_panel.set_value("scale", self.args.scale)
+
+        if self.args.alpha is not None:
+            self.target_panel.set_value("alpha", self.args.alpha)
+
+        if self.args.delta is not None:
+            self.target_panel.set_value("delta", self.args.delta)
+
+        if self.args.fill is not None:
+            self.target_panel.set_value("fill", self.args.fill)
+
+        if self.args.remove is not None:
+            self.target_panel.set_value("remove", self.args.remove)
 
         logger.debug("Reset circle colour")
         self.clear_circle_selection()
@@ -1966,7 +2009,10 @@ class AppWindow:
 
         if self.image is not None:
             self.update_image_widget()
-            if self.args.detect_layout and not self.args.fixed_layout:
+            if self.args.fixed_layout is not None:
+                # this could be handled better, e.g. keep a previously loaded layout if valid
+                self.load_layout()
+            elif self.args.detect_layout:
                 self.detect_layout()
             self.image.prepare_cloud()
             self.update_lab_widget()
@@ -1977,7 +2023,10 @@ class AppWindow:
             parser = options(filepath)
             args = parser.parse_args()
             logger.debug("Update args")
-            self.args = postprocess(args)
+            args = postprocess(args)
+            update_arg(args, "images", self.args.images)  # we don't update this from the file
+            update_arg(args, "area_file", Path(self.args.out_dir, "area.csv").resolve())  # reconstruct this from the new out_dir
+            self.args = args
             self.load_all_parameters()
             self.set_menu_enabled()
             self.window.set_needs_layout()

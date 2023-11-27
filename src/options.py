@@ -5,7 +5,7 @@ from configargparse import ArgumentParser
 from itertools import chain
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def lab(s: str | tuple[float|int]):
             raise argparse.ArgumentTypeError(f'Each colour must be a string with 3 comma separated float values: {s}')
 
 
-def image_path(s: str):
+def image_path(s: Union[None, str, List[str]]) -> Union[None, List[Path]]:
     if s is None:
         return None
     elif isinstance(s, list):
@@ -337,7 +337,7 @@ def options(filepath=None):
 def postprocess(args):
     # Handle multiple directories or a mix of directories and files
     if args.images is not None:
-        args.images = list(chain(*args.images))
+        args.images = list(chain(args.images))
     # Infer out dir if not specified
     if args.out_dir is None:
         if args.images is not None:
@@ -366,14 +366,25 @@ def update_arg(args, arg, val, temporary=False):
         adapter = logger
 
     # flatten tuples and lists thereof used for e.g. colours into strings
-    if isinstance(val, list) and isinstance(val[0], tuple):
-        val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
-        # coerce to known type:
-        try:
-            val = [arg_types[arg](v) for v in val]
-        except ValueError:
-            adapter.debug("Issue with updating arg")
-            raise
+    if isinstance(val, list):
+        if not val:
+            val_str = ""
+            val = None  # empty list coerced back to None
+        else:
+            if isinstance(val[0], tuple):
+                val_str = f'{[",".join([str(j) for j in i]) for i in val]}'.replace("'", '"')
+            else:
+                val_str = f'{",".join([str(i) for i in val])}'.replace("'", '"')
+
+            # coerce to known type:
+            try:
+                if arg == 'images':  # this arg parser returns a list of paths
+                    val = arg_types[arg](val)
+                else:
+                    val = [arg_types[arg](v) for v in val]
+            except ValueError:
+                adapter.debug("Issue with updating arg, could not be coerced to defined type")
+                raise
     else:
         if isinstance(val, tuple):
             val_str = f"\"{','.join([str(i) for i in val])}\""
@@ -383,7 +394,7 @@ def update_arg(args, arg, val, temporary=False):
         try:
             val = arg_types[arg](val)
         except ValueError:
-            adapter.debug("Issue with updating arg")
+            adapter.debug("Issue with updating arg, could not be coerced to defined type")
             raise
 
     # now update
@@ -393,7 +404,7 @@ def update_arg(args, arg, val, temporary=False):
         else:
             adapter.info(f"Setting {arg}: {val_str}")
         vars(args).update({arg: val})
-        adapter.debug(f"{arg}:{vars(args)[arg]}")
+        # adapter.debug(f"{arg}:{vars(args)[arg]}")
     else:
         if vars(args)[arg] == val:
             adapter.debug(f"Existing value matches the update so no change will be made {arg}: {val}")
@@ -407,8 +418,8 @@ def update_arg(args, arg, val, temporary=False):
 
 def minimum_calibration(args):
     return all([
-        (args.hull_vertices is not None and len(args.hull_vertices) >= 4),
-        args.scale is not None
+        args.images is not None and len(args.images) >= 1,
+        (args.hull_vertices is not None and len(args.hull_vertices) >= 4)
     ])
 
 

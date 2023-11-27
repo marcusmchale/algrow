@@ -1,17 +1,16 @@
 
 # AlGrow
 
-- Alpha-shape defined colourspace for image segmentation of multiplexed image sequences
+- Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
 
 ## The short story 
 
-Algrow provides automated image analysis for measuring growth of macroalgal lamina discs. 
-It was initially developed to suit the experimental apparatus in the 
+Algrow is a software tool for automated image annotation, segmentation and analysis. 
+It was initially developed to support macro-algal disc phenotyping in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/)
 of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
-at the [University of Galway](https://www.universityofgalway.ie/). 
-However, strategy is easily generalised to other contexts such as...
-   - todo test with arabidopsis images and more
+at the [University of Galway](https://www.universityofgalway.ie/), and has since been applied to other images, such as arabidopsis.
+
 
 Features/parameters:
 - Suitable for large sets of images 
@@ -250,52 +249,57 @@ with similar images and to ensure consistency across multiple analyses.
         1.4. Orientation and arrangement of circles and plates is considered to assign indexed identities to each circle (Scipy.cluster.hierarchy)
         1.5. A layout mask is constructed to restrict further analysis to target areas
 
-    2. Determine subject area
-        1.1 A boolean mask is determined by pixel colour being with alpha hull or within delta of its surface
+    2. Determine target subject area
+        1.1 A boolean mask is determined by pixel colour being within the alpha hull or within delta of its surface
         2.2 Small objects (--remove) are removed and filled (--fill) (skimage.morphology)
         2.3 Area of the mask within each circle is determined and output to a csv file.
 
     3. Analysis
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Rigures and reports are prepared
- 
-  
+
 # To consider
   - circle colour as hull rather than a fixed point
-  
+  - kmeans and other clustering methods to automate hull definition.
   - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
     - seasonal adjustment for diurnal variation when calculating RGR
       - eg. ARIMA x11
-      - may not be so important if using complete days of data, but would help with outlier detection
+      - irrelevant when a single photo per day
+      - if using complete days of data it should still be balanced, but the fit would improve outlier detection
       - https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
-
-
-# To explore
- - consider how the alpha parameter can allow for multiple disconnected regions
-   - could be handy for subjects with mixed colours for tissues, e.g. branches and leaves.
-
+    - Remove outlier images before considering removing whole replicates
 
 # Beyond the current scope but maybe one day
- - consider higher dimensional space e.g. texture features  
+ - consider loading voxels across a whole series of images to improve visualisation across these.
+ - consider higher dimensional space with e.g. texture features  
    - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
-   - maybe consider them as separate spaces/masks for target selection?
-  - Consider developing image capture using libcamera2 and apscheduler - run as daemon
-    - Consider not compressing to jpg
-    - provide HDR (even with pi2 camera) by capturing a series of images at multiple exposures and compositing
-  - Night vision:
-    - Motorised IR cut camera (supplier pimoroni is on agresso but not willing to supply)
-      - https://www.uctronics.com/arducam-noir-8mp-sony-imx219-camera-module-with-motorized-ir-cut-filter-m12-mount-ls1820-lens-for-raspberry-pi.html
-    - Note: IR didn't work well in testing with a fixed camera - very high background reflection from the water surface and plates/frames
-
+   - maybe consider them as separate masks for target selection, taking the overlap.
 
 # TODO
-  -whole image analysis, test in the absence of layout specified
+  - package as installer
+  - use kmseg to generate ground truth images and evaluate classification accuracy, naiive kmseg vs corrected with algrow. 
+  - test across images with the trained hull. c.f. ML. classifiers.
 
 # Note 
 -  that these interactive representations of pixel colour can improve:
   - understanding of colour representations that can then be feed back into design of imaging apparatus
- - we haven't used other colour representations (RGB, HSV) as we focused on distance, 
-    - but the alpha hull would still be useful in other colourspaces.
+    - e.g. overlapping clusters 
+ - AlGrow is successful where km-seg fails to accurately separate clusters
+   - i.e. a decision boundary is required that is not reliably determined by k-means clustering
+   - both rely on supervision
+   - Algrow also works across images without need to train another model.  
+  
+ - Algrow did not use other colour representations (RGB, HSV) as Lab benefits from mostly uniform distance (delta E) 
+    - However the alpha hull concept would still be useful in other colourspaces 
+    - We did not use more advanced delta E calculations, favouring the simplicity of euclidean distance.
+ 
+  - the reduce function (removing points not in the hull) with alphashape
+    - the Delaunay triangulation is then modified! 
+    - This means the alpha hull is then selected from a different set of triangles
+    - this frequently results in non-watertight structures 
+      raising the alpha can help to recover from this.
+  - the alpha hull allows for multiple disconnected regions
+   - handy for subjects with mixed colours for tissues, e.g. stems, leaves, flowers, diseased/stressed/exposed tissues.
