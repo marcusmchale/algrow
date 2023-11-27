@@ -8,11 +8,11 @@ import open3d as o3d
 from pathlib import Path
 from copy import deepcopy
 
-from skimage.io import imread
+from skimage.io import imread, imsave
 from skimage import draw
 from skimage.util import img_as_bool, img_as_float64 as img_as_float  # float64 is faster with open3d
 from skimage.color import rgb2lab, gray2rgb, deltaE_cie76
-from skimage.transform import  hough_circle, hough_circle_peaks, downscale_local_mean
+from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
 
 from scipy.cluster import hierarchy
@@ -190,6 +190,20 @@ class ImageFigureBuilder:
         else:
             return FigureNone(name, self.counter, self.args, cols=cols, image_filepath=self.image_filepath)
 
+    def save_image(self, image, label, level="DEBUG", suffix='png'):
+        if DebugEnum[level] >= self.args.image_debug:
+            self.counter += 1
+            if self.image_filepath is None:
+                save_path = Path(self.args.out_dir, "Figures", Path(".".join(["_".join([str(self.counter), label]), suffix])))
+            else:
+                save_path = Path(self.args.out_dir, "Figures", "ImageAnalysis", Path(
+                    ".".join(["_".join([Path(self.image_filepath).stem, str(self.counter), label]), suffix])
+                ))
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            imsave(save_path, image)
+        else:
+            logger.debug(f"Not saving image as image debug level is set above the level for this image: {label}")
+
 
 class MaskLoaded:
     def __init__(self, filepath: Path):
@@ -302,7 +316,7 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
     def rgb(self):
         return self._image.rgb
 
-    def change_layout(self, layout: Layout):
+    def change_layout(self, layout: Optional[Layout] = None):
         self.layout = layout
         self._image._layout_mask = None
         self._image._layout_overlay = None
@@ -340,6 +354,9 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
             logger.debug("Highlight pixels from selected voxels")
             selected = [j for i in list(self.voxel_indices) for j in self.voxel_to_image[i]]
             displayed.reshape(-1, 3)[selected] = selected_colour
+
+        if self.layout is not None:
+            displayed[~self.layout_mask] = (0, 0, 0)
 
         displayed = self.apply_zoom(displayed)
         logger.debug("Send displayed")
@@ -395,11 +412,11 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
         return o3d.geometry.Image(displayed.astype(np.float32))
 
     # The down-sampling uses a fair bit of memory so moving this out from multi-loading:
-    def prepare_cloud(self):  # todo prepare cloud from masked image
+    def prepare_cloud(self):
         logger.debug("Prepare voxel cloud")
         self.cloud, self.voxel_to_image = self.get_downscaled_cloud_and_indices()
         # build a reverse mapping from image index to index of voxel in cloud
-        logger.debug("Build map from image to voxel")  # todo consider refactoring this for performance
+        logger.debug("Build map from image to voxel")
         self.voxel_map.fill(-1)  # -1 means pixel has no corresponding voxel (masked)
         for i, jj in enumerate(self.voxel_to_image):
             xx, yy = self.pixel_to_coord(jj)

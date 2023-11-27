@@ -1,6 +1,6 @@
 """Read in a sample details file and perform lsgr analysis"""
 import logging
-from pandas import read_csv, to_datetime, merge, Timedelta  # todo consider replacing the existing use of csv reader/writer with pandas?
+from pandas import read_csv, to_datetime, merge, Timedelta
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def analyse(args):
     area_in = args.area_file
-    area_header = ['ImageFile', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area']
+    area_header = ['File', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area', 'RGB', "Lab"]
     area_analyser = AreaAnalyser(area_in, args.samples, args, area_header)
     area_analyser.fit_all(args.fit_start, args.fit_end)
     area_analyser.write_results(args.out_dir, group_plots=True)
@@ -24,9 +24,8 @@ class AreaAnalyser:
         self.area_header = area_header
         self.logger = logging.getLogger(__name__)
         columns = ["Block", "Unit", "Time", "Area", "Group"]
-        self.df = merge(
-            self._load_area(area_csv), self._load_id(id_csv), on=["Block", "Unit"]
-        )[columns].set_index(["Block", "Unit", "Time"]).sort_index()
+        self.df = merge(self._load_area(area_csv), self._load_id(id_csv), on=["Block", "Unit"])[columns]
+        self.df = self.df.set_index(["Block", "Unit", "Time"]).sort_index()
 
     def _load_area(self, area_csv):
         self.logger.debug(f"Load area data from file: {area_csv}")
@@ -36,7 +35,17 @@ class AreaAnalyser:
                 sep=",",
                 names=self.area_header,
                 header=0,
-                dtype={"ImageFile": str, "Unit": int, 'Area': np.float64, 'Block': str, 'Time': str}
+                dtype={
+                    "File": str,
+                    'Block': str,
+                    'Plate': str,
+                    "Unit": int,
+                    'Time': str,
+                    'Pixels': int,
+                    'Area': np.float64,
+                    'RGB': str,
+                    'Lab': str
+                }
             )
             area_df["Time"] = to_datetime(area_df["Time"])
 
@@ -57,6 +66,7 @@ class AreaAnalyser:
     def _fit(self, group):
         self.logger.debug("Fit group")
         group = group[group.log_area != -np.inf]
+
         if group.elapsed_m.unique().size <= 1:
             return np.nan, np.nan, np.nan
         polynomial, svd = np.polynomial.Polynomial.fit(group.elapsed_m, group.log_area, deg=1, full=True)

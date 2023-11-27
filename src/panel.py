@@ -2,6 +2,9 @@ from open3d.visualization import gui
 
 from collections import defaultdict
 from typing import Callable, Type, Union, Optional, Dict, Tuple, List
+
+from .options import DebugEnum
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -189,7 +192,7 @@ class Panel:
         input_layout.add_child(self.inputs[key])
         self.layout.add_child(input_layout)
 
-    def add_combobox(self, key: str, items: list, callback: Callable):
+    def add_combobox(self, key: str, items: list, callback: Callable, value: DebugEnum):
         layout = gui.Horiz()
         layout.add_child(gui.Label(key))
         combobox = gui.Combobox()
@@ -198,6 +201,7 @@ class Panel:
         for i in items:
             combobox.add_item(i)
         combobox.set_on_selection_changed(callback)
+        combobox.selected_text = value.name
         self.layout.add_child(layout)
 
     def add_list_view(

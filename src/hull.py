@@ -3,7 +3,6 @@ import logging
 from trimesh import PointCloud
 from alphashape import optimizealpha, alphashape
 import open3d as o3d
-
 from typing import Optional
 from .image_loading import CalibrationImage
 
@@ -52,11 +51,36 @@ class HullHolder:
                 try:
                     self.hull = PointCloud(self.points).convex_hull
                 except Exception as e:
-                    import pdb; pdb.set_trace()
+                    logger.debug("Error during convex hull construction")
+                    raise e
             else:
                 logger.debug("Constructing alpha shape")
                 # note the alphashape package uses the inverse of the alpha radius as alpha
                 self.hull = alphashape(self.points, 1/self.alpha)
+                # the below is basically what happens, used during development and evaluation
+                #
+                #edges = set()
+                #perimeter_edges = set()
+                #coords = np.array(self.points)
+                #
+                #for point_indices, circumradius in alphasimplices(coords):
+                #    if circumradius <= self.alpha:
+                #        for edge in itertools.combinations(
+                #            point_indices, r=coords.shape[-1]
+                #        ):
+                #            if all([e not in edges for e in itertools.combinations(
+                #                    edge, r=len(edge))]):
+                #                edges.add(edge)
+                #                perimeter_edges.add(edge)
+                #            else:
+                #                perimeter_edges -= set(itertools.combinations(
+                #                    edge, r=len(edge)))
+                #self.hull = Trimesh(vertices=coords, faces=list(perimeter_edges))
+                #repair.fix_normals(self.hull)
+                #
+
+                if not self.hull.is_watertight:
+                    logger.warning("Hull is not watertight")
                 if len(self.hull.faces) == 0:
                     logger.debug("More points required for a closed hull with current alpha value")
                     self.hull = None
@@ -71,13 +95,10 @@ class HullHolder:
 
     def get_distances(self, points: np.ndarray):
         if self.scene is not None:
-            logger.debug(f"Prepare tensor of all points")
-            points_tensor = o3d.core.Tensor(np.asarray(points, dtype=np.float32))
             logger.debug(f"Get distances from hull")
+            points_tensor = o3d.core.Tensor(np.asarray(points, dtype=np.float32))
             distances = self.scene.compute_signed_distance(points_tensor)
-            logger.debug(f"Convert distances to flat array")
             distances = distances.numpy().reshape(-1)
-            logger.debug("Return distances")
             return distances
         else:
             return None

@@ -63,7 +63,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def add_circle(self, coords, radius, linewidth=5):
+    def add_circle(self, coords, radius, linewidth=1):
         raise NotImplementedError
 
     @abstractmethod
@@ -216,7 +216,7 @@ class FigureMatplot(FigureBase):
             path_effects=[patheffects.withStroke(linewidth=size/2, foreground='white')]
         )
 
-    def add_circle(self, coords, radius, linewidth=5):
+    def add_circle(self, coords, radius, linewidth=1):
         self._current_axis.add_patch(
             Circle(
                 coords,

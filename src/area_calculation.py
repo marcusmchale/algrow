@@ -40,7 +40,8 @@ def calculate_area(args):
         # so just calculate the convex hull with trimesh to ensure we get a consistent return value
         alpha_hull = PointCloud(args.hull_vertices).convex_hull
     else:
-        alpha_hull = alphashape(np.array(args.hull_vertices), args.alpha)
+        # note that alphashape uses the inverse representation of alpha
+        alpha_hull = alphashape(np.array(args.hull_vertices), 1/args.alpha)
 
     if len(alpha_hull.faces) == 0:
         raise ValueError("The provided vertices do not construct a complete hull with the chosen alpha parameter")
@@ -51,6 +52,7 @@ def calculate_area(args):
 
     logger.debug("Check file exists and if it already includes data from listed images")
     if area_out.is_file():  # if the file exists then check for any already processed images
+        logger.debug("Area file found, checking its contents")
         with open(area_out) as csv_file:
             csv_reader = reader(csv_file)
             # Skip the header
@@ -64,11 +66,12 @@ def calculate_area(args):
                 )
                 if len(image_filepaths) == 0:
                     logger.info("No image files remain to be processed")
-                    raise FileNotFoundError("No image files remain to be processed")
+                    raise FileNotFoundError("No image files remain to be processed (remove existing area file)")
             except StopIteration:
                 logger.debug("Existing output file is only a single line (likely header only)")
                 image_filepaths = args.images
     else:
+        logger.debug("Area file not found, a new file will be created")
         image_filepaths = args.images
 
     logger.debug(f"Processing {len(image_filepaths)} images")
@@ -150,7 +153,7 @@ def area_worker(filepath, alpha_hull, args, queue=None):
             pixels = record[2]
             rgb = record[3]
             lab = record[4]
-            area = None if pixels is None else round(pixels / (args.scale ** 2), 2)
+            area = None if any([pixels is None, args.scale is None]) else round(pixels / (args.scale ** 2), 2)
             yield [filename, block, plate, unit, time, pixels, area, rgb, lab]
 
     return list(format_result(result))
@@ -192,7 +195,7 @@ class ImageProcessor:
                 distance_image[self.image.layout_mask] = distances_array
                 distance_image[~self.image.layout_mask] = 0  # set masked region as 0
             hull_distance_figure = self.image.figures.new_figure('Hull distance')
-            hull_distance_figure.plot_image(distance_image, color_bar=True)
+            hull_distance_figure.plot_image(distance_image, "Distance from hull (delta E)", color_bar=True)
             hull_distance_figure.print()
 
         self.logger.debug("Create mask from distance threshold")
@@ -202,19 +205,22 @@ class ImageProcessor:
             target_mask = self.image.layout_mask.copy()
             target_mask[target_mask] = inside
 
-        fill_mask_figure = self.image.figures.new_figure("Fill mask")
-        fill_mask_figure.plot_image(target_mask, "Raw mask")
+        mask_figure = self.image.figures.new_figure("Mask processing")
+        mask_figure.plot_image(target_mask, "Raw mask")
         # todo these rely on connected components consider labelling then sharing this across
         #  rather than feeding both the boolean array
         if self.args.remove:
             self.logger.debug("Remove small objects in the mask")
             target_mask = remove_small_objects(target_mask, self.args.remove)
-            fill_mask_figure.plot_image(target_mask, "Small objects removed")
+            mask_figure.plot_image(target_mask, "Small objects removed")
         if self.args.fill:
             self.logger.debug("Fill small holes in the mask")
             target_mask = remove_small_holes(target_mask, self.args.fill)
-            fill_mask_figure.plot_image(target_mask, "Filled small holes")
-        fill_mask_figure.print()
+            mask_figure.plot_image(target_mask, "Filled small holes")
+        mask_figure.print()
+
+        # output the image mask in full scale
+        self.image.figures.save_image(target_mask, "Mask", level="INFO")
 
         result = {
             "filename": self.image.filepath,
@@ -224,6 +230,9 @@ class ImageProcessor:
         overlay_figure = self.image.figures.new_figure("Overlay", level="INFO")
         overlay_figure.plot_image(self.image.rgb, "Layout and target overlay")
         overlay_figure.add_outline(target_mask)
+
+
+
         unit = 0
 
         if layout is None:
