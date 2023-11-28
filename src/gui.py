@@ -242,7 +242,7 @@ class AppWindow:
     def get_layout_panel(self):
         logger.debug("Prepare layout panel")
         layout_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
-        layout_panel.add_label("Layout parameters", self.fonts['large'])
+        layout_panel.add_label("Layout detection parameters", self.fonts['large'])
         layout_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), layout_panel)
         layout_numbers = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
         layout_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
@@ -1252,7 +1252,7 @@ class AppWindow:
     def save_circle_colour(self, event=None):
         if self.image and self.image.circle_indices:
             circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.circle_indices)]
-            circle_lab = tuple(np.mean(circle_lab, axis=0))
+            circle_lab = tuple(np.median(circle_lab, axis=0))
             update_arg(self.args, "circle_colour", circle_lab)
             self.set_menu_enabled()
         else:
@@ -1856,6 +1856,7 @@ class AppWindow:
             self.window.set_needs_layout()
         except Exception as e:
             logger.debug(f"Failed to load mask {e}")
+            self.window.show_message_box("Error", f"Failed to load mask {e}")
 
     def hull_from_mask(self):
         logger.debug("Prepare points from provided mask")
