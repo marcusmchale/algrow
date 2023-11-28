@@ -209,6 +209,9 @@ class MaskLoaded:
     def __init__(self, filepath: Path):
         self.filepath = filepath
         self.mask = img_as_bool(imread(str(filepath)))
+        if self.mask.ndim != 2:
+            logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {self.mask.shape}")
+            raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
 
 
 class CalibrationImage:  # an adapter to allow zooming and hold other features that are only needed during calibration
@@ -543,11 +546,11 @@ class LayoutDetector:
     def find_n_circles(self, n, fig=None, allowed_overlap=0.1):
         circle_radius_px = int(self.args.circle_diameter / 2)
         radius_range = int(self.args.circle_variability * circle_radius_px)
+        step_size = max(1, int(radius_range / 5))  # step size from radius range for more consistent processing time
         hough_radii = np.arange(
             circle_radius_px - radius_range,  # start
-            circle_radius_px + radius_range,  # stop
-            max(1, int(radius_range / 5))  # step size from radius range for more consistent processing time
-            # todo : find a better way to determine an appropriate step size
+            circle_radius_px + radius_range + step_size,  # stop #add step_size to ensure we get the endpoint as well
+            step_size
         )
         self.logger.debug(f"Radius range to search for: {np.min(hough_radii), np.max(hough_radii)}")
         hough_result = self.hough_circles(self.distance, hough_radii)

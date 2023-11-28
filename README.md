@@ -116,22 +116,26 @@ where seawater is circulated and images are captured by RaspberryPi computers. G
 change in visible surface area of each lamina disc, which is determined using image analysis techniques.
 
 The [previous quantification method](<https://academic.oup.com/plphys/article/180/1/109/6117624>) relied on
-simple thresholds in each dimension of a chosen colourspace for image thresholding. 
+thresholds in each dimension of a chosen colourspace for image segmentation. 
 Although this strategy is widely used in plant phenotyping, it suffers in less controlled imaging environments where the
-subject may always be easily distinguished from background. For example, in our apparatus for Ulva phenotyping, 
+subject may not always be readily distinguished from background. For example, in our apparatus for Ulva phenotyping, 
 microalgal growth occupies a similar colourspace to the Ulva subject. Similarly, in our apparatus for Palmaria phenotying,
 leaching pigments can accumulate on the surface of nylon mesh making the distinction of these colours more difficult.
+These colour gradients also result in poor performance for existing solutions like kmeans clustering (e.g. KmSeg).
 
-Importantly however, the colours are distinct, and the issue is a matter of more appropriately defining the colourspace. 
-We have developed a methodology, whereby a concave polygon is used to more accurately describe the target colourspace.
-To define this polygon we construct an alpha shapes from a set of training points and implemented an interactive configuration tool for this purpose..
+To more allow user supervised definition of the target colourspace, we have developed in AlGrow, an interactive GUI.
+In this interface, the pixel colours are presented in a 3-dimensional (3D) plot in Lab colourspace. 
+Colours can be selected either in this 3D plot or from the source image. When sufficient colours are selected (>=4), 
+a hull can be generated, either the convex hull or an alpha hull which permits concave surfaces and disjoint regions. 
 
-#todo Provide examples of convex/concave polygons in image segmentation.
+To automate annotation, we implemented a strategy to detect circular regions of high contrast.
+This readily detects the subjects in our apparatus, due to high contrast holding rings (now paint-marker applied to the apparatus)
+but also the circular surface of typical plant pots.
+We then cluster these circles into plates/trays and assign indices based on relative positions. 
+Importantly, this method of relative indexation supports movement of plates and trays across an image series, 
+easing the previously time-consuming process.
 
-Further, the prior methodology relied on manual annotation in the ImageJ graphical interface.
-This process is time-consuming and dependent on fixed coordinate positions of the lamina disc across the image stack.
-
-# Issues specific to existing strategy
+# Issues specific to prior strategy
 Manual adjustment of fixed thresholds for segmentation in ImageJ is time-consuming and
 can fail to identify or accurately segment across variable subject colours.
 Manual curation can also introduce operator error and biases to area quantification.
@@ -144,101 +148,23 @@ A number of pre-processing steps were employed to handle the scale of data from 
     - blindly incorporates disturbed images, such as periods of lighting change or undetected operator intervention. 
   - pre-processing of images with wide thresholds to remove "known" background and reduce file size
     - Experimental conditions changed and the thresholds were no longer suitable but these thresholds were not always adapted.
-    - In some cases raw images were discarded on the assumption that the hourly images were sufficient. But these were sometimes inappropriately masked and so image analysis was no longer feasible.
+    - In some cases raw images were discarded on the assumption that the hourly images were sufficient. 
+      - these were sometimes inappropriately masked and so image analysis was no longer feasible.
 
 # Our solution
 The AlGrow application was developed to;
-  - Independently process each image
-    - This resolves the issues of memory restrictions for large stacks of images
+  - Independently process images from a time series according to a fixed, deterministic model of colour.
+    - This reduces memory restrictions for large stacks of images seen with ImageJ
   - Rely on relative positions of image markers rather than absolute positions for image annotation
     - We use blue circles surrounding each position in the array, either included as plastic rings or painted on the surface of the frame.  
     - This removes the requirement for manual ROI definition and supports movement of plates/tanks/cameras between images.
     - Our automated annotation strategy also allows for flexible arrays and arrangements.
   - Support complex target colour spaces defined by alpha hulls
   - Provide an image debugging pipeline for parameter tuning and investigation of new or aberrant image sets.
-  - Provide quality control outputs to allow inspection of data quality.
-  - Standardise and improve analysis by use of linear regression models rather than simple averaging across timepoints.
+  - Provide quality control outputs to allow inspection of data quality and improve calibration where needed.
+  - Standardise and improve analysis by use of linear regression.
   - Identify experimental and or image segmentation issues by considering RSS of linear regression models
-    - This allows us to reliably identifier outlier datapoints that do not reliably estimate lamina disc area.
-
-
-# Instructions
-## Calibration
-The calibration GUI will launch unless scale, circle colour and hull vertices are provided
-as arguments or in a configuration file. There are utilities provided to define each of these:
-### Set scale
-An internal reference with known dimensions should be included in the image. 
-This tool allows you to use this internal reference to calculate an appropriate scale
-to convert from pixels to units of physical distance and area (mm²).
-
-Click once to start drawing a line and again to finish the line. This will provide a value in pixels (px)
-to the toolbar below. Type the physical distance (mm) for this line into the next box and press enter. 
-This will calculate a scale (px/mm). 
-
-It may help to zoom in on the image to accurately define the start and end of the line. 
-Use the navigation toolbar above to zoom and pan on the image. 
-
-Alternatively you can enter the scale manually into the box and press enter.
-Click "save and close" to accept this scale, or click "clear" to start again.
-### Circle colour
-To detect the layout of lamina discs, AlGrow requires circles surrounding each subject in a pseudo-grid layout. 
-These circles must be of a uniform colour, ideally one that is readily distinguished from the target subjects.
-
-To define this colour, a picture is loaded and an interactive "lasso" allows you to encircle part of the image 
-that contains includes this colour. As for defining the scale, you may wish to zoom in on part of the image to do so.
-Multiple areas can be selected and the median colour of these pixels will be chosen. 
-
-The selected colour is displayed in the box beside the save and close button. 
-You can always "clear" the selection and start again or "save and close" to accept the value and continue
-### Target hull
-This step takes advantage of layout detection,so it is not available if circle colour is not defined.
-It will also fail if the layout parameters are poorly defined.
-
-Launching this window will take some time so please be patient.
-The layout will be detected for a sampled set of images will be segmented (SLIC).
-Images are processed in parallel so if you have specified to use a large number of images for calibration (--num_calibration) 
-you might also consider using a similar number of processes (--processes) to speed things up.
-
-Two views are presented. 
-On the left, the image and segment boundary overlay allows you to click to select/deselect
-target segments.  Click here to select target segments, they will be highlighted (blue).
-
-On the right, the median segment colours are plotted in Lab colourspace. 
-You can click and drag on this image to change the perspective and better visualise the separation between colours.
-
-When enough segments are selected from the image on the left (>=4 while alpha = 0)
-a hull will be plotted on the right. 
-Segments whose median colour is contained within this hull, 
-or within delta of the surface will be highlighted (green) on the image on the left.
-
-You can turn on/off segment highlighting by clicking the blue/green buttons
-corresponding to the "selection" and "within" colours. It is useful to start with a higher delta value (e.g. 10) 
-then reduce this parameter slowly to identify points that are just outside the hull. 
-The objective is to efficiently select the boundary points defining our target colourspace (our hull vertices).
-Points that do not form a vertex of this hull will be discarded after calibration.
-
-You can navigate between images by clicking the prev/next buttons on the bottom toolbar. 
-When you are satisfied with the defined hull click save and close. 
-This also may take some time, particularly if the --animate option is specified and a complex hull is defined.
-A debugging image is created depicting the points from the set of sampled images in Lab colourspace
-with the defined hull overlayed.
-
-#### Advanced
-The alpha parameter is necessary to construct a concave hull, 
-which may be necessary when similar background colours are present in the image.
-When alpha is 0, the convex hull is constructed. 
-When alpha is too high, some points will be excluded.
-For a given set of selected points you can "optimise" the alpha parameter by clicking the "A" button.
-
-If SLIC segmentation is not perfect, i.e. some segments contain both subject and background, do not worry. 
-Just be sure to select segments that only contain your target. 
-However, you may choose to optimise the SLIC parameters to better suit your images.
-
-### Continue
-When all of these are complete (green) you will be able to click "continue".
-This will write out file specifying the configuration parameters into the output file. 
-You can copy this into your configuration file to avoid repeating configuration
-with similar images and to ensure consistency across multiple analyses. 
+    - This allows us to reliably identifier outlier datapoints that do not reliably estimate lamina disc growth.
 
 
 ## Target area quantification method
