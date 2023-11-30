@@ -16,6 +16,7 @@ from skimage.morphology import remove_small_holes, remove_small_objects
 from .options import IMAGE_EXTENSIONS, configuration_complete, options, update_arg, layout_defined, postprocess, DebugEnum
 from .hull import HullHolder
 from .image_loading import ImageLoaded, MaskLoaded, CalibrationImage, LayoutLoader, LayoutDetector
+from .figurebuilder import FigureMatplot
 from .layout import Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
 from .panel import Panel
 from .area_calculation import calculate_area
@@ -362,7 +363,7 @@ class AppWindow:
         if not self.save_layout():
             return
 
-        fig = self.image.figures.new_figure("Plate detection", cols=2, level="WARN")
+        fig = FigureMatplot("Plate detection", 0, self.args, cols=2, image_filepath=self.image.filepath)
         # creating fig to override the arg calibrated figure level
         # we need this to display regardless of the image debug level
         self.image.args = self.args  # todo: should consider whether image should really be carrying the args at all...
@@ -391,6 +392,7 @@ class AppWindow:
 
         if self.activity == Activities.LAYOUT and plates is None:
             self.update_image_with_array(fig.as_array(self.image.rgb.shape[1], self.image.rgb.shape[0]))
+
         else:
             self.update_image_widget()
 
@@ -562,28 +564,15 @@ class AppWindow:
         target_buttons.add_input(
             "remove", int, tooltip="Remove objects below this size", on_changed=self.update_remove
         )
-        target_buttons.add_button("show hull", self.draw_hull, tooltip="Display hull in 3D plot", toggleable=True)
-        target_buttons.add_button(
-            "show selected",
-            self.toggle_show_selected,
-            tooltip="Highlight pixels from selected voxels in image",
-            toggleable=True
-        )
-        target_buttons.add_button(
-            "show target",
-            self.toggle_show_target,
-            tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
-            toggleable=True
-        )
         target_buttons.set_value("remove", self.args.remove)
-        #target_buttons.add_separation(1)
+
         target_buttons.add_button(
-            "from mask",
+            "hull from mask",
             tooltip="Calculate hull vertices from target mask (uses min pixels and alpha)",
             on_clicked=self.hull_from_mask,
             enabled=False
         )
-
+        target_buttons.add_button("show hull", self.draw_hull, tooltip="Display hull in 3D plot", toggleable=True)
         target_buttons.add_input(
             "hull colour",
             gui.Color,
@@ -591,12 +580,24 @@ class AppWindow:
             tooltip="Set hull colour",
             on_changed=self.draw_hull
         )
+        target_buttons.add_button(
+            "show selected",
+            self.toggle_show_selected,
+            tooltip="Highlight pixels from selected voxels in image",
+            toggleable=True
+        )
         target_buttons.add_input(
             "selection colour",
             gui.Color,
             value=gui.Color(1.0, 0.0, 1.0),
             tooltip="Set selection highlighting colour",
             on_changed=self.update_image_widget
+        )
+        target_buttons.add_button(
+            "show target",
+            self.toggle_show_target,
+            tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
+            toggleable=True
         )
         target_buttons.add_input(
             "target colour",
@@ -1498,9 +1499,10 @@ class AppWindow:
     def add_sphere(self, lab, rgb):
         logger.debug(f"Adding sphere for {lab}")
         key = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
-        sphere = o3d.geometry.TriangleMesh().create_sphere(radius=self.args.voxel_size/2)
-        sphere.paint_uniform_color(rgb)
+        sphere = o3d.t.geometry.TriangleMesh().create_sphere(radius=self.args.voxel_size/2)
         sphere.compute_vertex_normals()
+        triangle_colours = np.tile(rgb, (sphere.triangle.indices.shape[0], 1))
+        sphere.triangle["colors"] = o3d.core.Tensor(triangle_colours)
         sphere.translate(lab)
         self.lab_widget.scene.add_geometry(key, sphere, self.mesh_material)
 
@@ -1537,6 +1539,7 @@ class AppWindow:
         logger.debug(f"Update hull points {len(points)}")
         if len(points) > 0:
             self.hull_holder = HullHolder(points, self.target_panel.get_value("alpha"))
+            self.hull_holder.update_hull()
             update_arg(self.args, "hull_vertices", list(map(tuple, self.hull_holder.points)))
         else:
             self.hull_holder = None
@@ -1570,22 +1573,26 @@ class AppWindow:
             dice = 2 * tp / ((2 * tp) + fp + fn)
             logger.info(
                 f"Dice coefficient: {dice}, "
-                f" Accuracy: {accuracy}, "
+                f"Accuracy: {accuracy}, "
                 f"Sensitivity: {sensitivity}, "
                 f"Specificity: {specificity}"
             )
             return dice
 
     def get_target_mask_from_voxels(self):
-        if self.hull_holder is None or self.hull_holder.mesh is None:
+        if self.hull_holder is None or self.hull_holder.mesh is None or self.hull_holder.scene is None:
             logger.debug("No target hull prepared")
             return None
 
         logger.debug("Prepare target mask")
-        logger.debug(f"Calculate distance from hull")
-        distances = self.hull_holder.get_distances(self.image.cloud.points)
-        if distances is None:
-            return None
+        # first detect occupancy, we then only need to calculate distances for those outside
+        occupancy = self.hull_holder.get_occupancy(np.asarray(self.image.cloud.points))
+        logger.debug("Create distances array, where occupants are 0 and outside are 1")
+        inverted_occupancy = ~occupancy  # have to do this step first, can't stream invert
+        distances = inverted_occupancy.astype('float')
+        if self.args.delta != 0:
+            logger.debug(f"Calculate distance from hull surface for points outside")
+            distances[~occupancy] = self.hull_holder.get_distances(np.asarray(self.image.cloud.points)[~occupancy])
 
         logger.debug(f"Use distances to create a target mask")
         distances = distances[self.image.voxel_map]
@@ -1704,7 +1711,8 @@ class AppWindow:
             logger.debug("Add mesh to scene")
             hull_colour = self.target_panel.get_value("hull colour")
             self.hull_holder.mesh.compute_vertex_normals()
-            self.hull_holder.mesh.paint_uniform_color(hull_colour)
+            triangle_colours = np.tile(hull_colour, (self.hull_holder.mesh.triangle.indices.shape[0], 1))
+            self.hull_holder.mesh.triangle["colors"] = o3d.core.Tensor(triangle_colours)
             self.lab_widget.scene.add_geometry("mesh", self.hull_holder.mesh, self.mesh_material)
 
     def _on_menu_open(self):
@@ -1839,7 +1847,7 @@ class AppWindow:
         self.info.visible = True
         self.update_info()
 
-        self.target_panel.buttons['from mask'].enabled = False
+        self.target_panel.buttons['hull from mask'].enabled = False
         self.set_menu_enabled()
 
         logger.debug("Display new image")
@@ -1850,7 +1858,7 @@ class AppWindow:
     def load_true_mask(self, path):
         try:
             self.image.true_mask = MaskLoaded(path)
-            self.target_panel.buttons['from mask'].enabled = True
+            self.target_panel.buttons['hull from mask'].enabled = True
             self.update_info()
             self.update_image_widget()  # just needed to calculate dice
             self.window.set_needs_layout()
@@ -2013,8 +2021,9 @@ class AppWindow:
             if self.args.fixed_layout is not None:
                 # this could be handled better, e.g. keep a previously loaded layout if valid
                 self.load_layout()
-            elif self.args.detect_layout:
-                self.detect_layout()
+            # only load, don't detect as it slows things down too much, detect only when prompted
+            #elif self.args.detect_layout:
+                #self.detect_layout()
             self.image.prepare_cloud()
             self.update_lab_widget()
 

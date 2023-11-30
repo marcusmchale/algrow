@@ -10,7 +10,10 @@ from copy import deepcopy
 
 from skimage.io import imread, imsave
 from skimage import draw
-from skimage.util import img_as_bool, img_as_float64 as img_as_float  # float64 is faster with open3d
+from skimage.util import img_as_bool, img_as_ubyte, img_as_float64 as img_as_float
+# https://github.com/isl-org/Open3D/issues/4832
+# Float 64 is better for the point cloud,
+# but we are casting back to 32 bit for the distance calculations...
 from skimage.color import rgb2lab, gray2rgb, deltaE_cie76
 from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
@@ -82,22 +85,26 @@ class ImageLoaded:
 
         self._layout_overlay = None
         self._layout_mask = None
+        self.layout = None
 
-        if self.args.fixed_layout is not None:
-            layout_loader = LayoutLoader(self)
-            try:
-                self.layout = layout_loader.get_layout()
-            except:  # todo consider what might cause this to fail, types of exceptions etc.
-                self.layout = None
-        elif layout_defined(self.args):
-            layout_detector = LayoutDetector(self)
-            try:
-                self.layout = layout_detector.get_layout()
-            except (ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection) as e:
-                self.logger.debug(f"Failed to detect layout: {e}")
-                self.layout = None
-        else:
-            self.layout = None
+        # disabling the below, no need to detect layout when loaded, do it when desired only
+        # todo confirm this doesn't break anything
+        # if it is needed we need to make sure we check for it and reload it all the time
+        #if self.args.fixed_layout is not None:
+        #    layout_loader = LayoutLoader(self)
+        #    try:
+        #        self.layout = layout_loader.get_layout()
+        #    except:  # todo consider what might cause this to fail, types of exceptions etc.
+        #        self.layout = None
+        #elif self.args.detect_layout and layout_defined(self.args):
+        #    layout_detector = LayoutDetector(self)
+        #    try:
+        #        self.layout = layout_detector.get_layout()
+        #    except (ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection) as e:
+        #        self.logger.debug(f"Failed to detect layout: {e}")
+        #        self.layout = None
+        #else:
+        #    self.layout = None
 
     def __hash__(self):
         return hash(self.filepath)
@@ -153,14 +160,15 @@ class ImageLoaded:
                 fig.add_label(str(unit), (c[0], c[1]), "black", fontsize)
                 fig.add_circle((c[0], c[1]), c[2], linewidth=fontsize/2)
         self._layout_overlay = fig.as_array(self.rgb.shape[1], self.rgb.shape[0])[:, :, :3]
-        fig.print()
+        #fig.print()
 
     def _draw_layout_mask(self):
         if self.layout is None:
+            self._layout_mask = np.full(self.rgb.shape[:2], 1).astype(dtype="bool")
             return
 
         self.logger.debug("Draw the circles mask")
-        circles_mask = np.full(self.rgb.shape[0:2], False).astype("bool")
+        circles_mask = np.full(self.rgb.shape[:2], False).astype("bool")
         overlapping_circles = False
         for circle in self.layout.circles:
             circle_mask = self.layout.get_circle_mask(circle)
@@ -200,6 +208,8 @@ class ImageFigureBuilder:
                     ".".join(["_".join([Path(self.image_filepath).stem, str(self.counter), label]), suffix])
                 ))
             save_path.parent.mkdir(parents=True, exist_ok=True)
+            if image.dtype=='bool':
+                img = img_as_ubyte(image)
             imsave(save_path, image)
         else:
             logger.debug(f"Not saving image as image debug level is set above the level for this image: {label}")
@@ -609,6 +619,7 @@ class LayoutDetector:
             fig = self.image.figures.new_figure("Detect plates", cols=2)
             print_fig = True
         else:
+            logger.debug("")
             fig = custom_fig
             print_fig = False
         circles = self.find_n_circles(self.args.circles_per_plate * self.args.plates, fig)

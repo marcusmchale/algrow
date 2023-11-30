@@ -1,8 +1,10 @@
 import numpy as np
 import logging
-from trimesh import PointCloud
-from alphashape import optimizealpha, alphashape
+import itertools
 import open3d as o3d
+
+from trimesh import PointCloud, Trimesh, repair
+from alphashape import optimizealpha, alphasimplices
 from typing import Optional
 from .image_loading import CalibrationImage
 
@@ -18,10 +20,8 @@ class HullHolder:
         self.points = points
         self.alpha = None
         self.hull = None
-        self.mesh: Optional[o3d.geometry.TriangleMesh] = None
+        self.mesh: Optional[o3d.t.geometry.TriangleMesh] = None
         self.scene: Optional[o3d.t.geometry.RaycastingScene] = None
-
-        self.update_alpha(alpha)
 
     def update_alpha(self, alpha: float = None):
         if alpha is None:
@@ -56,28 +56,21 @@ class HullHolder:
             else:
                 logger.debug("Constructing alpha shape")
                 # note the alphashape package uses the inverse of the alpha radius as alpha
-                self.hull = alphashape(self.points, 1/self.alpha)
-                # the below is basically what happens, used during development and evaluation
-                #
-                #edges = set()
-                #perimeter_edges = set()
-                #coords = np.array(self.points)
-                #
-                #for point_indices, circumradius in alphasimplices(coords):
-                #    if circumradius <= self.alpha:
-                #        for edge in itertools.combinations(
-                #            point_indices, r=coords.shape[-1]
-                #        ):
-                #            if all([e not in edges for e in itertools.combinations(
-                #                    edge, r=len(edge))]):
-                #                edges.add(edge)
-                #                perimeter_edges.add(edge)
-                #            else:
-                #                perimeter_edges -= set(itertools.combinations(
-                #                    edge, r=len(edge)))
-                #self.hull = Trimesh(vertices=coords, faces=list(perimeter_edges))
-                #repair.fix_normals(self.hull)
-                #
+                # self.hull = alphashape(self.points, 1/self.alpha)
+                # the below was adapted to modify behaviour from the above function in the alpha shape package
+                edges = set()
+                perimeter_edges = set()
+                coords = np.array(self.points)
+                for point_indices, circumradius in alphasimplices(coords):
+                    if circumradius <= self.alpha:
+                        for edge in itertools.combinations(point_indices, r=coords.shape[-1]):
+                            if all([e not in edges for e in itertools.combinations(edge, r=len(edge))]):
+                                edges.add(edge)
+                                perimeter_edges.add(edge)
+                            else:
+                                perimeter_edges -= set(itertools.combinations(edge, r=len(edge)))
+                self.hull = Trimesh(vertices=coords, faces=list(perimeter_edges))
+                repair.fix_normals(self.hull)
 
                 if not self.hull.is_watertight:
                     logger.warning("Hull is not watertight")
@@ -87,19 +80,35 @@ class HullHolder:
                     self.scene = None
                     self.mesh = None
                     return
+        self.update_scene()
 
+    def update_scene(self):
         self.scene = o3d.t.geometry.RaycastingScene()
-        self.mesh = o3d.geometry.TriangleMesh(self.hull.as_open3d)
-        tmesh = o3d.t.geometry.TriangleMesh().from_legacy(mesh_legacy=self.mesh)
-        self.scene.add_triangles(tmesh)
+        #self.mesh = o3d.geometry.TriangleMesh(self.hull.as_open3d)
+        # see https://github.com/mikedh/trimesh/issues/1116
+        # todo keep an eye on this issue in case trimesh changes around this
+        #tmesh = o3d.t.geometry.TriangleMesh().from_legacy(mesh_legacy=self.mesh)
+        self.mesh = o3d.t.geometry.TriangleMesh().from_legacy(
+            mesh_legacy=o3d.geometry.TriangleMesh(self.hull.as_open3d)
+        )
+        self.scene.add_triangles(self.mesh)
 
-    def get_distances(self, points: np.ndarray):
+    def get_occupancy(self, points: np.ndarray) -> Optional[np.ndarray]:
+        if self.scene is not None:
+            logger.debug(f"Get occcupancy in hull")
+            points_tensor = o3d.core.Tensor(points, dtype=o3d.core.Dtype.Float32)
+            occupancy = self.scene.compute_occupancy(points_tensor)
+            occupancy.to(o3d.core.Dtype.Bool).numpy()
+            return occupancy.to(o3d.core.Dtype.Bool).numpy()
+        else:
+            return None
+
+    def get_distances(self, points: np.ndarray) -> Optional[np.ndarray]:
         if self.scene is not None:
             logger.debug(f"Get distances from hull")
-            points_tensor = o3d.core.Tensor(np.asarray(points, dtype=np.float32))
+            points_tensor = o3d.core.Tensor(points, dtype=o3d.core.Dtype.Float32)
             distances = self.scene.compute_signed_distance(points_tensor)
-            distances = distances.numpy().reshape(-1)
-            return distances
+            return distances.numpy()
         else:
             return None
 

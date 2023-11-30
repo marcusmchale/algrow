@@ -34,8 +34,6 @@ class Layout:
             raise InsufficientPlateDetection("No plates detected")
         self.plates = plates
         self.shape = shape
-        self._mask = None
-        self._overlay = None
 
     @property
     def circles(self):

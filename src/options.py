@@ -151,7 +151,7 @@ def options(filepath=None):
     parser.add_argument(
         "-l", "--detect_layout",
         help="Run without layout definition to calculate target area for the entire image",
-        type=arg_types["detect_layout"]
+        action='store_true'
     )
     parser.add_argument(
         "--fixed_layout",
@@ -163,12 +163,6 @@ def options(filepath=None):
         "-d", "--image_debug",
         help="Level of image debugging",
         type=arg_types['image_debug'],
-        default="INFO"
-    )
-    parser.add_argument(
-        "--loglevel",
-        help="Log-level",
-        type=arg_types['loglevel'],
         default="INFO"
     )
     parser.add_argument(
@@ -202,14 +196,12 @@ def options(filepath=None):
         default=1.0
     )
     parser.add_argument(
-        "-r",
         "--remove",
         help="Set remove size (px)",
         default=100,
         type=arg_types["remove"]
     )
     parser.add_argument(
-        "-f",
         "--fill",
         help="Set fill size (px)",
         default=100,
@@ -305,12 +297,6 @@ def options(filepath=None):
         default=None,
         type=arg_types["scale"]
     )
-    parser.add_argument(  # todo parameter isn't handled well, need to scale all, e.g. diameter, scale etc. on both ends
-        "--downscale",
-        help="Downscale by this factor",
-        type=arg_types["downscale"],
-        default=1
-    )
     parser.add_argument(
         "--fit_start",
         help="Start (day) for RGR calculation",
@@ -323,11 +309,25 @@ def options(filepath=None):
         type=arg_types["fit_end"],
         default=float('inf')
     )
+    # Debugging arguments
+    parser.add_argument(
+        "--loglevel",
+        help="Log-level",
+        type=arg_types['loglevel'],
+        default="INFO"
+    )
     # GUI only options
     parser.add_argument(
         "--voxel_size",
         help="Size of voxel in colourspace projection to display a point during hull calibration",
         type=arg_types["voxel_size"],
+        default=1
+    )
+    # Poorly supported arguments
+    parser.add_argument(  # todo parameter isn't handled well, need to scale all, e.g. diameter, scale etc. on both ends
+        "--downscale",
+        help="Downscale by this factor",
+        type=arg_types["downscale"],
         default=1
     )
     return parser
@@ -337,7 +337,10 @@ def options(filepath=None):
 def postprocess(args):
     # Handle multiple directories or a mix of directories and files
     if args.images is not None:
-        args.images = list(chain(args.images))
+        if isinstance(args.images, list):
+            args.images = list(chain(*args.images))
+        else:
+            args.images = list(chain(args.images))
     # Infer out dir if not specified
     if args.out_dir is None:
         if args.images is not None:
@@ -448,7 +451,6 @@ def configuration_complete(args):
         return minimum_calibration(args)
     else:
         return all([
-            args.scale is not None,
             (args.hull_vertices is not None and len(args.hull_vertices) >= 4),  # todo this can fail when alpha is set
             layout_defined(args)
         ])
