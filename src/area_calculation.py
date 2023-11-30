@@ -14,12 +14,9 @@ from datetime import datetime
 
 from skimage.morphology import remove_small_holes, remove_small_objects
 
-from alphashape import alphashape
-from trimesh import PointCloud
-import open3d as o3d
-
 from .image_loading import ImageLoaded, LayoutDetector, LayoutLoader
 from .logging import ImageFilepathAdapter, logger_thread, worker_log_configurer
+from .hull import HullHolder
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +29,10 @@ def calculate_area(args):
     # Construct alpha hull from target colours
     if args.hull_vertices is None or len(args.hull_vertices) < 4:
         raise ValueError("Insufficient hull vertices provided to construct a hull")
-    logger.debug("Calculate hull")
-    if args.alpha == 0:
-        # the api for alphashape is a bit strange,
-        # it returns a shapely polygon when alpha is 0
-        # rather than a trimesh object which is returned for other values of alpha
-        # so just calculate the convex hull with trimesh to ensure we get a consistent return value
-        alpha_hull = PointCloud(args.hull_vertices).convex_hull
-    else:
-        # note that alphashape uses the inverse representation of alpha
-        alpha_hull = alphashape(np.array(args.hull_vertices), 1/args.alpha)
 
-    if len(alpha_hull.faces) == 0:
-        raise ValueError("The provided vertices do not construct a complete hull with the chosen alpha parameter")
+    logger.debug("Calculate hull")
 
     # prepare output file for results
-
     area_header = ['File', 'Block', 'Plate', 'Unit', 'Time', 'Pixels', 'Area', 'RGB', "Lab"]
 
     logger.debug("Check file exists and if it already includes data from listed images")
@@ -81,6 +66,7 @@ def calculate_area(args):
         csv_writer = writer(csv_file)
         if area_out.stat().st_size == 0:  # True if output file is empty
             csv_writer.writerow(area_header)
+
         if args.processes > 1:
             queue = multiprocessing.Manager().Queue(-1)
             lp = threading.Thread(target=logger_thread, args=(queue,))
@@ -88,7 +74,7 @@ def calculate_area(args):
 
             with ProcessPoolExecutor(max_workers=args.processes, mp_context=multiprocessing.get_context('spawn')) as executor:
                 future_to_file = {
-                    executor.submit(area_worker, filepath, alpha_hull, args, queue=queue): filepath for filepath in image_filepaths
+                    executor.submit(area_worker, filepath, args, queue=queue): filepath for filepath in image_filepaths
                 }
                 for future in as_completed(future_to_file):
                     fp = future_to_file[future]
@@ -107,7 +93,7 @@ def calculate_area(args):
         else:
             for filepath in image_filepaths:
                 try:
-                    result = area_worker(filepath, alpha_hull, args)
+                    result = area_worker(filepath, args)
                     for record in result:
                         csv_writer.writerow(record)
                 except Exception as exc:
@@ -116,14 +102,16 @@ def calculate_area(args):
                     logger.info(f'{str(filepath)}: processed')
 
 
-def area_worker(filepath, alpha_hull, args, queue=None):
+def area_worker(filepath, args, queue=None):
     if queue is not None:
         worker_log_configurer(queue)
 
+    hull_holder = HullHolder(args.hull_vertices, args.alpha)
+    hull_holder.update_hull()
+
     adapter = ImageFilepathAdapter(logging.getLogger(__name__), {'image_filepath': str(filepath)})
     adapter.debug(f"Processing file: {filepath}")
-
-    result = ImageProcessor(filepath, alpha_hull, args).get_area()
+    result = ImageProcessor(filepath, hull_holder, args).get_area()
     filepath = Path(result["filename"])
     filename = str(filepath)   # keep whole path in name so can detect already done more easily
 
@@ -160,46 +148,43 @@ def area_worker(filepath, alpha_hull, args, queue=None):
 
 
 class ImageProcessor:
-    def __init__(self, filepath, alpha_hull, args):
+    def __init__(self, filepath, hull_holder, args):
         self.image = ImageLoaded(filepath, args)
-        self.alpha_hull = alpha_hull
+        self.hull_holder = hull_holder
         self.args = args
         self.logger = ImageFilepathAdapter(logger, {'image_filepath': str(filepath)})
 
     def get_area(self):
         if self.args.fixed_layout is not None:
-            layout = LayoutLoader(self.image).get_layout()
+            self.image.layout = LayoutLoader(self.image).get_layout()
         elif not self.args.detect_layout:
-            layout = None
+            self.image.layout = None
         else:
-            layout = LayoutDetector(self.image).get_layout()
+            self.image.layout = LayoutDetector(self.image).get_layout()
 
-        if layout is None:
-            masked_lab = self.image.lab.reshape(-1, 3)
-        else:
-            masked_lab = self.image.lab[self.image.layout_mask]
-
-        # see https://github.com/mikedh/trimesh/issues/1116
-        # todo keep an eye on this as the alphashape package is likely to change around this
-        scene = o3d.t.geometry.RaycastingScene()
-        scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(self.alpha_hull.as_open3d))
-        distances_array = scene.compute_signed_distance(o3d.core.Tensor.from_numpy(masked_lab.astype(np.float32))).numpy()
-        inside = distances_array < self.args.delta
+        masked_lab = self.image.lab[self.image.layout_mask]
+        logger.debug("Get occupancy to hull")
+        occupancy = self.hull_holder.get_occupancy(masked_lab)
+        logger.debug("Create distances array, where occupants are 0 and outside are 1")
+        inverted_occupancy = ~occupancy  # have to do this step first, can't stream invert
+        distances = inverted_occupancy.astype('float')
+        logger.debug(f"Calculate distance from hull surface for points outside")
+        distances[~occupancy] = self.hull_holder.get_distances(masked_lab[~occupancy])
+        inside = distances <= self.args.delta
 
         if self.args.image_debug <= 0:
-            # we create a debug for distance if using delta value and at debug level for image debug
-            if layout is None:
-                distance_image = distances_array.reshape(self.image.lab.shape[0:2])
+            if self.image.layout is None:
+                distance_image = distances.reshape(self.image.lab.shape[0:2])
             else:
                 distance_image = np.empty(self.image.lab.shape[0:2])
-                distance_image[self.image.layout_mask] = distances_array
                 distance_image[~self.image.layout_mask] = 0  # set masked region as 0
+                distance_image[self.image.layout_mask] = distances
             hull_distance_figure = self.image.figures.new_figure('Hull distance')
             hull_distance_figure.plot_image(distance_image, "Distance from hull (delta E)", color_bar=True)
             hull_distance_figure.print()
 
         self.logger.debug("Create mask from distance threshold")
-        if layout is None:
+        if self.image.layout is None:
             target_mask = inside.reshape(self.image.rgb.shape[0:2])
         else:
             target_mask = self.image.layout_mask.copy()
@@ -231,22 +216,20 @@ class ImageProcessor:
         overlay_figure.plot_image(self.image.rgb, "Layout and target overlay")
         overlay_figure.add_outline(target_mask)
 
-
-
         unit = 0
 
-        if layout is None:
+        if self.image.layout is None:
             pixels = np.count_nonzero(target_mask)
             rgb = np.median(self.image.rgb[target_mask], axis=0)
             lab = np.median(self.image.lab[target_mask], axis=0)
             result["units"].append(("N/A", "N/A", pixels, rgb, lab))
         else:
-            for p in layout.plates:
+            for p in self.image.layout.plates:
                 self.logger.debug(f"Processing plate {p.id}")
                 overlay_figure.add_label(str(p.id), p.centroid, "black", 10)
                 for j, c in enumerate(p.circles):
                     unit += 1
-                    circle_mask = layout.get_circle_mask(c)
+                    circle_mask = self.image.layout.get_circle_mask(c)
                     circle_target = circle_mask & target_mask
                     pixels = np.count_nonzero(circle_target)
                     if pixels > 0:

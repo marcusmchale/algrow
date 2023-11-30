@@ -168,7 +168,7 @@ The AlGrow application was developed to;
 
 
 ## Target area quantification method
-    1. Identify layout 
+    1. Optionally identify the target layout 
         1.1. A grayscale image is constructed reflecting the distance (delta-E) from the defined circle colour (skimage)
         1.2. Canny edge detection and Hough circle transform is applied to indentify target circles
         1.3. Circles are clustered to identify groups of defined size (plates) and remove artifact circles, e.g. reflections (Scipy.cluster.hierarchy)
@@ -182,11 +182,11 @@ The AlGrow application was developed to;
 
     3. Analysis
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
-        3.2 Rigures and reports are prepared
+        3.2 Figures and reports are prepared
 
-# To consider
+# To consider for future feature development
   - circle colour as hull rather than a fixed point
-  - kmeans and other clustering methods to automate hull definition.
+  - kmeans and other clustering methods to automate/simplify user input to hull definition.
   - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
@@ -205,9 +205,12 @@ The AlGrow application was developed to;
    - maybe consider them as separate masks for target selection, taking the overlap.
 
 # TODO
+  - write documentation
   - package as installer
-  - use kmseg to generate ground truth images and evaluate classification accuracy, naiive kmseg vs corrected with algrow. 
-  - test across images with the trained hull. c.f. ML. classifiers.
+  - Evaluate/test
+    - use kmseg to generate ground truth images and evaluate classification accuracy, naiive kmseg vs corrected with algrow. 
+    - test across images with the trained hull. c.f. ML. classifiers.
+    - test interaction between true-mask and layout-mask
 
 # Note 
 -  that these interactive representations of pixel colour can improve:
