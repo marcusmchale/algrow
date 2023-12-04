@@ -4,9 +4,7 @@ import logging
 import logging.config
 import logging.handlers
 
-
-args = options().parse_args()
-
+args, _ = options().parse_known_args()  #needed for pyisntaller multiprocessing which injects more args
 
 def worker_log_configurer(queue):
     logging.config.dictConfig(LOGGING_CONFIG)
@@ -27,6 +25,7 @@ def logger_thread(queue):
 class ImageFilepathAdapter(logging.LoggerAdapter):
     def process(self, msg, kwargs):
         return '[%s] %s' % (self.extra['image_filepath'], msg), kwargs
+
 
 LOGGING_CONFIG = {
     'version': 1,

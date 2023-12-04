@@ -18,7 +18,7 @@ class HullHolder:
             alpha: Optional[float] = None
     ):
         self.points = points
-        self.alpha = None
+        self.alpha = alpha
         self.hull = None
         self.mesh: Optional[o3d.t.geometry.TriangleMesh] = None
         self.scene: Optional[o3d.t.geometry.RaycastingScene] = None
@@ -36,6 +36,7 @@ class HullHolder:
         self.update_hull()
 
     def update_hull(self):
+        logger.debug("Update hull")
         if len(self.points) < 4:
             self.scene = None
             self.mesh = None
@@ -43,7 +44,7 @@ class HullHolder:
         else:
             logger.debug("Constructing hull")
             if self.alpha is None or self.alpha == 0:
-                logger.debug("creating convex hull")
+                logger.debug("Constructing convex hull")
                 # the api for alphashape is a bit strange,
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha
@@ -54,7 +55,7 @@ class HullHolder:
                     logger.debug("Error during convex hull construction")
                     raise e
             else:
-                logger.debug("Constructing alpha shape")
+                logger.debug("Constructing alpha hull")
                 # note the alphashape package uses the inverse of the alpha radius as alpha
                 # self.hull = alphashape(self.points, 1/self.alpha)
                 # the below was adapted to modify behaviour from the above function in the alpha shape package

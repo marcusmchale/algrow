@@ -6,107 +6,97 @@
 ## The short story 
 
 Algrow is a software tool for automated image annotation, segmentation and analysis. 
-It was initially developed to support macro-algal disc phenotyping in the 
-[Plant Systems Biology Laboratory](https://sulpice-lab.com/)
-of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
-at the [University of Galway](https://www.universityofgalway.ie/), and has since been applied to other images, such as arabidopsis.
+It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
+to support macro-algal disc phenotyping in the 
+[Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
+at the [University of Galway](https://www.universityofgalway.ie/). 
+AlGrow also has demonstrated utility in plant phenotyping.
 
-
-Features/parameters:
-- Suitable for large sets of images 
-  - Command line tool for ease of use on a server/cluster
-  - Multiprocessing (-p num_cores)
-- Quality-control overlays (option -q)
-- Debugging pipeline (-D) for tuning parameters and examining each step of processing
-- Automated annotation
-  - Layout is determined by enclosing circles grouped into plates
-    - Circle detection in chosen channel (-cc)
-    - Search for circles expands criteria when insufficient are detected
-    - circle expansion (-ce) to include area surrounding target circles (still must not overlap)
-    - Pseudo-grid arrangement
-      - Find clusters of circles of known size and arrangement (plates)
-        - Number of circles per plate can be defined (-cpp)
-      - Find arrangement of plates
-        - Number of plates per image can be defined (-npi) 
-      - Arrangements are simple sequences within rows (default) or columns for circles within plates (-ccf) or plates within images (-pcf)
-        - ID incrementation direction is customisable (-clr, -ctb, -plr, -ptb)
-- 
-- Segmentation used for calibration GUI 
-  - SLIC algorithm 
-    - Radhakrishna Achanta, Appu Shaji, Kevin Smith, Aurelien Lucchi, Pascal Fua, and Sabine Süsstrunk, SLIC Superpixels Compared to State-of-the-art Superpixel Methods, TPAMI, May 2012. DOI:10.1109/TPAMI.2012.120
-    - https://www.epfl.ch/labs/ivrl/research/slic-superpixels/#SLICO
-    - Irving, Benjamin. “maskSLIC: regional superpixel generation with application to local pathology characterisation in medical images.”, 2016, arXiv:1606.09518
-
-- Interactive definition of alpha shape hull that specifies target colourspace.
-
-- Noise removal
-  - Fill small holes
-  - Remove small objects 
-
-- Analysis
-  - Linear regression of log transformed values determines daily relative daily growth rate (RGR)
-  - Data exported as csv files, including raw values, RGR and per group summaries
-    - Summaries provided with and without filtering for outliers 
-      - Outliers identified by residual sum of squares (RSS) from disc growth RGR model (> 1.5 * IQR)
-  - Plots exported as png images (area estimates over time for each disc, model fits and box-plots of RGR)
-  - Requires:
-    - ID file (csv) containing the "block", "well" and "strain" supports automated analysis (-id).
-    - regex patterns defined in config file to pull out block number and date/time from image filenames (-tr, -tf, -br).
-- Quality control
-  - debugging pipeline with images for each step and dendrograms for clustering in layout detection (-D)
-  - overlay images with the final image mask, defined circles and plate/circle identifiers (-q) 
-
-reading: # https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub
-the above uses kmeans for initial clustering, could be doing this but prefer supervised for a single target cluster
+Features:
+  - Interfaces:
+    - Graphical interface for configuration and analysis in desktop environments ([guide](./guide.md)) 
+    - Command line interface for subsequent high-throughput analysis
+  - Segmentation
+    - Uses the convex/concave hull from selected target points to define the boundaries of target colour space.
+    - A deterministic model of target colour that improves on fixed threshold classification and performs
+    - Performs 
+  - 
+  - Annotation 
+    - Automated target detection using surrounding circles (pots/rings)
+    - Supports multiplexed images with some target movement.
+  - Quality-control and debugging image outputs
 
 ## Get started
 apt install python3.10
 apt install python3.10-venv
 
 
-### Distribution
-
-  - Download 
-    - get the latest [dist](https://github.com/marcusmchale/algrow/dist)
-  - Install
-    - pip install algrow.whl
-  - Run
-    - cd path/to/algrow/sample_images
-    - mkdir raw
-    - tar -xvzf sample_images.tgz -C raw
-    - algrow.py -p 4 -q -i raw -id id.csv -o . -l info > log.txt
-
-# this works on python 3.9 
-# i think it also may need python3-tk on system?, 
-# something strange to get the lasso selector working anyway
-# 
+### Install a chosen distribution
+Download 
+  - get the latest [dist](https://github.com/marcusmchale/algrow/dist)
+Install
+```pip install algrow.whl```
+Run
+```./algrow.py```
 
 
 ### Run from source
+Download
+```git clone https://github.com/marcusmchale/algrow```
+Set up virtual environment and activate it (recommended)
+```
+python3 -m venv venv
+. ./venv/bin/activate
+```
+Install requirements
+```
+pip install -r REQUIREMENTS.txt
+```
+Run
+```./algrow.py```
 
-  - Download
-    - git clone https://github.com/marcusmchale/algrow
-  - Set up virtual environment (recommended)
-    - python3 -m venv venv
-    - source ./venv/bin/activate
-  - Run
-    - algrow.py -i sample_images
 
+### Buidl from Wheel
+Download
+```git clone https://github.com/marcusmchale/algrow```
+Install python
+```sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev```
+Set up virtual environment (recommended)
+```
+python3.10 -m venv venv
+source ./venv/bin/activate
+pip install --upgrade pip
+pip install dist/algrow-0.3-py3-none-any.whl
+```
+Build
+```python3 -m build```
 
-### Build
-
-  - Download
-    - git clone https://github.com/marcusmchale/algrow
-  -  Install python
-    - sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev
-  - Set up virtual environment (recommended)
-    - python3.10 -m venv venv
-    - source ./venv/bin/activate
-    - pip install --upgrade pip
-    - pip install dist/algrow-0.3-py3-none-any.whl
-  - Build
-    - python3 -m build
-
+### PyInstaller
+Make sure to include licenses for all dependencies if packaging a binary for distribution.
+#### On linux
+Create the relevant virtual environment and make sure pyinstaller is installed
+```
+python3 -m venv venv
+. ./venv/bin/activate
+pip install -r REQUIREMENTS.txt
+pip install pyinstaller
+```
+Install the following to the system
+```
+sudo apt install libspatialindex-dev
+```
+Then run pyinstaller in the algrow root path
+You might want to check the path of libspatialindex files
+```
+pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
+--add-data=bmp/logo.png:./bmp/ \
+--add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
+--add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
+--add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
+--add-data=/lib/x86_64-linux-gnu/libspatialindex*:. \
+--hidden-import='PIL._tkinter_finder' \
+algrow.py
+```
 
 
 ## The long story...
@@ -187,6 +177,8 @@ The AlGrow application was developed to;
 # To consider for future feature development
   - circle colour as hull rather than a fixed point
   - kmeans and other clustering methods to automate/simplify user input to hull definition.
+    - kmeans example  https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub 
+    - could be doing this but prefer supervised as kmeans  for a single target cluster
   - Analysis 
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):

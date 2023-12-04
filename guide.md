@@ -422,47 +422,51 @@ Sub-patterns in regex can be captured with parentheses "(" and ")".
 AlGrow takes advantage of Python named groups in the pattern definition.
 Named groups are prepended with "?P<name>", where the name can be a chosen group name.
 Named groups are supported in AlGrow for:
+  - block,
   - year,
   - month,
   - day,
   - hour,
-  - minute,
-  - second, and
-  - block
-
+  - minute and
+  - second
 The default configuration file contains the following regex as an example:
 
 ```.*(?P<year>[0-9]{4})-(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])_(?P<hour>[01][0-9]|2[0-4])h(?P<minute>[0-5][0-9])m_(?P<block>[a-z|A-Z|0-9]*).*```
 
 By way of explanation, we can break the start of this down sequentially:
 
-  - ````.*```` means allow for any preceding characters
+  - ````.*```` allows for any preceding characters
   - ```(?P<year>``` is the start of the capture group named year
   - ```[0-9]``` matches any single digit number from 0-9
-  - ```{4}``` matches four of the preceding pattern, i.e. four numbers from 0-9
+  - ```{4}``` matches four of the preceding character, i.e. four numbers from 0-9
   - ```)``` closes the year capture group.
-  - ```-``` then matches the "-" character.
+  - ```-``` then matches the "-" character, outside the capture group.
 
-Much of the rest of the pattern is consistent, it is just designed to specifically match corresponding capture groups.
-To break down the end of this pattern for block recognition:
+Much of the rest of the pattern is consistent with the above explanation,
+the pattern is just designed to specifically match time values
+(and provides a suitable example for users to modify).
 
-  - ```m_``` matches the preceding underscore ("m_") characters
+The end of this pattern recognises the block name:
+
+  - ```m_``` matches preceding underscore ("m_") characters
   - ```(?P<block>``` starts the capture group named block
   - ```[a-z|A-Z|0-9]*``` matches a series of any length of any lowercase (a-z) or uppercase (A-Z) or single digit numbers (0-9)
   - ```).*``` closes the capture group but allows for any trailing characters 
 
-Hopefully you can now interpret this pattern to say that we will parse a filename that looks like:
-  - "2023-11-29_17h03m_block1" to mean:
-    - year: 2023
-    - month: 11
-    - day: 29
-    - hour: 17
-    - minute: 3
-    - block: block1
-    
-With at least year, month, day matched a time will be provided, with hour minute and second defaulting to 0.
+This pattern will parse a filename that looks like this:
+  - "2023-11-29_17h03m_block1",
 
-The time and block details are used in subsequent [growth](#growth) analysis.
+to provide these details:
+  - year: 2023
+  - month: 11
+  - day: 29
+  - hour: 17
+  - minute: 3
+  - block: block1
+    
+With year, month and day provided, a time will returned in the resulting area output file,
+with hour minute and second defaulting to 0. 
+Time and block details are required for subsequent [growth](#growth) analysis.
 If they cannot be parsed from the filename, they will not be found in the output area file.
 The time can be added manually to the area file in the format: "YYYY-MM-DD HH:mm:ss".
 Similarly, a simple text string can be added to the block field in the output area.csv file for growth analysis.
@@ -476,7 +480,9 @@ A fixed layout can be loaded here from a layout.csv file, see [save fixed layout
 When loaded, the fixed layout overrides layout detection.
 
 #### Processes
-The number of processes to launch for parallel image processing.
+The number of processes to launch for parallel image processing. 
+Each process will handle a single image until the list of images is processed.
+Set this value taking into consideration both CPU and memory usage.
 
 #### Debugging images
 There are three levels of debugging image production.
@@ -502,9 +508,32 @@ There are three levels of debugging image production.
 Set this to a suitable destination for the figures and area file etc. to be written to.
 
 #### Calculate
-This launches the area analysis. Please be patient and wait for it to complete. 
-You can expect a single process for a single image to take about 30 seconds if including layout detection.
-With a fixed layout (or no layout) segmentation should take just a few seconds per image. 
+This launches optional layout detection and image segmentation using the defined target hull,
+appending results to area.csv in the output directory. 
+If output file already exists, any image files already described within it will not be processed again.
+
+The fields in the area file are:
+  - Filename
+  - Block (parsed from filename using the provided [regex](#filename-regex))
+  - Plate and Unit (where a layout is [detected](#detect-layout)/[provided](#fixed-layout))
+  - Time (parsed from filename using the provided [regex](#filename-regex))
+  - Pixels (pixel count from the given layout circle 
+that are within, or within [delta](#delta) of, the [target hull](#target-colour))
+  - Area (pixels/mm², calculated using the provided scale)
+  - RGB (median values in RGB for the given target pixels).
+  - Lab (median values in Lab for the given target pixels).
+
+Processing time varies with many factors,
+however the most significant factor is currently layout detection.
+Processing takes about 30 seconds per image if including layout detection in our images,
+though this varies depending on layout complexity.
+
+Other factors that may noticeably affect processing time are
+image size (number of pixels) and
+hull complexity (number of points, convex vs. alpha hull). 
+Despite this, segmentation should still take just a few seconds per image 
+in typical conditions (e.g. 8MP image with <100 hull vertices) 
+
  
 ### Growth
 Relative growth rate (RGR) can be calculated as the log difference in area over a given span of time.
@@ -561,7 +590,6 @@ This value is relative to the first time point in the provided area file, in uni
 Data from subsequent timepoints will be excluded in preparing the line of best fit.
 
 
-
 ### Additional arguments available during launch only.
 #### Voxel size
 The default value for voxel size is 1. 
@@ -573,7 +601,8 @@ Voxel size is the resolution of the grid used to down-sample pixels to voxels.
 The default value for downscaling is 1, i.e. no downscaling. 
 This can be modified during launch with the --downscale argument.
 
-An integer value provided to --downscale  will reduce the image size before analysis.
+An integer value provided to --downscale  will reduce the image size before analysis, 
+i.e. a value of 2 will halve the image resolution in both dimensions.
 This can be useful to speed up the interface for larger images and is provided for testing
 or target hull construction from very large images. 
 Be warned, however, this isn't handled terribly well.

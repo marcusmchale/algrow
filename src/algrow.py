@@ -1,5 +1,6 @@
 import argparse
 import logging.config
+import sys
 
 from pathlib import Path
 from open3d.visualization import gui
@@ -16,27 +17,25 @@ logging.config.dictConfig(LOGGING_CONFIG)
 
 def algrow():
     arg_parser = options()
-    args = arg_parser.parse_args()
+    args, _ = arg_parser.parse_known_args()
+    #args = arg_parser.parse_args()  # parse_args breaks pyinstaller combination with multiprocessing
     args = postprocess(args)
 
     # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     Path(args.out_dir, 'algrow.log').touch(exist_ok=True)
+
     logger.warning(f"Start with: {arg_parser.format_values()}")
 
     if not configuration_complete(args):
-        logger.info("Launching configuration window")
+        logger.info("Launching AlGrow GUI")
         try:
             launch_gui(args)
         except Exception as e:
             logger.error(f"Error running GUI required for configuration: {e}")
             raise
-        if not configuration_complete(args):
-            logger.warning("Configuration is not complete")
-        else:
-            logger.info("Configuration complete")
-        logger.info("exiting")
-        quit()
+        logger.info("Exiting AlGrow GUI")
+        sys.exit()
 
     if args.images is not None:
         logger.info(f"Processing {len(args.images)} images")

@@ -1,9 +1,10 @@
 # setuptools==68.0.0
-configargparse~=1.5.5  # MIT
-numpy~=1.25.0  # BSD
-pandas~=2.0.3  # BSD 3-Clause
+# pyinstaller
+configargparse~=1.7  # MIT
+numpy~=1.26.2  # BSD
+pandas~=2.1.3  # BSD 3-Clause
 scipy~=1.11.1  # BSD
-scikit-image~=0.21.0 # BSD-3-Clause
+scikit-image~=0.22.0 # BSD-3-Clause
 alphashape~=1.3.1 # MIT
-matplotlib~=3.7.1  # BSD compatible based on the PSF license
+matplotlib~=3.8.2  # BSD compatible based on the PSF license
 open3d~=0.17.0

@@ -108,7 +108,7 @@ def area_worker(filepath, args, queue=None):
 
     hull_holder = HullHolder(args.hull_vertices, args.alpha)
     hull_holder.update_hull()
-
+    logger.debug("Prepare logging adapter")
     adapter = ImageFilepathAdapter(logging.getLogger(__name__), {'image_filepath': str(filepath)})
     adapter.debug(f"Processing file: {filepath}")
     result = ImageProcessor(filepath, hull_holder, args).get_area()
