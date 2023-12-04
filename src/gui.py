@@ -87,10 +87,10 @@ class AppWindow:
 
         # prepare widgets, layouts and panels
         self.labels = list()  # used to store and subsequently remove 3d labels - todo remove by type?
-        self.annotations = list()  # used to store and subsequently remove annotatios from image widget
+        self.annotations = list()  # used to store and subsequently remove annotations from image widget
 
-        logo_path = Path(Path(__file__).parent, "bmp", "logo.png")
-        logger.debug(f"{logo_path}")
+        logo_path = Path(Path(__file__).parent.parent, "bmp", "logo.png")
+        logger.debug(f"Looking for log at: {logo_path}")
         self.background_widget = gui.ImageWidget(str(logo_path))
         self.window.add_child(self.background_widget)
 
@@ -404,6 +404,8 @@ class AppWindow:
         # have to reset the cloud/voxel to image details as these won't map if layout is changed
         self.image.cloud = None
         self.image.voxel_to_image = None
+        # also need to clear the selection panel for the same reason
+        self.clear_selection()
 
         if layout is None:  # just so when this is called by the button it resets it, otherwise is updated elsewhere
             self.update_image_widget()
@@ -1175,14 +1177,14 @@ class AppWindow:
         return voxel_index
 
     def clear_selection(self, event=None):
-        if self.image is None or self.image.cloud is None or not self.image.voxel_indices:
+        if self.image is None or self.image.cloud is None or not self.image.selected_voxel_indices:
             return
 
-        selected_points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
+        selected_points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
         for lab in selected_points:
             self.remove_sphere(lab)
 
-        self.image.voxel_indices.clear()
+        self.image.selected_voxel_indices.clear()
         self.target_panel.button_pools['selection'].clear()
 
         self.update_hull()
@@ -1203,17 +1205,17 @@ class AppWindow:
         if self.hull_holder.mesh is not None:
             hull_vertices = self.hull_holder.hull.vertices
             to_remove = list()
-            for i in self.image.voxel_indices:
+            for i in self.image.selected_voxel_indices:
                 lab = self.image.cloud.points[i]
                 if lab not in hull_vertices:
                     lab_text = "({:.1f}, {:.1f}, {:.1f})".format(lab[0], lab[1], lab[2])
                     self.lab_widget.scene.remove_geometry(lab_text)
                     self.target_panel.button_pools['selection'].remove_button(i)
-                    to_remove.append((i, lab_text))
+                    to_remove.append((i, lab))
             logger.debug(f"Removing selected points: {len(to_remove)}")
-            for i, lab_text in to_remove:
-                self.image.voxel_indices.remove(i)
-                self.prior_lab.remove(lab_text)
+            for i, lab in to_remove:
+                self.image.selected_voxel_indices.remove(i)
+                self.remove_sphere(lab)
 
     def reduce_priors(self, event=None):
         if self.hull_holder.mesh is not None:
@@ -1235,7 +1237,7 @@ class AppWindow:
     def clear_circle_selection_and_save(self, _event=None):
         if self.image is None:
             return
-        self.image.circle_indices.clear()
+        self.image.selected_circle_indices.clear()
         self.circle_panel.button_pools['selection'].clear()
         self.save_circle_colour()  # just this is different from the below
         self.update_displayed_circle_colour()
@@ -1244,15 +1246,15 @@ class AppWindow:
     def clear_circle_selection(self):
         if self.image is None:
             return
-        self.image.circle_indices.clear()
+        self.image.selected_circle_indices.clear()
         self.circle_panel.button_pools['selection'].clear()
         self.update_displayed_circle_colour()
         self.update_image_widget()
 
 
     def save_circle_colour(self, event=None):
-        if self.image and self.image.circle_indices:
-            circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.circle_indices)]
+        if self.image and self.image.selected_circle_indices:
+            circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.selected_circle_indices)]
             circle_lab = tuple(np.median(circle_lab, axis=0))
             update_arg(self.args, "circle_colour", circle_lab)
             self.set_menu_enabled()
@@ -1443,13 +1445,13 @@ class AppWindow:
         logger.debug("toggle circle pixel")
         lab = self.image.lab.reshape(-1, 3)[pixel_index]
         rgb = self.image.rgb.reshape(-1, 3)[pixel_index]
-        if pixel_index in self.image.circle_indices:
+        if pixel_index in self.image.selected_circle_indices:
             logger.debug(f"remove pixel index: {pixel_index}")
-            self.image.circle_indices.remove(pixel_index)
+            self.image.selected_circle_indices.remove(pixel_index)
             self.circle_panel.button_pools['selection'].remove_button(pixel_index)
         else:
             logger.debug(f"add pixel index: {pixel_index}")
-            self.image.circle_indices.add(pixel_index)
+            self.image.selected_circle_indices.add(pixel_index)
             self.add_circle_button(pixel_index, lab, rgb)
         self.update_displayed_circle_colour()
         self.save_circle_colour()
@@ -1459,14 +1461,14 @@ class AppWindow:
         logger.debug(f"Toggle voxel: {voxel_index}")
         selected_lab = self.image.cloud.points[voxel_index]
         selected_rgb = self.image.cloud.colors[voxel_index]
-        if voxel_index in self.image.voxel_indices:
+        if voxel_index in self.image.selected_voxel_indices:
             logger.debug(f"Remove: {selected_lab}")
-            self.image.voxel_indices.remove(voxel_index)
+            self.image.selected_voxel_indices.remove(voxel_index)
             self.remove_sphere(selected_lab)
             self.target_panel.button_pools['selection'].remove_button(voxel_index)
         else:
             logger.debug(f"Add: {selected_lab}")
-            self.image.voxel_indices.add(voxel_index)
+            self.image.selected_voxel_indices.add(voxel_index)
             self.add_sphere(selected_lab, selected_rgb)
             self.add_voxel_button(voxel_index, selected_lab, selected_rgb)
         logger.debug("get selected points to update hull holder")
@@ -1529,18 +1531,18 @@ class AppWindow:
         self.update_image_widget()
 
     def update_hull(self):
-        logger.debug("Update hull")
-        if self.image.voxel_indices:
-            points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
+        logger.debug("Update hull in GUI")
+        if self.image.selected_voxel_indices:
+            points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
             points.extend(self.prior_lab)
         else:
             points = list(self.prior_lab)
 
         logger.debug(f"Update hull points {len(points)}")
         if len(points) > 0:
+            update_arg(self.args, "hull_vertices", list(map(tuple, points)))
             self.hull_holder = HullHolder(points, self.target_panel.get_value("alpha"))
             self.hull_holder.update_hull()
-            update_arg(self.args, "hull_vertices", list(map(tuple, self.hull_holder.points)))
         else:
             self.hull_holder = None
         self.draw_hull()
@@ -1834,7 +1836,7 @@ class AppWindow:
         if self.image is not None:
             logger.debug("Unload existing image and copy layout if found")
             if self.image.cloud is not None:
-                selected_points = self.image.cloud.select_by_index(list(self.image.voxel_indices)).points
+                selected_points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
                 self.clear_selection()
                 # add the previously selected points back as priors for the new plot
                 for lab in selected_points:
@@ -2031,7 +2033,8 @@ class AppWindow:
         logger.info(f"Load configuration parameters from conf file: {str(filepath)}")
         try:
             parser = options(filepath)
-            args = parser.parse_args()
+            args, _ = parser.parse_known_args()
+            #args = parser.parse_args()
             logger.debug("Update args")
             args = postprocess(args)
             update_arg(args, "images", self.args.images)  # we don't update this from the file

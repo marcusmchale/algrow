@@ -21,12 +21,11 @@ from skimage.feature import canny
 from scipy.cluster import hierarchy
 
 from .logging import ImageFilepathAdapter
-from .options import DebugEnum, layout_defined
+from .options import DebugEnum
 from .figurebuilder import FigureBase, FigureMatplot, FigureNone
 from .layout import Plate, Layout, ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection
 
-from typing import Optional, List, Tuple, Set
-
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -86,25 +85,6 @@ class ImageLoaded:
         self._layout_overlay = None
         self._layout_mask = None
         self.layout = None
-
-        # disabling the below, no need to detect layout when loaded, do it when desired only
-        # todo confirm this doesn't break anything
-        # if it is needed we need to make sure we check for it and reload it all the time
-        #if self.args.fixed_layout is not None:
-        #    layout_loader = LayoutLoader(self)
-        #    try:
-        #        self.layout = layout_loader.get_layout()
-        #    except:  # todo consider what might cause this to fail, types of exceptions etc.
-        #        self.layout = None
-        #elif self.args.detect_layout and layout_defined(self.args):
-        #    layout_detector = LayoutDetector(self)
-        #    try:
-        #        self.layout = layout_detector.get_layout()
-        #    except (ExcessPlatesException, InsufficientPlateDetection, InsufficientCircleDetection) as e:
-        #        self.logger.debug(f"Failed to detect layout: {e}")
-        #        self.layout = None
-        #else:
-        #    self.layout = None
 
     def __hash__(self):
         return hash(self.filepath)
@@ -208,8 +188,8 @@ class ImageFigureBuilder:
                     ".".join(["_".join([Path(self.image_filepath).stem, str(self.counter), label]), suffix])
                 ))
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            if image.dtype=='bool':
-                img = img_as_ubyte(image)
+            if image.dtype == 'bool':
+                image = img_as_ubyte(image)
             imsave(save_path, image)
         else:
             logger.debug(f"Not saving image as image debug level is set above the level for this image: {label}")
@@ -241,20 +221,9 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
         self.true_mask: Optional[MaskLoaded] = None  # a boolean mask of self.height * self.width
 
         self.target_mask: Optional[np.ndarray] = None  # a boolean mask of same shape as image
-        self.voxel_indices = set()  # a list of voxel indices selected
-        self.circle_indices = set()  # a set of indices in the image that were selected to define circle colour
+        self.selected_voxel_indices = set()  # a list of voxel indices selected
+        self.selected_circle_indices = set()  # a set of indices in the image that were selected to define circle colour
 
-        # todo add layout mask to reduce pixels to calculate distance etc.
-        #  this will also clean up the point cloud by removing a lot of background
-
-        # restrict zooming to perfect zooms, i.e. whole numbers of pixels with fixed ratio
-        # we don't want to handle interpolation/cropping for now
-        # calculate list of divisors for zooming
-        #self.divisors = list()
-        #gcd = np.gcd(self.height, self.width)
-        #for i in range(1, gcd+1):
-        #    if gcd % i == 0:
-        #        self.divisors.append(int(i))
         self.divisors = np.logspace(0, 10, num=11, base=2, dtype=int)
         self.zoom_index = 0
         self.displayed_start_x = 0
@@ -363,9 +332,9 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
             logger.debug("Highlight pixels within delta of target hull")
             displayed[self.target_mask] = target_colour
 
-        if selected_colour is not None and self.voxel_indices:
+        if selected_colour is not None and self.selected_voxel_indices:
             logger.debug("Highlight pixels from selected voxels")
-            selected = [j for i in list(self.voxel_indices) for j in self.voxel_to_image[i]]
+            selected = [j for i in list(self.selected_voxel_indices) for j in self.voxel_to_image[i]]
             displayed.reshape(-1, 3)[selected] = selected_colour
 
         if self.layout is not None:

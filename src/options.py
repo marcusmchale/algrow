@@ -114,15 +114,16 @@ arg_types = {
 
 # Parse command-line arguments
 def options(filepath=None):
-    config_dir = Path(Path(__file__).parent.parent, "conf.d")
-    config_files = config_dir.glob("*.conf")
-    config_files = [str(i) for i in config_files]
+    #config_dir = Path(Path(__file__).parent.parent, "conf.d")
+    #config_files = config_dir.glob("*.conf")
+    #config_files = [str(i) for i in config_files]
+    config_files = list()
     if filepath is not None:
         config_files.append(filepath)
     parser = ArgumentParser(
         default_config_files=[str(i) for i in config_files],
     )
-    parser.add_argument("-c", "--conf", help="Config file path", is_config_file=True, type=arg_types["conf"])
+    parser.add_argument("--conf", help="Config file path", is_config_file=True, type=arg_types["conf"])
     parser.add_argument(
         "-i", "--images",
         help="Input image file or directory",
@@ -168,7 +169,8 @@ def options(filepath=None):
     parser.add_argument(
         "--filename_regex",
         help="Regex pattern to capture named groups from filename (year, month, day, hour, minute, second, block)",
-        type=arg_types["filename_regex"]
+        type=arg_types["filename_regex"],
+        default=".*(?P<year>[0-9]{4})-(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12][0-9]|3[01])_(?P<hour>[01][0-9]|2[0-4])h(?P<minute>[0-5][0-9])m_(?P<block>[a-z|A-Z|0-9]*).*"
     )
     parser.add_argument(
         "--circle_colour",
@@ -198,13 +200,13 @@ def options(filepath=None):
     parser.add_argument(
         "--remove",
         help="Set remove size (px)",
-        default=100,
+        default=0,
         type=arg_types["remove"]
     )
     parser.add_argument(
         "--fill",
         help="Set fill size (px)",
-        default=100,
+        default=0,
         type=arg_types["fill"]
     )
     parser.add_argument(

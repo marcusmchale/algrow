@@ -8,7 +8,7 @@ version = "0.5"
 authors = [
   { name="Marcus McHale", email="marcus.mchale@universityofgalway.ie" },
 ]
-description = "Alpha shape defined colourspace for automated growth rate determination in multiplexed images"
+description = "Image segmentation using alpha hulls, plus automated annotation and growth analysis"
 readme = "README.md"
 license = { file="LICENSE.txt" }
 requires-python = ">=3.9"  # tested with 3.9 and 3.10 #todo test with 3.12
@@ -18,7 +18,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    [
+    [  # todo consider pinning these, for now leave it open but haven't really established minimum versions
         "configargparse",
         "numpy",
         "pandas",
