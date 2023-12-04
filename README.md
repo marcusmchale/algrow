@@ -1,4 +1,3 @@
-
 # AlGrow
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
@@ -7,29 +6,45 @@
 
 Algrow is a software tool for automated image annotation, segmentation and analysis. 
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
-to support macro-algal disc phenotyping in the 
+to support macro-algal disc and plant growth phenotyping in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
 at the [University of Galway](https://www.universityofgalway.ie/). 
-AlGrow also has demonstrated utility in plant phenotyping.
 
 Features:
-  - Interfaces:
-    - Graphical interface for configuration and analysis in desktop environments ([guide](./guide.md)) 
-    - Command line interface for subsequent high-throughput analysis
-  - Segmentation
-    - Uses the convex/concave hull from selected target points to define the boundaries of target colour space.
-    - A deterministic model of target colour that improves on fixed threshold classification and performs
-    - Performs 
-  - 
-  - Annotation 
-    - Automated target detection using surrounding circles (pots/rings)
-    - Supports multiplexed images with some target movement.
-  - Quality-control and debugging image outputs
+  - Improved deterministic model for colour-based image segmentation
+    - Hulls (convex or alpha) flexibly define the target colour volume in a given 3D colour space
+      - Fixed thresholds are implicitly cubic selections
+      - Target means/kMeans are implicitly spherical selections
+    - Hulls can be intuitively trained by a user clicking on any currently unselected target regions.
+      - Either in the original image OR in the 3D projection of Lab colourspace
+      - Delta parameter generalises the model
+      - The same hull is easily shared/trained across multiple images
+    - Faster than many clustering or learning approaches 
+      - GPU support through Open3D
+    - Suitable for developing ground truth images OR analysing large datasets.
+  - Automated annotation
+    - Automated target region detection using surrounding circles (e.g. typical pots)
+    - Relative indexation, supports:
+      - Multiple target units within arrays (plates/trays)
+      - Multiple arrays of units (plates/trays)
+      - Movement, provided relative positions are maintained
+      - Rotation, snaps plates/trays to nearest image axis alignment 
+    - Optionally expand target area outside detected target circle (--circle_expansion)
+    - Alternative fixed target layout, custom target layout, or whole image processing.
+  - Statistical analysis
+    - Growth rate determination from slope of linear model of log-transformed area over time.
+    - Outlier identification by assessing model fit parameters (RSS)
+  - Interfaces (GUI/CLI)
+    - Graphical interface is provided for configuration and analysis in desktop environments ([guide](./guide.md)) 
+    - Command line interface is provided for subsequent high-throughput analyses
+  - Quality-control (3 levels)
+    - DEBUG, many figures are generated, including; circle detection and clustering dendrograms for annotation.
+    - INFO, just the image mask and a summary overlay with outlined target and annotated indices.
+    - WARN, no debug images generated.
 
 ## Get started
 apt install python3.10
 apt install python3.10-venv
-
 
 ### Install a chosen distribution
 Download 
@@ -111,19 +126,23 @@ Although this strategy is widely used in plant phenotyping, it suffers in less c
 subject may not always be readily distinguished from background. For example, in our apparatus for Ulva phenotyping, 
 microalgal growth occupies a similar colourspace to the Ulva subject. Similarly, in our apparatus for Palmaria phenotying,
 leaching pigments can accumulate on the surface of nylon mesh making the distinction of these colours more difficult.
-These colour gradients also result in poor performance for existing solutions like kmeans clustering (e.g. KmSeg).
+These colour gradients also result in poor performance for existing solutions like kmeans clustering (e.g. KmSeg),
+due to poorly defined decision boundaries.
 
-To more allow user supervised definition of the target colourspace, we have developed in AlGrow, an interactive GUI.
+To allow user supervised definition of the target colour decision boundary,
+we have developed AlGrow, with an interactive graphical user interface (GUI).
 In this interface, the pixel colours are presented in a 3-dimensional (3D) plot in Lab colourspace. 
-Colours can be selected either in this 3D plot or from the source image. When sufficient colours are selected (>=4), 
-a hull can be generated, either the convex hull or an alpha hull which permits concave surfaces and disjoint regions. 
+Colours can be selected by shift-clicking, either in this 3D plot or on the source image. 
+When sufficient colours are selected (>=4), a 3D-hull can be generated, 
+either the convex hull or an alpha hull which permits concave surfaces and disjoint regions. 
 
 To automate annotation, we implemented a strategy to detect circular regions of high contrast.
-This readily detects the subjects in our apparatus, due to high contrast holding rings (now paint-marker applied to the apparatus)
+This readily detects the subjects in our apparatus, 
+due to high contrast holding rings (now paint-marker applied to the apparatus)
 but also the circular surface of typical plant pots.
 We then cluster these circles into plates/trays and assign indices based on relative positions. 
 Importantly, this method of relative indexation supports movement of plates and trays across an image series, 
-easing the previously time-consuming process.
+replacing a previously time-consuming process.
 
 # Issues specific to prior strategy
 Manual adjustment of fixed thresholds for segmentation in ImageJ is time-consuming and
