@@ -1179,8 +1179,8 @@ class AppWindow:
     def clear_selection(self, event=None):
         if self.image is None or self.image.cloud is None or not self.image.selected_voxel_indices:
             return
-
         selected_points = np.asarray(self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points)
+
         for lab in selected_points:
             self.remove_sphere(lab)
 

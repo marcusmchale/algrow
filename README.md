@@ -85,6 +85,36 @@ pip install dist/algrow-0.3-py3-none-any.whl
 ```
 Build
 ```python3 -m build```
+<<<<<<< HEAD
+=======
+
+### PyInstaller
+Make sure to include licenses for all dependencies if packaging a binary for distribution.
+#### On linux
+Create the relevant virtual environment and make sure pyinstaller is installed
+```
+python3 -m venv venv
+. ./venv/bin/activate
+pip install -r REQUIREMENTS.txt
+pip install pyinstaller
+```
+Install the following to the system
+```
+sudo apt install libspatialindex-dev
+```
+Then run pyinstaller in the algrow root path
+You might want to check the path of libspatialindex files
+```
+pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
+--add-data=bmp/logo.png:./bmp/ \
+--add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
+--add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
+--add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
+--add-data=/lib/x86_64-linux-gnu/libspatialindex*:. \
+--hidden-import='PIL._tkinter_finder' \
+algrow.py
+```
+>>>>>>> d771002407247c90a8a30f1d815463a31b8570a8
 
 ### PyInstaller
 Make sure to include licenses for all dependencies if packaging a binary for distribution.
