@@ -1180,7 +1180,7 @@ class AppWindow:
         if self.image is None or self.image.cloud is None or not self.image.selected_voxel_indices:
             return
 
-        selected_points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
+        selected_points = np.asarray(self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points)
         for lab in selected_points:
             self.remove_sphere(lab)
 
@@ -1535,6 +1535,7 @@ class AppWindow:
         if self.image.selected_voxel_indices:
             points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
             points.extend(self.prior_lab)
+            points = np.asarray(points)
         else:
             points = list(self.prior_lab)
 
@@ -1836,7 +1837,7 @@ class AppWindow:
         if self.image is not None:
             logger.debug("Unload existing image and copy layout if found")
             if self.image.cloud is not None:
-                selected_points = self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points
+                selected_points = np.asarray(self.image.cloud.select_by_index(list(self.image.selected_voxel_indices)).points)
                 self.clear_selection()
                 # add the previously selected points back as priors for the new plot
                 for lab in selected_points:
@@ -1903,7 +1904,7 @@ class AppWindow:
         center = bbox.get_center()
         bbox_geom = o3d.geometry.OrientedBoundingBox().create_from_axis_aligned_bounding_box(bbox)
         lineset = o3d.geometry.LineSet().create_from_oriented_bounding_box(bbox_geom)
-        to_remove = np.unique([np.asarray(line) for line in lineset.lines if ~np.any(line == 0)], axis=1)
+        to_remove = np.unique([np.asarray(line) for line in np.asarray(lineset.lines) if ~np.any(line == 0)], axis=1)
         [lineset.lines.remove(line) for line in to_remove]
         for i in range(1, 4):
             point = lineset.points[i]

@@ -334,7 +334,7 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
 
         if selected_colour is not None and self.selected_voxel_indices:
             logger.debug("Highlight pixels from selected voxels")
-            selected = [j for i in list(self.selected_voxel_indices) for j in self.voxel_to_image[i]]
+            selected = [j for i in list(self.selected_voxel_indices) for j in np.asarray(self.voxel_to_image[i])]
             displayed.reshape(-1, 3)[selected] = selected_colour
 
         if self.layout is not None:
