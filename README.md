@@ -85,36 +85,6 @@ pip install dist/algrow-0.3-py3-none-any.whl
 ```
 Build
 ```python3 -m build```
-<<<<<<< HEAD
-=======
-
-### PyInstaller
-Make sure to include licenses for all dependencies if packaging a binary for distribution.
-#### On linux
-Create the relevant virtual environment and make sure pyinstaller is installed
-```
-python3 -m venv venv
-. ./venv/bin/activate
-pip install -r REQUIREMENTS.txt
-pip install pyinstaller
-```
-Install the following to the system
-```
-sudo apt install libspatialindex-dev
-```
-Then run pyinstaller in the algrow root path
-You might want to check the path of libspatialindex files
-```
-pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---add-data=bmp/logo.png:./bmp/ \
---add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
---add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
---add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
---add-data=/lib/x86_64-linux-gnu/libspatialindex*:. \
---hidden-import='PIL._tkinter_finder' \
-algrow.py
-```
->>>>>>> d771002407247c90a8a30f1d815463a31b8570a8
 
 ### PyInstaller
 Make sure to include licenses for all dependencies if packaging a binary for distribution.
@@ -150,7 +120,7 @@ pyinstaller -n algrow_0.5_osx --onefile --paths src/ --clean --noconfirm --log-l
 --add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
 --hidden-import='PIL._tkinter_finder' \
 algrow.py
-```
+``` 
 
 ## The long story...
 
@@ -254,30 +224,9 @@ The AlGrow application was developed to;
    - maybe consider them as separate masks for target selection, taking the overlap.
 
 # TODO
-  - write documentation
-  - package as installer
+  - change area file handling to have distinct values for input/output
+    - this is important for user experience in the GUI
   - Evaluate/test
     - use kmseg to generate ground truth images and evaluate classification accuracy, naiive kmseg vs corrected with algrow. 
     - test across images with the trained hull. c.f. ML. classifiers.
     - test interaction between true-mask and layout-mask
-
-# Note 
--  that these interactive representations of pixel colour can improve:
-  - understanding of colour representations that can then be feed back into design of imaging apparatus
-    - e.g. overlapping clusters 
- - AlGrow is successful where km-seg fails to accurately separate clusters
-   - i.e. a decision boundary is required that is not reliably determined by k-means clustering
-   - both rely on supervision
-   - Algrow also works across images without need to train another model.  
-  
- - Algrow did not use other colour representations (RGB, HSV) as Lab benefits from mostly uniform distance (delta E) 
-    - However the alpha hull concept would still be useful in other colourspaces 
-    - We did not use more advanced delta E calculations, favouring the simplicity of euclidean distance.
- 
-  - the reduce function (removing points not in the hull) with alphashape
-    - the Delaunay triangulation is then modified! 
-    - This means the alpha hull is then selected from a different set of triangles
-    - this frequently results in non-watertight structures 
-      raising the alpha can help to recover from this.
-  - the alpha hull allows for multiple disconnected regions
-   - handy for subjects with mixed colours for tissues, e.g. stems, leaves, flowers, diseased/stressed/exposed tissues.

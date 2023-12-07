@@ -7,7 +7,8 @@ from pathlib import Path
 
 from skimage.color import lab2rgb
 from matplotlib import gridspec,  animation, patheffects
-from matplotlib.figure import Figure, Axes
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 from matplotlib.patches import Circle
 from scipy.cluster import hierarchy
 from skimage.morphology import binary_erosion

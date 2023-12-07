@@ -2039,7 +2039,9 @@ class AppWindow:
             logger.debug("Update args")
             args = postprocess(args)
             update_arg(args, "images", self.args.images)  # we don't update this from the file
-            update_arg(args, "area_file", Path(self.args.out_dir, "area.csv").resolve())  # reconstruct this from the new out_dir
+            if args.area_file is None:
+                update_arg(args, "area_file", Path(self.args.out_dir, "area.csv").resolve())
+                # reconstruct this from the new out_dir
             self.args = args
             self.load_all_parameters()
             self.set_menu_enabled()

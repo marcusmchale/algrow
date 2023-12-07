@@ -2,8 +2,10 @@
 import logging
 from pandas import read_csv, to_datetime, merge, Timedelta
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
+
 
 from pathlib import Path
 
@@ -164,30 +166,25 @@ class AreaAnalyser:
         mean_rgr["RGR"].to_csv(mean_rgr_out)
         if rgr_plot:
             figsize = ((len(set(self.df.Group)) / 10 + 5), 5)  # tuple of (width, heighqt) in inches
-            fig, ax = plt.subplots()
-            summary.boxplot("RGR", by="Group", rot=90, figsize=figsize )
-            plt.tight_layout()
-            plt.savefig(Path(outdir, "Figures", "RGR.png"))
-            plt.close(fig)
+            fig = Figure()
+            ax = fig.add_subplot()
+            summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
+            fig.savefig(str(Path(outdir, "Figures", "RGR.png")), dpi=300)
             # similar plot with model fit outliers removed
-            fig, ax = plt.subplots()
+            fig = Figure()
+            ax = fig.add_subplot()
             sub_summary = summary[~summary.ModelFitOutlier]
-            sub_summary.boxplot("RGR", by="Group", rot=90, figsize=figsize)
-            plt.title("RGR (low quality models removed)")
-            plt.tight_layout()
-            plt.savefig(Path(outdir, "Figures", "RGR_less_outliers.png"))
-            plt.close(fig)
+            sub_summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
+            fig.savefig(str(Path(outdir, "Figures", "RGR_ModelFitOutliers_removed.png")), dpi=300)
         if group_plots:
             group_plot_dir = Path(outdir, "Figures", "group_plots")
             group_plot_dir.mkdir(parents=True, exist_ok=True)
             for group in set(self.df.Group):
-                #to_plot_fit = summary[(summary.Group == group) & ~summary.ModelFitOutlier].index.to_list()
+                fig = Figure()
+                ax: Axes = fig.add_subplot()
                 to_plot_fit = summary[(summary.Group == group)].index.to_list()
                 outliers = summary[summary.ModelFitOutlier].index.to_list()
-                fig, ax = plt.subplots()
                 self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers=outliers)
-                plt.tight_layout()
-                plt.savefig(Path(group_plot_dir, f"{group}.png"))
-                plt.close(fig)
+                fig.savefig(str(Path(group_plot_dir, f"{group}.png")))
 
 
