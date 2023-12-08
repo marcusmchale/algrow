@@ -36,7 +36,7 @@ class HullHolder:
         self.update_hull()
 
     def update_hull(self):
-        logger.debug("Update hull")
+        logger.debug(f"Update hull with  {len(self.points)} vertices")
         if len(self.points) < 4:
             self.scene = None
             self.mesh = None
@@ -44,7 +44,7 @@ class HullHolder:
         else:
             logger.debug("Constructing hull")
             if self.alpha is None or self.alpha == 0:
-                logger.debug("Constructing convex hull")
+                logger.debug(f"Constructing convex hull")
                 # the api for alphashape is a bit strange,
                 # it returns a shapely polygon when alpha is 0
                 # rather than a trimesh object which is returned for other values of alpha

@@ -14,7 +14,7 @@ from skimage.util import img_as_bool, img_as_ubyte, img_as_float64 as img_as_flo
 # https://github.com/isl-org/Open3D/issues/4832
 # Float 64 is better for the point cloud,
 # but we are casting back to 32 bit for the distance calculations...
-from skimage.color import rgb2lab, gray2rgb, deltaE_cie76
+from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76
 from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
 
@@ -190,7 +190,7 @@ class ImageFigureBuilder:
             save_path.parent.mkdir(parents=True, exist_ok=True)
             if image.dtype == 'bool':
                 image = img_as_ubyte(image)
-            imsave(save_path, image)
+            imsave(save_path, image, check_contrast=False)
         else:
             logger.debug(f"Not saving image as image debug level is set above the level for this image: {label}")
 
@@ -198,8 +198,9 @@ class ImageFigureBuilder:
 class MaskLoaded:
     def __init__(self, filepath: Path):
         self.filepath = filepath
-        self.mask = img_as_bool(imread(str(filepath)))
+        self.mask = img_as_bool(rgb2gray(imread(str(filepath))))
         if self.mask.ndim != 2:
+            import pdb; pdb.set_trace()
             logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {self.mask.shape}")
             raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
 
@@ -535,17 +536,22 @@ class LayoutDetector:
         hough_result = self.hough_circles(self.distance, hough_radii)
         min_distance = int(self.args.circle_diameter * (1 - allowed_overlap))
         self.logger.debug(f"minimum distance allowed between circle centers: {min_distance}")
-        _accum, cx, cy, rad = hough_circle_peaks(
+        accum, cx, cy, rad = hough_circle_peaks(
             hough_result,
             hough_radii,
             min_xdistance=min_distance,
             min_ydistance=min_distance
         )
+        # sort by the accumulator value here, so can preselect the most likely by being the strongest later if needed
+        # just in case the result isn't always returned in order,
+        # seems to be though, consider removing this additional processing,
+        # but check the API for hough_circle_peaks first
+        accum_order = np.flip(np.argsort(accum))
         # note the expansion factor appplied below to increase the search area for mask/superpixels
         self.logger.debug(f"mean detected circle radius: {np.around(np.mean(rad), decimals=0)}")
         circles = np.dstack(
             (cx, cy, np.repeat(int((self.args.circle_diameter / 2) * (1 + self.args.circle_expansion)), len(cx)))
-        ).squeeze(axis=0)
+        ).squeeze(axis=0)[accum_order]
 
         fig.plot_image(self.image.rgb, f"Circle detection")
         for c in circles:
@@ -562,8 +568,8 @@ class LayoutDetector:
 
     def find_plate_clusters(self, circles, cluster_size, n, fig: FigureBase):
         if cluster_size == 1:
-            logger.debug("Clusters of size one cannot be filtered")
-            return range(len(circles)), range(len(circles))
+            logger.debug("Clusters of size one cannot be filtered returning the best matching circles")
+            return range(len(circles)), range(0, n)
         centres = np.delete(circles, 2, axis=1)
         cut_height = int(
             (self.args.circle_diameter + self.args.circle_separation) * (1 + self.args.circle_separation_tolerance)
