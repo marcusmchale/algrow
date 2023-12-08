@@ -108,7 +108,8 @@ arg_types = {
     "plates_bottom_top": bool,
     "circles_cols_first": bool,
     "circles_right_left": bool,
-    "circles_bottom_top": bool
+    "circles_bottom_top": bool,
+    "denoise": bool
 }
 
 
@@ -331,6 +332,11 @@ def options(filepath=None):
         help="Downscale by this factor",
         type=arg_types["downscale"],
         default=1
+    )
+    parser.add_argument(
+        "--denoise",
+        help="Denoise using bilateral filter",
+        action='store_true'
     )
     return parser
 

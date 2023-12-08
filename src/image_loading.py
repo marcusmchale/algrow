@@ -14,9 +14,11 @@ from skimage.util import img_as_bool, img_as_ubyte, img_as_float64 as img_as_flo
 # https://github.com/isl-org/Open3D/issues/4832
 # Float 64 is better for the point cloud,
 # but we are casting back to 32 bit for the distance calculations...
-from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76
+from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76, lab2rgb
 from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
+from skimage.filters import gaussian
+from skimage.restoration import denoise_bilateral
 
 from scipy.cluster import hierarchy
 
@@ -56,6 +58,13 @@ class ImageLoaded:
         rgb_fig = self.figures.new_figure("RGB image")
         rgb_fig.plot_image(self.rgb, "RGB image")
         rgb_fig.print()
+
+        self.logger.debug(f"Denoise")
+        if self.args.denoise:
+            self.rgb = denoise_bilateral(self.rgb, channel_axis=-1, sigma_color=1, sigma_spatial=0.5, mode='edge')
+            rgb_denoise_fig = self.figures.new_figure(f"RGB denoised")
+            rgb_denoise_fig.plot_image(self.rgb)
+            rgb_denoise_fig.print()
 
         self.logger.debug(f"Convert to Lab")
         self.lab = rgb2lab(self.rgb)
@@ -200,7 +209,6 @@ class MaskLoaded:
         self.filepath = filepath
         self.mask = img_as_bool(rgb2gray(imread(str(filepath))))
         if self.mask.ndim != 2:
-            import pdb; pdb.set_trace()
             logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {self.mask.shape}")
             raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
 
@@ -303,6 +311,7 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
         self.layout = layout
         self._image._layout_mask = None
         self._image._layout_overlay = None
+        self.selected_voxel_indices = set()
 
     def apply_zoom(self, image):
         if self.zoom_factor != 1:

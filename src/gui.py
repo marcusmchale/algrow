@@ -402,10 +402,10 @@ class AppWindow:
             self.layout_panel.buttons["save fixed layout"].enabled = False
         self.image.change_layout(layout)
         # have to reset the cloud/voxel to image details as these won't map if layout is changed
+        self.clear_selection()
         self.image.cloud = None
         self.image.voxel_to_image = None
         # also need to clear the selection panel for the same reason
-        self.clear_selection()
 
         if layout is None:  # just so when this is called by the button it resets it, otherwise is updated elsewhere
             self.update_image_widget()
@@ -1877,20 +1877,25 @@ class AppWindow:
             self.target_panel.get_value("min pixels"),
             self.args.voxel_size
         )
+        hh.update_hull()
         if hh is None:
-            return
+            return None
+
         elif hh.hull is not None:
+            logger.debug("Hull holder from vertices")
             points = hh.hull.vertices
         else:
+            logger.debug("Hull holder from points")
             points = hh.points
 
         hull_vertices_string = f'{[",".join([str(j) for j in i]) for i in points]}'.replace("'", '"')
-        logger.debug(f"Hull vertices from mask: {hull_vertices_string}")
+        logger.debug(f"Hull vertices or points from mask: {hull_vertices_string}")
         for lab in points:
             lab = tuple(lab)
-            self.add_prior(lab)  # consider running from thread
+            self.add_prior(lab)
         self.update_lab_widget()
         self.update_image_widget()
+
 
     def setup_lab_axes(self):
         logger.debug("Setup axes")

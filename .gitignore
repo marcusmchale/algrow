@@ -6,3 +6,4 @@ build/
 algrow.egg-info/
 /publication/
 /dist/
+/*.spec
