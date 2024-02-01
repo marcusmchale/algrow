@@ -20,7 +20,6 @@ def algrow():
     args, _ = arg_parser.parse_known_args()
     #args = arg_parser.parse_args()  # parse_args breaks pyinstaller combination with multiprocessing
     args = postprocess(args)
-
     # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     Path(args.out_dir, 'algrow.log').touch(exist_ok=True)

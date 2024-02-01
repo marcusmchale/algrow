@@ -144,7 +144,7 @@ then in a normal windows cmd, activate the venv and install everything
 
 ```
 python -m venv venv
-.\venv\Scripts\Activate.ps1
+venv\Scripts\Activate  # if in powershell use activate.ps1
 pip install msvc-runtime 
 pip install pyinstaller
 pip install -r REQUIREMENTS.txt
@@ -155,7 +155,7 @@ Then run pyinstaller
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN 
 --name algrow_0_5_0_win10 
---icon=.\bmp\icon.ico 
+--icon=bmp\icon.ico 
 --add-data=bmp\logo.png:.\bmp\ 
 --add-data=venv\lib\site-packages\open3d\resources:.\open3d\resources
 algrow.py

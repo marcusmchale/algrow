@@ -17,7 +17,6 @@ from skimage.util import img_as_bool, img_as_ubyte, img_as_float64 as img_as_flo
 from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76, lab2rgb
 from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
-from skimage.filters import gaussian
 from skimage.restoration import denoise_bilateral
 
 from scipy.cluster import hierarchy
@@ -61,7 +60,7 @@ class ImageLoaded:
 
         self.logger.debug(f"Denoise")
         if self.args.denoise:
-            self.rgb = denoise_bilateral(self.rgb, channel_axis=-1, sigma_color=1, sigma_spatial=0.5, mode='edge')
+            self.rgb = denoise_bilateral(self.rgb, channel_axis=-1, sigma_color=1, sigma_spatial=1, mode='edge')
             rgb_denoise_fig = self.figures.new_figure(f"RGB denoised")
             rgb_denoise_fig.plot_image(self.rgb)
             rgb_denoise_fig.print()
@@ -207,10 +206,14 @@ class ImageFigureBuilder:
 class MaskLoaded:
     def __init__(self, filepath: Path):
         self.filepath = filepath
-        self.mask = img_as_bool(rgb2gray(imread(str(filepath))))
-        if self.mask.ndim != 2:
-            logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {self.mask.shape}")
-            raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
+        img = imread(str(filepath))
+        if img.ndim > 2:
+            img = rgb2gray(img)
+            if img.ndim >2:
+                logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {img.shape}")
+                raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
+        self.mask = img_as_bool(img)
+
 
 
 class CalibrationImage:  # an adapter to allow zooming and hold other features that are only needed during calibration
@@ -575,28 +578,44 @@ class LayoutDetector:
             f"{str(circles.shape[0])} circles found")
         return circles
 
-    def find_plate_clusters(self, circles, cluster_size, n, fig: FigureBase):
-        if cluster_size == 1:
-            logger.debug("Clusters of size one cannot be filtered returning the best matching circles")
-            return range(len(circles)), range(0, n)
+    def find_plate_clusters(self, circles, cluster_sizes, n_plates, fig: FigureBase):
+        # find the largest clusters first:
         centres = np.delete(circles, 2, axis=1)
         cut_height = int(
             (self.args.circle_diameter + self.args.circle_separation) * (1 + self.args.circle_separation_tolerance)
         )
-        self.logger.debug(f"cut height: {cut_height}")
-        self.logger.debug("Create dendrogram of centre distances (linkage method)")
+        self.logger.debug(f"Create dendrogram of centre distances (linkage method) and cut at: {cut_height}")
         dendrogram = hierarchy.linkage(centres)
+        clusters = hierarchy.cut_tree(dendrogram, height=cut_height).flatten()
+        unique, counts = np.unique(clusters, return_counts=True)
         fig.plot_dendrogram(dendrogram, cut_height, label="Plate clusters")
-        self.logger.debug(f"Cut the dendrogram and select clusters containing {cluster_size} centre points only")
-        clusters = hierarchy.cut_tree(dendrogram, height=cut_height)
-        unique, counts = np.array(np.unique(clusters, return_counts=True))
-        target_clusters = unique[[i for i, j in enumerate(counts.flat) if j == cluster_size]]
-        self.logger.debug(f"Found {len(target_clusters)} plates")
-        if len(target_clusters) < n:
-            raise InsufficientPlateDetection(f"Only {len(target_clusters)} plates found")
-        elif len(target_clusters) > n:
-            raise ExcessPlatesException(f"More than {n} plates found")
-        return clusters.flatten(), target_clusters
+        target_cluster_indices = list()
+        cluster_sizes.sort(reverse=True)  # make sure we do size 1's last
+        n_found = 0
+        for n in cluster_sizes:
+            logger.debug(f"Find clusters of size: {n}")
+            for i, count in enumerate(counts):
+                if count == n:
+                    if n == 1:
+                        logger.debug("Clusters of size one cannot be filtered returning the next best matching circles")
+                        # add next best to make total circles
+                        # the circles are sorted by best matches, so we can return the top non matching ones.
+                        # return range(len(circles)), range(0, n)
+                        for c in clusters:
+                            if n_found == self.args.circles:
+                                break
+                            if c not in target_cluster_indices and counts[np.argwhere(unique == c)[0]][0] == 1:
+                                target_cluster_indices.append(c)
+                                n_found += 1
+                    else:
+                        target_cluster_indices.append(unique[i])
+                        n_found += n
+
+        if len(target_cluster_indices) < n_plates:
+            raise InsufficientPlateDetection(f"Only {len(target_cluster_indices)} plates found")
+        elif len(target_cluster_indices) > n_plates:
+            raise ExcessPlatesException(f"More than {n_plates} plates found: {len(target_cluster_indices)}")
+        return clusters, target_cluster_indices
 
     def find_plates(self, custom_fig=None):
         if custom_fig is None:
@@ -606,7 +625,8 @@ class LayoutDetector:
             logger.debug("")
             fig = custom_fig
             print_fig = False
-        circles = self.find_n_circles(self.args.circles_per_plate * self.args.plates, fig)
+
+        circles = self.find_n_circles(self.args.circles, fig)
         clusters, target_clusters = self.find_plate_clusters(
             circles,
             self.args.circles_per_plate,

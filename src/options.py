@@ -101,6 +101,7 @@ arg_types = {
     "circle_separation": float,
     "circle_separation_tolerance": float,
     "plate_width": float,
+    "circles": int,
     "circles_per_plate": int,
     "plates": int,
     "plates_cols_first": bool,
@@ -253,16 +254,23 @@ def options(filepath=None):
         type=arg_types["plate_width"]
     )
     parser.add_argument(
-        "--circles_per_plate",
-        help="In plate clustering, the number of circles per plate",
+        "--circles",
+        help="The total number of circles to detect",
         default=None,
-        type=arg_types["circles_per_plate"]
+        type=arg_types["circles"]
     )
     parser.add_argument(
         "--plates",
         help="In plate layout, the number of plates per image",
         default=None,
         type=arg_types["plates"]
+    )
+    parser.add_argument(
+        "--circles_per_plate",
+        help="In plate clustering, the number of circles per plate (multiple may be specified)",
+        default=None,
+        type=arg_types["circles_per_plate"],
+        action='append'
     )
     parser.add_argument(
         "--plates_cols_first",
@@ -389,7 +397,7 @@ def update_arg(args, arg, val, temporary=False):
 
             # coerce to known type:
             try:
-                if arg == 'images':  # this arg parser returns a list of paths
+                if arg_types[arg] == image_path:  # this arg parser returns a list of paths
                     val = arg_types[arg](val)
                 else:
                     val = [arg_types[arg](v) for v in val]
@@ -441,7 +449,7 @@ def layout_defined(args):
         args.circle_variability is not None and args.circle_variability >= 0,
         args.circle_separation is not None and args.circle_separation >= 0,
         args.plate_width is not None and args.plate_width > 0,
-        args.circles_per_plate is not None and args.circles_per_plate > 0,
+        args.circles_per_plate is not None,
         args.plates is not None and args.plates > 0,
         args.circle_expansion is not None,
         args.circle_separation_tolerance is not None,

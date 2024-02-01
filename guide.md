@@ -73,9 +73,10 @@ Three of these can be measured from a loaded image in this interface, as is done
   - [circle separation](#circle-separation) and
   - [plate width](#plate-width).
 
-There are then two counts that must be supplied, and be accurate for all images: 
-  - the number of [circles](#circles) per plate
-  - and the number of [plates](#plates).
+There are counts that must be supplied: 
+  - the number of [circles](#circles) to detect,
+  - the number of [plates](#plates),
+  - and the number of [circles per plate](#circles-per-plate).
 
 Three tolerance factors are also provided to account for:
   - [circle variability](#circle-variability),
@@ -151,13 +152,26 @@ start from the [left or right](#plates-start-left) and to start at the [top or b
 
 #### Counts
 ##### Circles
-Plates within a layout specification must have a constant number of target circles.
+Each set of images sharing a layout specification must have a constant number of circles to detect.
 This number is defined in the "circles" input field.
-  - Enter the number of circles per plate
+  - Enter the number of circles per image
 ##### Plates
 Each set of images sharing a layout specification must have a constant number of plates.
 This number is defined in the "plates" input field.
   - Enter the number of plates per image
+##### Circles per plate
+During layout detection, any detected circles are first filtered by clustering into groups of known sizes.
+The assumption used to detect these plate clusters is that circles within a plate 
+are always closer to each other than they are to circles in other plates.
+If this assumption is not met then we recommend annotating each image as a single plate
+(i.e. "circles" == "circles per plate" and "plates" = 1). For layouts with singleton circles, 1 may be entered among this list of circles per plate,
+and the best matching circles up to the total number of [circles](#circles) will be used. 
+
+The known circle cluster sizes are defined as a comma separated list in the "circles per plate" input field.
+  - Enter a comma separated list of integers, corresponding to the possible number of circles per plate
+
+In the CLI, multiple values should be entered as multiple arguments rather than as a comma separated list; e.g: 
+  - ./algrow --circles_per_plate 4 --circles_per_plate 6
 
 #### Tolerance factors
 ##### Circle variability
@@ -294,7 +308,7 @@ on the 3D plot and image preview are described below.
 Displayed voxels can be filtered by the minimum number of pixels represented by each voxel.
 Raising this value is useful to highlight clusters of pixel colour.
 
-The "min pixels" value also affects hull construction [from a loaded mask](#from-mask).
+The "min pixels" value also affects hull construction [from a loaded mask](#hull-from-mask).
 
 #### Alpha
 The alpha parameter guides [hull](#show-hull) construction from the selected points.

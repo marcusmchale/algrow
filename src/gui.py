@@ -282,14 +282,20 @@ class AppWindow:
         layout_numbers.add_input(
             "circles",
             int,
-            tooltip="Number of circles per plate",
-            on_changed=lambda event: update_arg(self.args, "circles_per_plate", event)
+            tooltip="Number of circles to detect",
+            on_changed=lambda event: update_arg(self.args, "circles", event)
         )
         layout_numbers.add_input(
             "plates",
             int,
-            tooltip="Number of plates per image",
+            tooltip="Number of plates to detect",
             on_changed=lambda event: update_arg(self.args, "plates", event)
+        )
+        layout_numbers.add_input(
+            "circles per plate",
+            str,
+            tooltip="Number of circles per plate (comma separated integers)",
+            on_changed=lambda event: update_arg(self.args, "circles_per_plate", event.split(','))
         )
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Tolerance factors", self.fonts['small'])
@@ -369,7 +375,7 @@ class AppWindow:
         self.image.args = self.args  # todo: should consider whether image should really be carrying the args at all...
         try:
             layout_detector = LayoutDetector(self.image)
-            logger.debug(f"find circles: {self.args.circles_per_plate * self.args.plates}")
+            logger.debug(f"find circles: {self.args.circles}")
             logger.debug(f"cluster into plates: {self.args.plates}")
             plates = layout_detector.find_plates(custom_fig=fig)
             plates = layout_detector.sort_plates(plates)
@@ -417,7 +423,9 @@ class AppWindow:
         self.layout_panel.set_value("plate width", self.args.plate_width)
         self.layout_panel.set_value("circle expansion", self.args.circle_expansion)
         self.layout_panel.set_value("circle separation tolerance", self.args.circle_separation_tolerance)
-        self.layout_panel.set_value("circles", self.args.circles_per_plate)
+        self.layout_panel.set_value("circles", self.args.circles)
+        if self.args.circles_per_plate is not None:
+            self.layout_panel.set_value("circles per plate", ','.join([str(i) for i in self.args.circles_per_plate]))
         self.layout_panel.set_value("plates", self.args.plates)
         self.layout_panel.buttons['plates in rows'].is_on = not self.args.plates_cols_first
         self.layout_panel.buttons['plates start left'].is_on = not self.args.plates_right_left
@@ -433,8 +441,9 @@ class AppWindow:
         update_arg(self.args, "plate_width", self.layout_panel.get_value("plate width"))
         update_arg(self.args, "circle_expansion", self.layout_panel.get_value("circle expansion"))
         update_arg(self.args, "circle_separation_tolerance", self.layout_panel.get_value("circle separation tolerance"))
-        update_arg(self.args, "circles_per_plate", self.layout_panel.get_value("circles"))
+        update_arg(self.args, "circles", self.layout_panel.get_value("circles"))
         update_arg(self.args, "plates", self.layout_panel.get_value("plates"))
+        update_arg(self.args, "circles_per_plate", self.layout_panel.get_value("circles per plate").split(','))
         update_arg(self.args, "plates_cols_first", not self.layout_panel.get_value("plates in rows"))
         update_arg(self.args, "plates_right_left", not self.layout_panel.get_value("plates start left"))
         update_arg(self.args, "plates_bottom_top", not self.layout_panel.get_value("plates start top"))
@@ -575,6 +584,18 @@ class AppWindow:
             enabled=False
         )
         target_buttons.add_button("show hull", self.draw_hull, tooltip="Display hull in 3D plot", toggleable=True)
+        target_buttons.add_button(
+            "show selected",
+            self.toggle_show_selected,
+            tooltip="Highlight pixels from selected voxels in image",
+            toggleable=True
+        )
+        target_buttons.add_button(
+            "show target",
+            self.toggle_show_target,
+            tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
+            toggleable=True
+        )
         target_buttons.add_input(
             "hull colour",
             gui.Color,
@@ -582,24 +603,12 @@ class AppWindow:
             tooltip="Set hull colour",
             on_changed=self.draw_hull
         )
-        target_buttons.add_button(
-            "show selected",
-            self.toggle_show_selected,
-            tooltip="Highlight pixels from selected voxels in image",
-            toggleable=True
-        )
         target_buttons.add_input(
             "selection colour",
             gui.Color,
             value=gui.Color(1.0, 0.0, 1.0),
             tooltip="Set selection highlighting colour",
             on_changed=self.update_image_widget
-        )
-        target_buttons.add_button(
-            "show target",
-            self.toggle_show_target,
-            tooltip="Highlight target pixels (inside or within delta of hull surface after fill and remove)",
-            toggleable=True
         )
         target_buttons.add_input(
             "target colour",
@@ -1892,10 +1901,15 @@ class AppWindow:
         logger.debug(f"Hull vertices or points from mask: {hull_vertices_string}")
         for lab in points:
             lab = tuple(lab)
-            self.add_prior(lab)
+            voxel_index = self.get_nearest_index_from_coords(lab)
+            if voxel_index not in self.image.selected_voxel_indices:
+                self.image.selected_voxel_indices.add(voxel_index)
+                selected_lab = self.image.cloud.points[voxel_index]
+                selected_rgb = self.image.cloud.colors[voxel_index]
+                self.add_sphere(selected_lab, selected_rgb)
+                self.add_voxel_button(voxel_index, selected_lab, selected_rgb)
         self.update_lab_widget()
         self.update_image_widget()
-
 
     def setup_lab_axes(self):
         logger.debug("Setup axes")
