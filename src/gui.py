@@ -265,18 +265,21 @@ class AppWindow:
                 event
             )
         )
+        layout_numbers.set_value("circle diameter", self.args.circle_diameter)
         layout_numbers.add_input(
             "circle separation",
             float,
             tooltip="Maximum distance between edges of circles within a plate (px)",  # used to calculate plate cut height
             on_changed=lambda event: update_arg(self.args, "circle_separation", event)
         )
+        layout_numbers.set_value("circle separation", self.args.circle_separation)
         layout_numbers.add_input(
             "plate width",
             float,
             tooltip="Shortest dimension of plate (px)",  # used to calculate cut height for clustering plates into rows or columns
             on_changed=lambda event: update_arg(self.args, "plate_width", event)
         )
+        layout_numbers.set_value("plate width", self.args.plate_width)
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Counts", self.fonts['small'])
         layout_numbers.add_input(
@@ -285,18 +288,21 @@ class AppWindow:
             tooltip="Number of circles to detect",
             on_changed=lambda event: update_arg(self.args, "circles", event)
         )
+        layout_numbers.set_value("circles", self.args.circles)
         layout_numbers.add_input(
             "plates",
             int,
             tooltip="Number of plates to detect",
             on_changed=lambda event: update_arg(self.args, "plates", event)
         )
+        layout_numbers.set_value("plates", self.args.plates)
         layout_numbers.add_input(
             "circles per plate",
             str,
             tooltip="Number of circles per plate (comma separated integers)",
             on_changed=lambda event: update_arg(self.args, "circles_per_plate", event.split(','))
         )
+        layout_numbers.set_value("circles per plate", self.args.circles_per_plate)
         layout_numbers.add_separation(2)
         layout_numbers.add_label("Tolerance factors", self.fonts['small'])
         layout_numbers.add_input(
@@ -305,18 +311,21 @@ class AppWindow:
             tooltip="Higher values broaden the range of radii for circle detection",
             on_changed=lambda event: update_arg(self.args, "circle_variability", event)
         )
+        layout_numbers.set_value("circle variability", self.args.circle_variability)
         layout_numbers.add_input(
             "circle expansion",
             float,
             tooltip="Applied to radius of detected circle to define the region of interest",
             on_changed=lambda event: update_arg(self.args, "circle_expansion", event)
         )
+        layout_numbers.set_value("circle expansion", self.args.circle_expansion)
         layout_numbers.add_input(
             "circle separation tolerance",
             float,
             tooltip="Applied to cut height when clustering circles into plates",
             on_changed=lambda event: update_arg(self.args, "circle_separation_tolerance", event)
         )
+        layout_numbers.set_value("circle separation tolerance", self.args.circle_separation_tolerance)
         layout_buttons.add_label("Plate ID incrementation", self.fonts['small'])
         layout_buttons.add_button(
             "plates in rows",
@@ -443,7 +452,10 @@ class AppWindow:
         update_arg(self.args, "circle_separation_tolerance", self.layout_panel.get_value("circle separation tolerance"))
         update_arg(self.args, "circles", self.layout_panel.get_value("circles"))
         update_arg(self.args, "plates", self.layout_panel.get_value("plates"))
-        update_arg(self.args, "circles_per_plate", self.layout_panel.get_value("circles per plate").split(','))
+        try:
+            update_arg(self.args, "circles_per_plate", self.layout_panel.get_value("circles per plate").split(','))
+        except ValueError:
+            logger.debug("Value for circles per plate is malformed")
         update_arg(self.args, "plates_cols_first", not self.layout_panel.get_value("plates in rows"))
         update_arg(self.args, "plates_right_left", not self.layout_panel.get_value("plates start left"))
         update_arg(self.args, "plates_bottom_top", not self.layout_panel.get_value("plates start top"))
@@ -1211,7 +1223,7 @@ class AppWindow:
         self.update_image_widget()
 
     def reduce_selection(self, event=None):
-        if self.hull_holder.mesh is not None:
+        if self.hull_holder is not None and self.hull_holder.mesh is not None:
             hull_vertices = self.hull_holder.hull.vertices
             to_remove = list()
             for i in self.image.selected_voxel_indices:
@@ -1227,7 +1239,7 @@ class AppWindow:
                 self.remove_sphere(lab)
 
     def reduce_priors(self, event=None):
-        if self.hull_holder.mesh is not None:
+        if self.hull_holder is not None and self.hull_holder.mesh is not None:
             hull_vertices = self.hull_holder.hull.vertices
 
             to_remove = list()
@@ -1841,8 +1853,7 @@ class AppWindow:
         self.app.menubar.set_enabled(self.MENU_AREA, True)
         self.app.menubar.set_enabled(self.MENU_RGR, True)
 
-
-    def load_image(self, path):
+    def move_selected_to_priors(self):
         if self.image is not None:
             logger.debug("Unload existing image and copy layout if found")
             if self.image.cloud is not None:
@@ -1852,6 +1863,9 @@ class AppWindow:
                 for lab in selected_points:
                     lab = tuple(lab)
                     self.add_prior(lab)
+
+    def load_image(self, path):
+        self.move_selected_to_priors()
 
         logger.debug("Load new image")
         self.image = CalibrationImage(ImageLoaded(path, self.args))

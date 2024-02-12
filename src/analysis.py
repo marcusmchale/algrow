@@ -6,7 +6,6 @@ import matplotlib.dates as mdates
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
-
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

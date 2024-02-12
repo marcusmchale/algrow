@@ -449,6 +449,7 @@ def layout_defined(args):
         args.circle_variability is not None and args.circle_variability >= 0,
         args.circle_separation is not None and args.circle_separation >= 0,
         args.plate_width is not None and args.plate_width > 0,
+        args.circles is not None,
         args.circles_per_plate is not None,
         args.plates is not None and args.plates > 0,
         args.circle_expansion is not None,

@@ -14,7 +14,9 @@ from skimage.util import img_as_bool, img_as_ubyte, img_as_float64 as img_as_flo
 # https://github.com/isl-org/Open3D/issues/4832
 # Float 64 is better for the point cloud,
 # but we are casting back to 32 bit for the distance calculations...
-from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76, lab2rgb
+# this might be worthy of further consideration/optimisation,
+# but probably just need to track the development of Open3D
+from skimage.color import rgb2lab, rgb2gray, gray2rgb, deltaE_cie76
 from skimage.transform import hough_circle, hough_circle_peaks, downscale_local_mean
 from skimage.feature import canny
 from skimage.restoration import denoise_bilateral
@@ -511,7 +513,6 @@ class CalibrationImage:  # an adapter to allow zooming and hold other features t
         #return np.unravel_index(i, (self.height, self.width))
 
 
-
 class LayoutDetector:
     def __init__(
             self,
@@ -579,6 +580,9 @@ class LayoutDetector:
         return circles
 
     def find_plate_clusters(self, circles, cluster_sizes, n_plates, fig: FigureBase):
+        if all(np.unique(cluster_sizes) == 1):
+            return range(len(circles)), range(0, self.args.circles)
+
         # find the largest clusters first:
         centres = np.delete(circles, 2, axis=1)
         cut_height = int(
@@ -600,7 +604,6 @@ class LayoutDetector:
                         logger.debug("Clusters of size one cannot be filtered returning the next best matching circles")
                         # add next best to make total circles
                         # the circles are sorted by best matches, so we can return the top non matching ones.
-                        # return range(len(circles)), range(0, n)
                         for c in clusters:
                             if n_found == self.args.circles:
                                 break

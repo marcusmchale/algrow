@@ -240,7 +240,7 @@ class ImageProcessor:
                         lab = "NA"
                     result["units"].append((p.id, unit, pixels, rgb, lab))
                     overlay_figure.add_label(str(unit), (c[0], c[1]), "black", 5)
-                    overlay_figure.add_circle((c[0], c[1]), c[2])
+                    overlay_figure.add_circle((c[0], c[1]), c[2], linewidth=1)
 
         overlay_figure.print(large=True)
 

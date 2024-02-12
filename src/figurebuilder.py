@@ -64,7 +64,7 @@ class FigureBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def add_circle(self, coords, radius, linewidth=1):
+    def add_circle(self, coords, radius, linewidth=5):
         raise NotImplementedError
 
     @abstractmethod
@@ -200,7 +200,8 @@ class FigureMatplot(FigureBase):
     def plot_dendrogram(self, dendrogram: np.ndarray, cut_height: float, label: str = None):
         self.logger.debug("Draw dendrogram")
         ax: Axes = self._add_plot()
-        hierarchy.dendrogram(dendrogram, ax=ax)
+        hierarchy.dendrogram(dendrogram, ax=ax, no_labels=True, count_sort=True)
+        # todo consider giving labels corresponding to circle ID and plot these on the image overlay
         ax.axhline(y=cut_height, c='k')
         if label:
             ax.set_title(label)
@@ -217,7 +218,7 @@ class FigureMatplot(FigureBase):
             path_effects=[patheffects.withStroke(linewidth=size/2, foreground='white')]
         )
 
-    def add_circle(self, coords, radius, linewidth=1):
+    def add_circle(self, coords, radius, linewidth=5):
         self._current_axis.add_patch(
             Circle(
                 coords,

@@ -268,7 +268,6 @@ class Panel:
         if type(value) != input_type:
             logger.debug(f"Attempt to set value with invalid type: {key}")
             value = self.DEFAULTS[input_type]
-
         if input_type == str:
             self.inputs[key].text_value = value
         elif input_type == float:

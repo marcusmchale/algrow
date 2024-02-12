@@ -14,7 +14,7 @@ Features:
   - Improved deterministic model for colour-based image segmentation
     - Hulls (convex or alpha) flexibly define the target colour volume in a given 3D colour space
       - Fixed thresholds are implicitly cubic selections
-      - Target means/kMeans are implicitly spherical selections
+      - Target colours and radius/k-means are implicitly spherical selections
     - Hulls can be intuitively trained by a user clicking on any currently unselected target regions.
       - Either in the original image OR in the 3D projection of Lab colourspace
       - Delta parameter generalises the model
@@ -71,10 +71,12 @@ Run
 ```./algrow.py```
 
 
-### Buidl from Wheel
+
+## Build
+### Build from Wheel
 Download
 ```git clone https://github.com/marcusmchale/algrow```
-Install python
+Install python packages
 ```sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev```
 Set up virtual environment (recommended)
 ```
@@ -86,7 +88,7 @@ pip install dist/algrow-0.3-py3-none-any.whl
 Build
 ```python3 -m build```
 
-### PyInstaller
+### Prepare binary with PyInstaller
 Make sure to include licenses for all dependencies if packaging a binary for distribution.
 #### On linux
 Create the relevant virtual environment and make sure pyinstaller is installed
@@ -104,7 +106,7 @@ Then run pyinstaller in the algrow root path
 You might want to check the path of libspatialindex files
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---name algrow_0_5_0_linux \
+--name algrow_0_6_0_linux \
 --add-data=bmp/logo.png:./bmp/ \
 --add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
 --add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
@@ -190,8 +192,8 @@ either the convex hull or an alpha hull which permits concave surfaces and disjo
 
 To automate annotation, we implemented a strategy to detect circular regions of high contrast.
 This readily detects the subjects in our apparatus, 
-due to high contrast holding rings (now paint-marker applied to the apparatus)
-but also the circular surface of typical plant pots.
+due to high contrast holding rings (now using paint-marker applied to a different apparatus, yet to be reported)
+but also the circular surface of typical plant pots against a contrasting background.
 We then cluster these circles into plates/trays and assign indices based on relative positions. 
 Importantly, this method of relative indexation supports movement of plates and trays across an image series, 
 replacing a previously time-consuming process.
@@ -237,7 +239,7 @@ The AlGrow application was developed to;
         1.5. A layout mask is constructed to restrict further analysis to target areas
 
     2. Determine target subject area
-        1.1 A boolean mask is determined by pixel colour being within the alpha hull or within delta of its surface
+        1.1 A boolean mask is determined by pixel colour being within the hull or within delta of its surface
         2.2 Small objects (--remove) are removed and filled (--fill) (skimage.morphology)
         2.3 Area of the mask within each circle is determined and output to a csv file.
 
@@ -245,12 +247,17 @@ The AlGrow application was developed to;
         3.1 RGR is calculated as the slope of a linear fit in log area values (over defined period)
         3.2 Figures and reports are prepared
 
-# To consider for future feature development
+## To consider for future development
+### UI
+  - Change area_file/outdir handling to have distinct values for input/output
+    - this may help user experience in the GUI, it is confusing currently
+### Features:
   - circle colour as hull rather than a fixed point
-  - kmeans and other clustering methods to automate/simplify user input to hull definition.
+    - since we use a distance image and edge detection this isn't so important as it is in boolean thresholding
+  - kmeans and other clustering methods (e.g. dbscan) to automate/simplify user input to hull definition.
     - kmeans example  https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub 
-    - could be doing this but prefer supervised as kmeans  for a single target cluster
-  - Analysis 
+    - currently prefer supervised as kmeans performs poorly, also considered dbscan but not great
+  - Analysis
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
       - "block" and/or "plate"  
@@ -259,21 +266,10 @@ The AlGrow application was developed to;
       - irrelevant when a single photo per day
       - if using complete days of data it should still be balanced, but the fit would improve outlier detection
       - https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
-    - Remove outlier images before considering removing whole replicates
-
-# Beyond the current scope but maybe one day
+    - Remove outlier images before considering removing replicates
+### Beyond the current scope but maybe one day
  - consider loading voxels across a whole series of images to improve visualisation across these.
  - consider higher dimensional space with e.g. texture features  
    - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
    - maybe consider them as separate masks for target selection, taking the overlap.
 
-# TODO
-  - Change area_file/outdir handling to have distinct values for input/output
-    - this is important for user experience in the GUI, it is confusing currently
-    - could consider loading to args only when run...this would keep them distinct
-
-  - Evaluate/test
-    - use kmseg to generate ground truth images and evaluate classification accuracy, naiive kmseg vs corrected with algrow.
-    - use coverage similarly
-    - test across images with the trained hull. c.f. ML. classifiers.
-    - test interaction between true-mask and layout-mask
