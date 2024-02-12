@@ -16,7 +16,8 @@ in the bottom left of the relevant configuration toolbar.
   - Select a supported RGB image file (.jpeg, .jpg, .png or .bmp extensions).
 ### Load Mask
 Load an image mask for the current loaded image. 
-  - Select a supported boolean or greyscale image file (.jpeg, .jpg, .png or .bmp extensions).
+  - Select a supported boolean, labelled or greyscale image file (.jpeg, .jpg, .png or .bmp extensions).
+    - Values of False or zero (integer or float) are considered to be background while all other values will be considered as target.
   - A mask provides two additional facilities during [target colour](#target-colour) specification:
     - the [dice-coefficient](#dice-coefficient) and
     - construction of a target hull [from the mask](#hull-from-mask).
@@ -354,7 +355,7 @@ This button will only be active if an image mask has been [loaded](#load-mask).
 When clicked, voxels mapping to pixels selected in the image mask,
 representing at least [min pixels](#min-pixels) are first identified.
 These points are then considered for hull construction using the [alpha](#alpha) parameter.
-Vertices of this constructed hull are then added as [priors](#priors).
+Vertices of this constructed hull are then added to the [selection](#selected).
 
 This is useful to rapidly generate a target full from existing image masks. 
 Such a hull can then be adapted in AlGrow to improve robustness of the target hull across images.
@@ -623,6 +624,9 @@ Be warned, however, this isn't handled terribly well.
 The scale and other pixel measurements including circle diameter etc. are not adjusted.
 As such scale and layout specifications should share the same downscale value as subsequent analyses.
 
-
+#### Denoise
+This is currently just a flag, i.e. no value is provided. 
+When used at launch, the loaded image will be passes with skimage.restoration.denoise_bilateral 
+with the following options: sigma_color=1, sigma_spatial=1, mode='edge'.
 
 

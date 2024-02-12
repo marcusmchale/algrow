@@ -2,8 +2,6 @@
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
 
-## The short story 
-
 Algrow is a software tool for automated image annotation, segmentation and analysis. 
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
 to support macro-algal disc and plant growth phenotyping in the 
@@ -43,130 +41,13 @@ Features:
     - WARN, no debug images generated.
 
 ## Get started
-apt install python3.10
-apt install python3.10-venv
 
-### Install a chosen distribution
-Download 
-  - get the latest [dist](https://github.com/marcusmchale/algrow/dist)
-Install
-```pip install algrow.whl```
-Run
-```./algrow.py```
+The easiest way to use the software is to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
 
+If you are working in an existing python environment you can also install from PyPi. 
+```pip install algrow```
 
-### Run from source
-Download
-```git clone https://github.com/marcusmchale/algrow```
-Set up virtual environment and activate it (recommended)
-```
-python3 -m venv venv
-. ./venv/bin/activate
-```
-Install requirements
-```
-pip install -r REQUIREMENTS.txt
-```
-Run
-```./algrow.py```
-
-
-
-## Build
-### Build from Wheel
-Download
-```git clone https://github.com/marcusmchale/algrow```
-Install python packages
-```sudo apt install python3.10 python3.10-venv python3.10-distutils python3.10-dev```
-Set up virtual environment (recommended)
-```
-python3.10 -m venv venv
-source ./venv/bin/activate
-pip install --upgrade pip
-pip install dist/algrow-0.3-py3-none-any.whl
-```
-Build
-```python3 -m build```
-
-### Prepare binary with PyInstaller
-Make sure to include licenses for all dependencies if packaging a binary for distribution.
-#### On linux
-Create the relevant virtual environment and make sure pyinstaller is installed
-```
-python3 -m venv venv
-. ./venv/bin/activate
-pip install -r REQUIREMENTS.txt
-pip install pyinstaller
-```
-Install the following to the system
-```
-sudo apt install libspatialindex-dev
-```
-Then run pyinstaller in the algrow root path
-You might want to check the path of libspatialindex files
-```
-pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---name algrow_0_6_0_linux \
---add-data=bmp/logo.png:./bmp/ \
---add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
---add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
---add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
---add-data=/lib/x86_64-linux-gnu/libspatialindex*:. \
---hidden-import='PIL._tkinter_finder' \
-algrow.py
-```
-#### On macosx
-install python 3.10 then create venv with pyinstaller as above
-```
-pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---name algrow_0_5_0_osx \
---icon=./bmp/icon.ico \
---add-data=bmp/logo.png:./bmp/ \
---add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
---hidden-import='PIL._tkinter_finder' \
-algrow.py
-``` 
-#### On windows
-might need to install MS visual c++ redistributable, might be fine if install msvc-runtime before installing open3d
-to assess on a fresh system
-description:
-https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
-the exe: 
-https://aka.ms/vs/17/release/vc_redist.x86.exe
-
-In admin powershell(or cmd prompt) run the below to allow script execution,
-this is needed at least to activate the venv, 
-I didn't test if it is required subsequently as I left it activated.
-
-```set-executionpolicy RemoteSigned```
-
-
-install python 3.10 (through the app store works)
-then in a normal windows cmd, activate the venv and install everything
-
-```
-python -m venv venv
-venv\Scripts\Activate  # if in powershell use activate.ps1
-pip install msvc-runtime 
-pip install pyinstaller
-pip install -r REQUIREMENTS.txt
-
-
-```
-Then run pyinstaller
-```
-pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN 
---name algrow_0_5_0_win10 
---icon=bmp\icon.ico 
---add-data=bmp\logo.png:.\bmp\ 
---add-data=venv\lib\site-packages\open3d\resources:.\open3d\resources
-algrow.py
-```
-
-
-#### Icon
-to prepare icon file:
-```convert -density 384 icon.svg -define icon:auto-resize icon.ico```
+For advice on more complex installations, including building your own binaries see the [build notes](./build_notes.md)
 
 ## The long story...
 
@@ -198,7 +79,7 @@ We then cluster these circles into plates/trays and assign indices based on rela
 Importantly, this method of relative indexation supports movement of plates and trays across an image series, 
 replacing a previously time-consuming process.
 
-# Issues specific to prior strategy
+### Issues specific to prior strategy
 Manual adjustment of fixed thresholds for segmentation in ImageJ is time-consuming and
 can fail to identify or accurately segment across variable subject colours.
 Manual curation can also introduce operator error and biases to area quantification.
@@ -214,7 +95,7 @@ A number of pre-processing steps were employed to handle the scale of data from 
     - In some cases raw images were discarded on the assumption that the hourly images were sufficient. 
       - these were sometimes inappropriately masked and so image analysis was no longer feasible.
 
-# Our solution
+### Our solution
 The AlGrow application was developed to;
   - Independently process images from a time series according to a fixed, deterministic model of colour.
     - This reduces memory restrictions for large stacks of images seen with ImageJ
@@ -250,13 +131,9 @@ The AlGrow application was developed to;
 ## To consider for future development
 ### UI
   - Change area_file/outdir handling to have distinct values for input/output
-    - this may help user experience in the GUI, it is confusing currently
+    - this may help user experience in the GUI, the current behaviour can be confusing.
+  
 ### Features:
-  - circle colour as hull rather than a fixed point
-    - since we use a distance image and edge detection this isn't so important as it is in boolean thresholding
-  - kmeans and other clustering methods (e.g. dbscan) to automate/simplify user input to hull definition.
-    - kmeans example  https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub 
-    - currently prefer supervised as kmeans performs poorly, also considered dbscan but not great
   - Analysis
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
@@ -267,9 +144,15 @@ The AlGrow application was developed to;
       - if using complete days of data it should still be balanced, but the fit would improve outlier detection
       - https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/stl
     - Remove outlier images before considering removing replicates
-### Beyond the current scope but maybe one day
- - consider loading voxels across a whole series of images to improve visualisation across these.
- - consider higher dimensional space with e.g. texture features  
-   - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
-   - maybe consider them as separate masks for target selection, taking the overlap.
+
+### Beyond the current scope
+  - circle colour as hull rather than a fixed point
+    - since we use a distance image and edge detection this isn't so important as it is in boolean thresholding
+  - kmeans and other clustering methods (e.g. dbscan) to automate/simplify user input to hull definition.
+    - kmeans example  https://www.sciencedirect.com/science/article/pii/S0167865519302806?via%3Dihub 
+    - currently prefer supervised as kmeans performs poorly, also considered dbscan but not great
+  - consider loading voxels across a whole series of images to improve visualisation across these.
+  - consider higher dimensional space with e.g. texture features  
+    - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
+    - maybe consider them as separate masks for target selection, taking the overlap.
 

@@ -9,7 +9,7 @@ setup(
     license='LICENSE.txt',
     author='Marcus McHale',
     author_email='marcus.mchale@universityofgalway.ie',
-    description="Image segmentation using alpha hulls, with various tools for annotation and analysis",
+    description="Image segmentation using alpha hulls with additional annotation and growth analysis",
     install_requires=[
         "configargparse~=1.7",
         "numpy~=1.26.2",
