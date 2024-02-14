@@ -68,12 +68,10 @@ pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
 algrow.py
 ``` 
 #### On windows
-might need to install MS visual c++ redistributable, might be fine if install msvc-runtime before installing open3d
-to assess on a fresh system
-description:
-https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
-the exe: 
-https://aka.ms/vs/17/release/vc_redist.x86.exe
+- to be assessed on a fresh system
+  - might need to install MS visual c++ redistributable, might be fine if install msvc-runtime before installing open3d
+    - description: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
+    - the exe: https://aka.ms/vs/17/release/vc_redist.x86.exe
 
 In admin powershell(or cmd prompt) run the below to allow script execution,
 this is needed at least to activate the venv, 
@@ -86,7 +84,7 @@ then in a normal windows cmd, activate the venv and install everything
 
 ```
 python -m venv venv
-venv\Scripts\Activate  # if in powershell use activate.ps1
+venv\Scripts\activate  # if in powershell use activate.ps1 
 pip install msvc-runtime 
 pip install pyinstaller
 pip install -r REQUIREMENTS.txt

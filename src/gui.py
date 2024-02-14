@@ -1272,7 +1272,6 @@ class AppWindow:
         self.update_displayed_circle_colour()
         self.update_image_widget()
 
-
     def save_circle_colour(self, event=None):
         if self.image and self.image.selected_circle_indices:
             circle_lab = self.image.lab.reshape(-1, 3)[list(self.image.selected_circle_indices)]
@@ -1474,8 +1473,8 @@ class AppWindow:
             logger.debug(f"add pixel index: {pixel_index}")
             self.image.selected_circle_indices.add(pixel_index)
             self.add_circle_button(pixel_index, lab, rgb)
-        self.update_displayed_circle_colour()
         self.save_circle_colour()
+        self.update_displayed_circle_colour()
         self.update_image_widget()
 
     def toggle_voxel(self, voxel_index):
@@ -1512,9 +1511,8 @@ class AppWindow:
     def update_displayed_circle_colour(self):
         pool = self.circle_panel.button_pools['circle colour']
         lab = self.args.circle_colour
-        if lab is None:
-            pool.clear()
-        else:
+        pool.clear()
+        if lab is not None:
             b = gui.Button('circle colour')
             b.background_color = gui.Color(*lab2rgb(lab))
             pool.add_button('circle colour', b)
@@ -2028,10 +2026,11 @@ class AppWindow:
         if self.args.remove is not None:
             self.target_panel.set_value("remove", self.args.remove)
 
-        logger.debug("Reset circle colour")
+        logger.debug("Reset circle colour then load the argument")
         self.clear_circle_selection()
+        self.update_displayed_circle_colour()
 
-        logger.debug("Reset layout")
+        logger.debug("Load layout")
         self.load_layout_parameters()
 
         logger.debug("Clear existing selected hull vertices")
