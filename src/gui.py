@@ -1772,6 +1772,8 @@ class AppWindow:
         filepath = Path(filename)
         self.window.close_dialog()
         self.load_true_mask(filepath)
+        dice = self.calculate_dice(self.image.target_mask)
+        self.update_info(dice)
 
     def _on_menu_write_conf(self):
         dlg = gui.FileDialog(gui.FileDialog.SAVE, "Choose file to save to", self.window.theme)

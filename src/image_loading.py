@@ -217,7 +217,6 @@ class MaskLoaded:
         self.mask = img_as_bool(img)
 
 
-
 class CalibrationImage:  # an adapter to allow zooming and hold other features that are only needed during calibration
 
     def __init__(self, image: ImageLoaded):

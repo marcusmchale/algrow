@@ -155,6 +155,7 @@ class ImageProcessor:
         self.logger = ImageFilepathAdapter(logger, {'image_filepath': str(filepath)})
 
     def get_area(self):
+
         if self.args.fixed_layout is not None:
             self.image.layout = LayoutLoader(self.image).get_layout()
         elif not self.args.detect_layout:

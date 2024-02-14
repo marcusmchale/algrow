@@ -136,6 +136,7 @@ class AreaAnalyser:
                         linestyle="dashed" if outliers and name in outliers else "solid"
                     )
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
+            ax.set_ylabel("Area (mm²)")
         ax.legend(loc='upper left')
         ax.tick_params(axis='x', labelrotation=45)
         return ax
@@ -168,12 +169,14 @@ class AreaAnalyser:
             fig = Figure()
             ax = fig.add_subplot()
             summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
+            ax.set_ylabel("RGR (%/day")
             fig.savefig(str(Path(outdir, "Figures", "RGR.png")), dpi=300)
             # similar plot with model fit outliers removed
             fig = Figure()
             ax = fig.add_subplot()
             sub_summary = summary[~summary.ModelFitOutlier]
             sub_summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
+            ax.set_ylabel("RGR (%/day")
             fig.savefig(str(Path(outdir, "Figures", "RGR_ModelFitOutliers_removed.png")), dpi=300)
         if group_plots:
             group_plot_dir = Path(outdir, "Figures", "group_plots")

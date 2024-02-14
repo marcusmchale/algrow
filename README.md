@@ -6,7 +6,7 @@ Algrow is a software tool for automated image annotation, segmentation and analy
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
 to support macro-algal disc and plant growth phenotyping in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
-at the [University of Galway](https://www.universityofgalway.ie/). 
+at the [University of Galway](https://www.universityofgalway.ie/).
 
 Features:
   - Improved deterministic model for colour-based image segmentation
