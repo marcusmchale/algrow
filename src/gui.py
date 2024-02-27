@@ -691,6 +691,8 @@ class AppWindow:
                     panel.list_views["block"].set_items(panel.list_view_lists["block"])
                     panel.list_views["time"].set_items(panel.list_view_lists["time"])
                 except Exception as e:
+                    panel.list_views["block"].set_items(list())
+                    panel.list_views["time"].set_items(list())
                     logger.debug(e)
                     pass
 
@@ -2045,6 +2047,7 @@ class AppWindow:
         logger.debug("detect layout and prepare lab cloud")
 
         self.area_panel.set_value("filename regex", self.args.filename_regex)
+
         if self.args.fixed_layout:
             self.area_panel.path_select_labels['fixed layout'].text = str(Path(self.args.fixed_layout).resolve())
             self.area_panel.checkboxes['detect layout'].checked = False
@@ -2054,6 +2057,8 @@ class AppWindow:
         self.area_panel.set_value("processes", self.args.processes)
 
         if self.image is not None:
+            # need to update args associated with image
+            self.image.args = self.args
             self.update_image_widget()
             if self.args.fixed_layout is not None:
                 # this could be handled better, e.g. keep a previously loaded layout if valid

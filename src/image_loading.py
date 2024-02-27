@@ -564,7 +564,11 @@ class LayoutDetector:
         circles = np.dstack(
             (cx, cy, np.repeat(int((self.args.circle_diameter / 2) * (1 + self.args.circle_expansion)), len(cx)))
         ).squeeze(axis=0)[accum_order]
-
+        # remove detected circles that are not completely within the image frame
+        # if x-radius < 0 or x+radius > self.image.rgb.shape[1]
+        circles = circles[((circles[:, 0] - circle_radius_px) > 0) & ((circles[:, 0] + circle_radius_px) < self.image.rgb.shape[1])]
+        # if y-radius < 0 or y+radius > self.image.rgb.shape[0]
+        circles = circles[((circles[:, 1] - circle_radius_px) > 0) & ((circles[:, 1] + circle_radius_px) < self.image.rgb.shape[0])]
         fig.plot_image(self.image.rgb, f"Circle detection")
         for c in circles:
             fig.add_circle((c[0], c[1]), c[2])
@@ -572,6 +576,7 @@ class LayoutDetector:
         if circles.shape[0] < n:
             self.logger.debug(f'{str(circles.shape[0])} circles found')
             fig.plot_text("Insufficient circles detected")
+            fig.print()
             raise InsufficientCircleDetection
 
         self.logger.debug(
@@ -614,8 +619,10 @@ class LayoutDetector:
                         n_found += n
 
         if len(target_cluster_indices) < n_plates:
+            fig.print()
             raise InsufficientPlateDetection(f"Only {len(target_cluster_indices)} plates found")
         elif len(target_cluster_indices) > n_plates:
+            fig.print()
             raise ExcessPlatesException(f"More than {n_plates} plates found: {len(target_cluster_indices)}")
         return clusters, target_cluster_indices
 
