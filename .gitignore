@@ -7,3 +7,5 @@ algrow.egg-info/
 /publication/
 /dist/
 /*.spec
+.idea
+
