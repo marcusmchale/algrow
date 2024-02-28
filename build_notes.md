@@ -7,9 +7,18 @@ python3 -m venv venv
 . ./venv/bin/activate
 ```
 ### OSx
-Assuming python3 and venv are already installed 
+Install home brew and set path
 ```
-python3 -m venv venv
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+at the bottom of the output from that are two lines to set up the path environment
+then install python 3.10 and libomp
+```
+brew install python3.10
+brew install libomp
+```
+```
+python3.10 -m venv venv
 . ./venv/bin/activate
 ```
 
@@ -46,7 +55,7 @@ Then run pyinstaller in the algrow root path
 You might want to check the path of libspatialindex files
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---name algrow_0_6_1_linux \
+--name algrow_0_6_2_linux \
 --add-data=bmp/logo.png:./bmp/ \
 --add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
 --add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \

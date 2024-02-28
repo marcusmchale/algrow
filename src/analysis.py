@@ -187,6 +187,6 @@ class AreaAnalyser:
                 to_plot_fit = summary[(summary.Group == group)].index.to_list()
                 outliers = summary[summary.ModelFitOutlier].index.to_list()
                 self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers=outliers)
-                fig.savefig(str(Path(group_plot_dir, f"{group}.png")))
+                fig.savefig(str(Path(group_plot_dir, f"{group}.png")), bbox_inches='tight')
 
 
