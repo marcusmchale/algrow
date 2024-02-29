@@ -211,10 +211,10 @@ class MaskLoaded:
         img = imread(str(filepath))
         if img.ndim > 2:
             img = rgb2gray(img)
-            if img.ndim >2:
+            if img.ndim > 2:
                 logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {img.shape}")
                 raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
-        self.mask = img_as_bool(img)
+        self.mask = img != 0
 
 
 class CalibrationImage:  # an adapter to allow zooming and hold other features that are only needed during calibration

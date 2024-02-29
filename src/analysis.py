@@ -90,6 +90,7 @@ class AreaAnalyser:
         df["elapsed_m"] = (df.index.get_level_values("Time") - start) // Timedelta(minutes=1)
         with np.errstate(divide='ignore'):
             df["log_area"] = np.log(df["Area"])  # 0 values are -Inf which are then ignored in the fit
+        import pdb; pdb.set_trace()
         df["fit"] = df.groupby(["Block", "Unit"], group_keys=True).apply(self._fit)
         df[["intercept", "slope", "RSS"]] = df.fit.to_list()
         # RGR calculation:
