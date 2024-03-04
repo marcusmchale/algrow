@@ -12,7 +12,6 @@ class MaskLoaded:
         if img.ndim > 2:
             img = rgb2gray(img)
             if img.ndim > 2:
-                logger.debug(f"Attempt to load a mask with the wrong number of dimensions: {img.shape}")
                 raise ValueError("Mask must be boolean or greyscale that can be coerced to boolean")
         self.mask = img != 0
 

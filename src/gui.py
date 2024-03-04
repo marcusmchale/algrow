@@ -737,6 +737,12 @@ class AppWindow:
             lambda s, i: update_arg(self.args, "image_debug", s),
             value=self.args.image_debug
         )
+        if isMacOS:  # todo work out why comboboxes cause a crash on mac osx, for now just disabling
+            panel.comboboxes['debugging images'].enabled = False
+            panel.add_label(
+                "Image debugging combobox is disabled on OSx"
+                "Please use a configuration file or launch option"
+            )
         panel.add_path_select(
             "output directory",
             on_add=self._on_select_output_directory,
@@ -861,11 +867,8 @@ class AppWindow:
     def _on_select_output_directory_dialog_done(self, path):
         folder = Path(path).resolve()
         update_arg(self.args, "out_dir", folder)
-        if self.args.out_dir:
-            update_arg(self.args, "area_file", Path(folder, "area.csv"))
         self.area_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
         self.rgr_panel.path_select_labels['output directory'].text = str(self.args.out_dir) if self.args.out_dir else ""
-        self.rgr_panel.path_select_labels['area file'].text = str(self.args.area_file) if self.args.area_file else ""
         self.window.set_needs_layout()
         self.window.close_dialog()
 
@@ -1996,7 +1999,6 @@ class AppWindow:
                     value = value.name
                 elif isinstance(value, Path):
                     value = str(value.resolve())
-
                 if arg == "images":
                     continue  # todo if want to write images then need to fix parser to handle it
                     # if isinstance(value, list):
@@ -2078,9 +2080,6 @@ class AppWindow:
             logger.debug("Update args")
             args = postprocess(args)
             update_arg(args, "images", self.args.images)  # we don't update this from the file
-            if args.area_file is None:
-                update_arg(args, "area_file", Path(self.args.out_dir, "area.csv").resolve())
-                # reconstruct this from the new out_dir
             self.args = args
             self.load_all_parameters()
             self.set_menu_enabled()

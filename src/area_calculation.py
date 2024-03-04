@@ -22,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_area(args):
-    area_out = args.area_file
+    if not args.area_file:
+        area_out = Path(args.out_dir, "area.csv")
+    else:
+        area_out = args.area_file
+
     logger.debug(f"Output to {Path(area_out).resolve()}")
 
     logger.debug("Start calculations")

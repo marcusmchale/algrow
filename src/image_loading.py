@@ -60,8 +60,8 @@ class ImageLoaded:
         rgb_fig.plot_image(self.rgb, "RGB image")
         rgb_fig.print()
 
-        self.logger.debug(f"Denoise")
         if self.args.denoise:
+            self.logger.debug(f"Denoise")
             self.rgb = denoise_bilateral(self.rgb, channel_axis=-1, sigma_color=1, sigma_spatial=1, mode='edge')
             rgb_denoise_fig = self.figures.new_figure(f"RGB denoised")
             rgb_denoise_fig.plot_image(self.rgb)
