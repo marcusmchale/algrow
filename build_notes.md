@@ -55,7 +55,7 @@ Then run pyinstaller in the algrow root path
 You might want to check the path of libspatialindex files
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
---name algrow_0_6_2_linux \
+--name algrow_0_6_3_linux \
 --add-data=bmp/logo.png:./bmp/ \
 --add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
 --add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \

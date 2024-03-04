@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='algrow',
-    version='0.6.2',
+    version='0.6.3',
     packages=['src'],
     scripts=['algrow.py'],
     url='https://github.com/marcusmchale/algrow',
