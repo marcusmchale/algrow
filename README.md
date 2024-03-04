@@ -1,4 +1,6 @@
 # AlGrow
+View in [Github Pages](https://marcusmchale.github.io/algrow/) to include the embedded video,
+or directly on [Github](https://github.com/marcusmchale/algrow/) for simple markdown display. 
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
 
