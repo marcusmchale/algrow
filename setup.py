@@ -10,6 +10,8 @@ setup(
     author='Marcus McHale',
     author_email='marcus.mchale@universityofgalway.ie',
     description="Image segmentation using alpha hulls with additional annotation and growth analysis",
+    long_description=open('README.md', 'r').read(),
+    long_description_content_type='text/markdown',
     install_requires=[
         "configargparse~=1.7",
         "numpy~=1.26.2",

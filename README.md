@@ -1,6 +1,6 @@
 # AlGrow
 View in [Github Pages](https://marcusmchale.github.io/algrow/) to include the embedded video,
-or directly on [Github](https://github.com/marcusmchale/algrow/) for simple markdown display. 
+or directly on [GitHub](https://github.com/marcusmchale/algrow/) for simple markdown display. 
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
 
@@ -12,7 +12,17 @@ to support macro-algal disc and plant growth phenotyping in the
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
 at the [University of Galway](https://www.universityofgalway.ie/).
 
-Features:
+## Get started
+
+The easiest way to use the software is to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
+
+If you are working in an existing python environment you can also install from PyPi. 
+```pip install algrow```
+
+For advice on more complex installations, including building your own binaries see the [build notes](./build_notes.md)
+
+
+## Features:
   - Improved deterministic model for colour-based image segmentation
     - Hulls (convex or alpha) flexibly define the target colour volume in a given 3D colour space
       - Fixed thresholds are implicitly cubic selections
@@ -44,14 +54,6 @@ Features:
     - INFO, just the image mask and a summary overlay with outlined target and annotated indices.
     - WARN, no debug images generated.
 
-## Get started
-
-The easiest way to use the software is to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
-
-If you are working in an existing python environment you can also install from PyPi. 
-```pip install algrow```
-
-For advice on more complex installations, including building your own binaries see the [build notes](./build_notes.md)
 
 ## The long story...
 
