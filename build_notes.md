@@ -14,7 +14,7 @@ Install home brew and set path
 at the bottom of the output from that are two lines to set up the path environment
 then install python 3.10 and libomp
 ```
-brew install python3.10
+brew install python@3.10
 brew install libomp
 ```
 ```

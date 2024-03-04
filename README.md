@@ -2,6 +2,8 @@
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
 
+<video src="https://github.com/marcusmchale/algrow/releases/latest/download/tutorial.mov" controls="controls" style="max-width: 1080px;"></video>
+
 Algrow is a software tool for automated image annotation, segmentation and analysis. 
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
 to support macro-algal disc and plant growth phenotyping in the 

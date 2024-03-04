@@ -740,7 +740,7 @@ class AppWindow:
         if isMacOS:  # todo work out why comboboxes cause a crash on mac osx, for now just disabling
             panel.comboboxes['debugging images'].enabled = False
             panel.add_label(
-                "Image debugging combobox is disabled on OSx"
+                "Image debugging combobox is disabled on OSx\n"
                 "Please use a configuration file or launch option"
             )
         panel.add_path_select(
