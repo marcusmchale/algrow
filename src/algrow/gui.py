@@ -89,8 +89,8 @@ class AppWindow:
         self.labels = list()  # used to store and subsequently remove 3d labels - todo remove by type?
         self.annotations = list()  # used to store and subsequently remove annotations from image widget
 
-        logo_path = Path(Path(__file__).parent.parent, "bmp", "logo.png")
-        logger.debug(f"Looking for log at: {logo_path}")
+        logo_path = Path(Path(__file__).parent, "logo.png")
+        logger.debug(f"Looking for logo at: {logo_path}")
         self.background_widget = gui.ImageWidget(str(logo_path))
         self.window.add_child(self.background_widget)
 
@@ -765,7 +765,7 @@ class AppWindow:
         else:
             self.window.show_message_box("Error", "Configuration is incomplete")
 
-    def calculate_rgr(self, _event = None):
+    def calculate_rgr(self, _event=None):
         if not self.args.area_file:
             self.window.show_message_box("Error", f"No area file selected")
         elif not self.args.area_file.is_file():

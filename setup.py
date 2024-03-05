@@ -2,9 +2,12 @@ from setuptools import setup
 
 setup(
     name='algrow',
-    version='0.6.3',
-    packages=['src'],
-    scripts=['algrow.py'],
+    version='0.6.3-5',
+    packages=['algrow'],
+    package_dir={"": "src"},
+    include_package_data=True,
+    package_data={"": ["*.png"]},
+    entry_points={'console_scripts': ['algrow=algrow.launch:run']},
     url='https://github.com/marcusmchale/algrow',
     license='LICENSE.txt',
     author='Marcus McHale',

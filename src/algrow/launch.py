@@ -1,5 +1,6 @@
 import argparse
 import logging.config
+
 import sys
 
 from pathlib import Path
@@ -11,20 +12,24 @@ from .area_calculation import calculate_area
 from .analysis import analyse
 from .gui import AppWindow
 
-logger = logging.getLogger(__name__)
 logging.config.dictConfig(LOGGING_CONFIG)
+logger = logging.getLogger(__name__)
 
-
-def algrow():
+def run():
     arg_parser = options()
     args, _ = arg_parser.parse_known_args()
-    #args = arg_parser.parse_args()  # parse_args breaks pyinstaller combination with multiprocessing
+    #args = arg_parser.parse_args()  # parse_args breaks pyinstaller in combination with multiprocessing
     args = postprocess(args)
+
+    #logger = logging.getLogger('src.algrow')  # need this when using setuptools as the script is compiled in another environment
+    algrow_logger = logging.getLogger('algrow')
+    algrow_logger.setLevel(args.loglevel.name)
+
     # Ensure output directory exists
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     Path(args.out_dir, 'algrow.log').touch(exist_ok=True)
 
-    logger.warning(f"Start with: {arg_parser.format_values()}")
+    logger.info(f"Start with: {arg_parser.format_values()}")
 
     if not configuration_complete(args):
         logger.info("Launching AlGrow GUI")
@@ -63,4 +68,3 @@ def launch_gui(args: argparse.Namespace):
     AppWindow(1920, 1080, fonts, args)
     logger.debug("Run")
     gui.Application.instance.run()
-

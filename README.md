@@ -1,10 +1,8 @@
 # AlGrow
-View in [Github Pages](https://marcusmchale.github.io/algrow/) to include the embedded video,
-or directly on [GitHub](https://github.com/marcusmchale/algrow/) for simple markdown display. 
+View in [Github Pages](https://marcusmchale.github.io/algrow/) to see the embedded demonstration video,
+or directly on [GitHub](https://github.com/marcusmchale/algrow/) for simple markdown display.
 
 - Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
-
-<video src="https://github.com/marcusmchale/algrow/releases/latest/download/tutorial.mov" controls="controls" style="max-width: 1080px;"></video>
 
 Algrow is a software tool for automated image annotation, segmentation and analysis. 
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
@@ -12,15 +10,27 @@ to support macro-algal disc and plant growth phenotyping in the
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
 at the [University of Galway](https://www.universityofgalway.ie/).
 
-## Get started
+## Install
 
-The easiest way to use the software is to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
+The easiest way to use the software may be to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
 
-If you are working in an existing python environment you can also install from PyPi. 
+However, if you are familiar with the python environment you can also install from PyPi. 
 ```pip install algrow```
+Then you should be able to launch from the console:
+```algrow```
 
 For advice on more complex installations, including building your own binaries see the [build notes](./build_notes.md)
 
+## Instructions
+
+The below video is an example of the use of AlGrow, though for more detil you may also benefit from reading the [guide](guide.md).
+
+<video src="https://github.com/marcusmchale/algrow/releases/latest/download/tutorial.mov" controls="controls" style="max-width: 1080px;"></video>
+
+For the command-line interface, AlGrow must be launched with a complete configuration, either supplied as arguments or in a configuration file.
+A complete configuration requires both a configured hull and either; a complete layout specification, a fixed layout file or provide False to the --detect_layout argument.
+e.g.
+'''algrow -i images -o output -l False'''
 
 ## Features:
   - Improved deterministic model for colour-based image segmentation

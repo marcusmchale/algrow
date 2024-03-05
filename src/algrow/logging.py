@@ -6,6 +6,7 @@ import logging.handlers
 
 args, _ = options().parse_known_args()  #needed for pyisntaller multiprocessing which injects more args
 
+
 def worker_log_configurer(queue):
     logging.config.dictConfig(LOGGING_CONFIG)
     h = logging.handlers.QueueHandler(queue)  # Just the one handler needed
@@ -58,15 +59,10 @@ LOGGING_CONFIG = {
             # in particular the presence of simplices in a single axis. These points are still found in other
             'propagate': False
         },
-        'src': {
+        'algrow': {
             'handlers': ['default', 'logfile'],
             'level': args.loglevel.name,
             'propagate': False
-        },
-        '__main__': {  # if __name__ == '__main__'
-            'handlers': ['default'],
-            'level': args.loglevel.name,
-            'propagate': False
-        },
+        }
     }
 }

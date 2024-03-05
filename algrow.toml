@@ -4,10 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "algrow"
-version = "0.6.3"
+version = "0.6.3-5"
 authors = [
   { name="Marcus McHale", email="marcus.mchale@universityofgalway.ie" },
 ]
+include-package-data = True,
 description = "Image segmentation using alpha hulls, plus automated annotation and growth analysis"
 readme = "README.md"
 license = { file="LICENSE.txt" }
@@ -32,3 +33,4 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/marcusmchale/algrow"
+
