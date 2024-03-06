@@ -1851,11 +1851,25 @@ class AppWindow:
         self.window.close_dialog()
 
     def _on_license(self):
-        license_path = Path(Path(__file__).parent, "resources", "LICENSE.txt")
-        webbrowser.open(str(license_path))
+        # when running a pyinstaller executable, these resources are placed in tmp
+        # snaps e.g. mozilla browser don't share the same tmp, see: https://bugs.launchpad.net/snapd/+bug/1972762
+        # so we need to copy to a constant path, use the out_dir
+        src_path = Path(Path(__file__).parent, "resources", "LICENSE.txt")
+        dest_path = Path(Path(self.args.out_dir).resolve(), "AlGrow_LICENSE.txt")
+        if not dest_path.is_file():
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Copy text to {dest_path}")
+            dest_path.write_text(src_path.read_text())
+        webbrowser.open(str(dest_path))
+
     def _on_dep_license(self):
-        license_path = Path(Path(__file__).parent, "resources", "dependency_licenses.txt")
-        webbrowser.open(str(license_path))
+        src_path = Path(Path(__file__).parent, "resources", "dependency_licenses.txt")
+        dest_path = Path(Path(self.args.out_dir).resolve(), "AlGrow_dependency_licenses.txt")
+        if not dest_path.is_file():
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Copy text to {dest_path}")
+            dest_path.write_text(src_path.read_text())
+        webbrowser.open(str(dest_path))
 
     def set_menu_enabled(self):
         if self.image is None:

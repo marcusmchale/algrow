@@ -53,10 +53,14 @@ sudo apt install libspatialindex-dev
 ```
 Then run pyinstaller in the algrow root path
 You might want to check the path of libspatialindex files
+
+
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level INFO \
---name algrow_0_6_3-5_linux \
---add-data=src/algrow/logo.png:algrow/ \
+--name algrow_0.6.4.dev8_linux \
+--add-data=bmp/logo.png:algrow/resources \
+--add-data=LICENSE.txt:algrow/resources \
+--add-data=dependency_licenses.txt:algrow/resources \
 --add-data=venv/lib/python3.10/site-packages/open3d/libc++*.so.1:. \
 --add-data=venv/lib/python3.10/site-packages/Rtree.libs/libspatialindex-91fc2909.so.6.1.1:. \
 --add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
@@ -74,7 +78,9 @@ pip install -r REQUIREMENTS.txt
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN \
 --name algrow_0_5_0_osx \
 --icon=./bmp/icon.ico \
---add-data=src/algrow/logo.png:algrow/ \
+--add-data=bmp/logo.png:algrow/resources \
+--add-data=LICENSE.txt:algrow/resources \
+--add-data=dependency_licenses.txt:algrow/resources \
 --add-data=venv/lib/python3.10/site-packages/open3d/resources:./open3d/resources \
 --hidden-import='PIL._tkinter_finder' \
 src/run_algrow.py
@@ -103,7 +109,9 @@ Then run pyinstaller
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level WARN 
 --name algrow_0_5_0_win10 
 --icon=bmp\icon.ico 
---add-data=src\algrow\logo.png:algrow\
+--add-data=bmp\logo.png:algrow\resources 
+--add-data=LICENSE.txt:algrow\resources 
+--add-data=dependency_licenses.txt:algrow\resources 
 --add-data=venv\lib\site-packages\open3d\resources:.\open3d\resources
 src/run_algrow.py
 ```

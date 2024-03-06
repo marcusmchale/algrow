@@ -15,6 +15,7 @@ from .gui import AppWindow
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
 
+
 def run():
     arg_parser = options()
     args, _ = arg_parser.parse_known_args()
