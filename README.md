@@ -150,6 +150,8 @@ The AlGrow application was developed to;
     - this may help user experience in the GUI, the current behaviour can be confusing.
   
 ### Features:
+  - Label objects and include those that span the region of interest boundary.
+    - use this to assign objects within two ROI to a single ROI.
   - Analysis
     - fit to dynamic region, find area that best fits log-linear growth rather than using a fixed period
     - blocking (mixed effects models):
