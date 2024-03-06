@@ -6,7 +6,7 @@ setup(
     packages=['algrow'],
     package_dir={"": "src"},
     include_package_data=True,
-    package_data={"": ["*.png"]},
+    package_data={"resources": ["resources/*.png", "resources/*.txt"]},
     entry_points={'console_scripts': ['algrow=algrow.launch:run']},
     url='https://github.com/marcusmchale/algrow',
     license='LICENSE.txt',

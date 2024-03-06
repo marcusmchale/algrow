@@ -89,7 +89,7 @@ class AppWindow:
         self.labels = list()  # used to store and subsequently remove 3d labels - todo remove by type?
         self.annotations = list()  # used to store and subsequently remove annotations from image widget
 
-        logo_path = Path(Path(__file__).parent, "logo.png")
+        logo_path = Path(Path(__file__).parent, "resources", "logo.png")
         logger.debug(f"Looking for logo at: {logo_path}")
         self.background_widget = gui.ImageWidget(str(logo_path))
         self.window.add_child(self.background_widget)
@@ -1819,7 +1819,10 @@ class AppWindow:
 
         # Add the text
         dlg_layout = gui.Vert(self.em, gui.Margins(self.em, self.em, self.em, self.em))
-        dlg_layout.add_child(gui.Label("AlGrow Calibration GUI "))
+        dlg_layout.add_child(gui.Label(
+            "AlGrow license is available at https://github.com/marcusmchale/algrow/blob/main/LICENSE.txt"
+            "Depency licenses are available at "
+        ))
 
         # Add the Ok button. We need to define a callback function to handle the click.
         ok = gui.Button("OK")

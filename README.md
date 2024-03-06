@@ -23,7 +23,7 @@ For advice on more complex installations, including building your own binaries s
 
 ## Instructions
 
-The below video is an example of the use of AlGrow, though for more detail you may also benefit from reading the [guide](guide.md).
+The below video (only visible on [Github Pages](https://marcusmchale.github.io/algrow/)) is an example of the use of AlGrow, though for more detail you may also benefit from reading the [guide](guide.md).
 
 <video src="https://github.com/marcusmchale/algrow/releases/latest/download/tutorial.mov" controls="controls" style="max-width: 1080px;"></video>
 
