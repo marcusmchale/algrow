@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "algrow"
+dynamic = ["version"]
+authors = [{ name="Marcus McHale", email="marcus.mchale@universityofgalway.ie" }]
+description = "Image segmentation using alpha hulls, plus automated annotation and growth analysis"
+readme = "README.md"
+license = { file="LICENSE.txt" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+]
+dependencies = ["configargparse", "numpy", "pandas", "scipy", "scikit-image", "alphashape", "matplotlib", "open3d"]
+
+[project.urls]
+"Homepage" = "https://marcusmchale.github.io/algrow/"
+
+[project.scripts]
+algrow="algrow.launch:run"
+
+[tool.setuptools.package-data]
+algrow = ["resources/*"]
+
+[tool.setuptools_scm]
+version_file = "src/algrow/_version.py"

@@ -6,6 +6,7 @@ import platform
 import numpy as np
 import pandas as pd
 import re
+import webbrowser
 
 from enum import Enum
 from pathlib import Path
@@ -21,6 +22,7 @@ from .layout import Layout, ExcessPlatesException, InsufficientPlateDetection, I
 from .panel import Panel
 from .area_calculation import calculate_area
 from .analysis import analyse
+from ._version import __version__
 
 from typing import Optional
 
@@ -1819,10 +1821,14 @@ class AppWindow:
 
         # Add the text
         dlg_layout = gui.Vert(self.em, gui.Margins(self.em, self.em, self.em, self.em))
-        dlg_layout.add_child(gui.Label(
-            "AlGrow license is available at https://github.com/marcusmchale/algrow/blob/main/LICENSE.txt"
-            "Depency licenses are available at "
-        ))
+        dlg_layout.add_child(gui.Label(f"AlGrow {__version__}"))
+        open_license = gui.Button("License")
+        open_license.set_on_clicked(self._on_license)
+        dlg_layout.add_child(open_license)
+
+        open_dep_license = gui.Button("Dependency Licenses")
+        open_dep_license.set_on_clicked(self._on_dep_license)
+        dlg_layout.add_child(open_dep_license)
 
         # Add the Ok button. We need to define a callback function to handle the click.
         ok = gui.Button("OK")
@@ -1843,6 +1849,13 @@ class AppWindow:
 
     def _on_about_ok(self):
         self.window.close_dialog()
+
+    def _on_license(self):
+        license_path = Path(Path(__file__).parent, "resources", "LICENSE.txt")
+        webbrowser.open(str(license_path))
+    def _on_dep_license(self):
+        license_path = Path(Path(__file__).parent, "resources", "dependency_licenses.txt")
+        webbrowser.open(str(license_path))
 
     def set_menu_enabled(self):
         if self.image is None:
