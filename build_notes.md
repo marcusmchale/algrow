@@ -51,7 +51,7 @@ Install the following to the system
 ```
 sudo apt install libspatialindex-dev
 ```
-Then run pyinstaller in the algrow root path
+Then run pyinstaller in the project root path
 You might want to check the path of libspatialindex files
 
 
