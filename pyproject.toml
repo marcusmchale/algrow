@@ -27,4 +27,4 @@ algrow="algrow.launch:run"
 algrow = ["resources/*"]
 
 [tool.setuptools_scm]
-version_file = "src/algrow/_version.py"
+version_file = "_version.py"

@@ -8,4 +8,4 @@ algrow.egg-info/
 /dist/
 /*.spec
 .idea
-
+_version.py
