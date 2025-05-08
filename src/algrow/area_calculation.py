@@ -185,7 +185,7 @@ class ImageProcessor:
                 distance_image[~self.image.layout_mask] = 0  # set masked region as 0
                 distance_image[self.image.layout_mask] = distances
             hull_distance_figure = self.image.figures.new_figure('Hull distance')
-            hull_distance_figure.plot_image(distance_image, "Distance from hull (delta E)", color_bar=True)
+            hull_distance_figure.plot_image(distance_image, "ΔE from hull surface", color_bar=True)
             hull_distance_figure.print()
 
         self.logger.debug("Create mask from distance threshold")

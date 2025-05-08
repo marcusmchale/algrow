@@ -1,4 +1,4 @@
-# Algrow GUI Guide
+# AlGrow GUI Guide
 When AlGrow is loaded, a menu is presented along with a logo page.
 Chose from the options described below to proceed.
 

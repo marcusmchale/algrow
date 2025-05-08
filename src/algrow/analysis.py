@@ -1,11 +1,11 @@
 """Read in a sample details file and perform lsgr analysis"""
 import logging
-from pandas import read_csv, to_datetime, merge, Timedelta
+from pandas import read_csv, to_datetime, merge, Timedelta, Series
 import numpy as np
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
-
+from matplotlib.lines import Line2D
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,14 @@ class AreaAnalyser:
         self.area_header = area_header
         self.logger = logging.getLogger(__name__)
         columns = ["Block", "Unit", "Time", "Area", "Group"]
-        self.df = merge(self._load_area(area_csv), self._load_id(id_csv), on=["Block", "Unit"])[columns]
+        id_df = self._load_id(id_csv)
+        area_df = self._load_area(area_csv)
+        self.df = merge(area_df, id_df, on=["Block", "Unit"])[columns]
+        if self.df.shape[0] == 0:
+            raise ValueError(
+                "No data found applying the map to the area file.\n "
+                "Please check the values for 'Block' and 'Unit' correspond across these files."
+            )
         self.df = self.df.set_index(["Block", "Unit", "Time"]).sort_index()
 
     def _load_area(self, area_csv):
@@ -90,14 +97,14 @@ class AreaAnalyser:
         df["elapsed_m"] = (df.index.get_level_values("Time") - start) // Timedelta(minutes=1)
         with np.errstate(divide='ignore'):
             df["log_area"] = np.log(df["Area"])  # 0 values are -Inf which are then ignored in the fit
-        df["fit"] = df.groupby(["Block", "Unit"], group_keys=True).apply(self._fit)
-        df[["intercept", "slope", "RSS"]] = df.fit.to_list()
+
+        df[["Intercept", "Slope", "RSS"]] = df.groupby(["Block", "Unit"], group_keys=True, dropna=False).apply(self._fit).apply(Series)
         # RGR calculation:
         # slope of the fit is with minutes on the x-axis so convert to days (1440 minutes/day)
         # then express as percent and
         # round to 2 significant figures
-        df["RGR"] = round(df["slope"] * 1440 * 100, 2)
-        self.df = self.df.join(df[["slope", "intercept", "RGR", "RSS", "elapsed_m"]])
+        df["RGR"] = round(df["Slope"] * 1440 * 100, 2)
+        self.df = self.df.join(df[["Slope", "Intercept", "RGR", "RSS", "elapsed_m"]])
 
     def _get_df_mask(self, blocks: list = None, units: list = None, groups: list = None):
         self.logger.debug("get mask")
@@ -120,20 +127,24 @@ class AreaAnalyser:
         self.logger.debug("draw plot")
         mask = self._get_df_mask(groups=groups)
         df = self.df[mask]
-        df = df.groupby(["Block", "Unit"], group_keys=True)
+        df = df.groupby(["Block", "Unit"], group_keys=True, dropna=False)
+        markers = list(Line2D.markers.keys())
         for i, (name, group) in enumerate(df):
             ax.scatter(
                 group.index.get_level_values("Time"),
                 group["Area"],
-                s=1,
+                s=30,
+                marker=markers[i],
                 label=f"Block {name[0]}, Unit {name[1]}. RGR: {group.RGR.dropna().unique()}"
             )
             if plot_fit:
-                if name in plot_fit:
+                # todo here we are converting to string to handle matches to np.nan, find a better way
+                if str(name) in [str(i) for i in plot_fit]:
+                    # todo here we are converting to string to handle matches to np.nan, find a better way
                     ax.plot(
                         group.index.get_level_values("Time"),
-                        np.exp(group.slope * group.elapsed_m + group.intercept),
-                        linestyle="dashed" if outliers and name in outliers else "solid"
+                        np.exp(group.Slope * group.elapsed_m + group.Intercept),
+                        linestyle="dashed" if outliers and str(name) in [str(i) for i in outliers] else "solid"
                     )
             ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(ax.xaxis.get_major_locator()))
             ax.set_ylabel("Area (mm²)")
@@ -161,7 +172,7 @@ class AreaAnalyser:
         rgr_out = Path(outdir, "RGR.csv")
         rgr_out.parent.mkdir(parents=True, exist_ok=True)
         summary.to_csv(rgr_out)
-        mean_rgr = summary[~summary.ModelFitOutlier].groupby("Group").mean()
+        mean_rgr = summary[~summary.ModelFitOutlier].groupby("Group", dropna=False).mean()
         mean_rgr_out = Path(outdir, "RGR_mean.csv")
         mean_rgr["RGR"].to_csv(mean_rgr_out)
         if rgr_plot:
@@ -170,14 +181,17 @@ class AreaAnalyser:
             ax = fig.add_subplot()
             summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
             ax.set_ylabel("RGR (%/day")
-            fig.savefig(str(Path(outdir, "Figures", "RGR.png")), dpi=300)
+            plot_path = Path(outdir, "Figures", "RGR.png")
+            plot_path.parent.mkdir(parents=True, exist_ok=True)
+            fig.savefig(str(plot_path), dpi=300)
             # similar plot with model fit outliers removed
             fig = Figure()
             ax = fig.add_subplot()
             sub_summary = summary[~summary.ModelFitOutlier]
             sub_summary.boxplot("RGR", by="Group", rot=90, figsize=figsize, ax=ax)
             ax.set_ylabel("RGR (%/day")
-            fig.savefig(str(Path(outdir, "Figures", "RGR_ModelFitOutliers_removed.png")), dpi=300)
+            plot_path = Path(outdir, "Figures", "RGR_ModelFitOutliers_removed.png")
+            fig.savefig(str(plot_path), dpi=300)
         if group_plots:
             group_plot_dir = Path(outdir, "Figures", "group_plots")
             group_plot_dir.mkdir(parents=True, exist_ok=True)
@@ -187,6 +201,8 @@ class AreaAnalyser:
                 to_plot_fit = summary[(summary.Group == group)].index.to_list()
                 outliers = summary[summary.ModelFitOutlier].index.to_list()
                 self.draw_plot(ax, plot_fit=to_plot_fit, groups=[group], outliers=outliers)
-                fig.savefig(str(Path(group_plot_dir, f"{group}.png")), bbox_inches='tight')
+                plot_path = Path(group_plot_dir, f"{group}.png")
+                plot_path.parent.mkdir(parents=True, exist_ok=True)
+                fig.savefig(str(plot_path), bbox_inches='tight')
 
 

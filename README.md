@@ -1,10 +1,11 @@
-# AlGrow
+[A publication describing AlGrow is now available](https://doi.org/10.1093/plphys/kiae577)!
+
 For best results view this page in [Github Pages](https://marcusmchale.github.io/algrow/) to see the embedded demonstration video,
 or directly on [GitHub](https://github.com/marcusmchale/algrow/) for simple markdown display. 
 
-- Alpha-hull colour boundary in segmentation of multiplexed plant and algal images for growth rate analysis.
+# Alpha-hull defined colour boundaries in segmentation of multiplexed images for growth rate analysis.
 
-Algrow is a software tool for automated image annotation, segmentation and analysis. 
+AlGrow is a software tool for automated image annotation, segmentation and analysis. 
 It was developed by [Dr Marcus McHale](https://github.com/marcusmchale) 
 to support macro-algal disc and plant growth phenotyping in the 
 [Plant Systems Biology Laboratory](https://sulpice-lab.com/) of [Dr Ronan Sulpice](https://www.nuigalway.ie/our-research/people/natural-sciences/ronansulpice/) 
@@ -14,12 +15,12 @@ at the [University of Galway](https://www.universityofgalway.ie/).
 
 The easiest way to use the software may be to download a compiled binary from the latest [release](https://github.com/marcusmchale/algrow/releases).
 
-However, if you are familiar with the python environment you can also install from PyPi. 
+However, if you are familiar with the python environment you can also install the latest release from PyPi. 
 ```pip install algrow```
 Then you should be able to launch from the console:
 ```algrow```
 
-For advice on more complex installations, including building your own binaries see the [build notes](./build_notes.md)
+For advice on more complex installations, including building binaries please see the [build notes](./build_notes.md)
 
 ## Instructions
 
@@ -174,3 +175,23 @@ The AlGrow application was developed to;
     - could include another 3d plot beside Lab. The same hyper-hull being represented across both plots? or separate hulls
     - maybe consider them as separate masks for target selection, taking the overlap.
 
+### Cite
+To cite AlGrow, please refer to the [associated publication](https://doi.org/10.1093/plphys/kiae577).
+
+This is detailed using the following bibtex:
+<code>
+@article{10.1093/plphys/kiae577,
+    author = {McHale, Marcus and Sulpice, Ronan},
+    title = {AlGrow: A graphical interface for easy, fast, and accurate area and growth analysis of heterogeneously colored targets},
+    journal = {Plant Physiology},
+    volume = {197},
+    number = {1},
+    pages = {kiae577},
+    year = {2024},
+    month = {11},
+    issn = {0032-0889},
+    doi = {10.1093/plphys/kiae577},
+    url = {https://doi.org/10.1093/plphys/kiae577},
+    eprint = {https://academic.oup.com/plphys/article-pdf/197/1/kiae577/60773351/kiae577.pdf}
+}
+</code>
