@@ -110,7 +110,10 @@ arg_types = {
     "circles_cols_first": bool,
     "circles_right_left": bool,
     "circles_bottom_top": bool,
-    "denoise": bool
+    "denoise": bool,
+    "canny_sigma": float,
+    "canny_low": float,
+    "canny_high": float
 }
 
 
@@ -246,6 +249,24 @@ def options(filepath=None):
         help="How much tolerance to allow for distances between circles within a plate",
         default=0.1,
         type=arg_types["circle_separation_tolerance"]
+    )
+    parser.add_argument(
+        "--canny_sigma",
+        help="Standard deviation of the Gaussian filter in Canny edge detection",
+        default=3,
+        type=arg_types["canny_sigma"]
+    )
+    parser.add_argument(
+        "--canny_low",
+        help="Lower bound for edge strength, passed to skimage canny edge detection",
+        default=None,
+        type=arg_types["canny_low"]
+    )
+    parser.add_argument(
+        "--canny_high",
+        help="Upper bound for edge strength, passed to skimage canny edge detection",
+        default=None,
+        type=arg_types["canny_high"]
     )
     parser.add_argument(
         "--plate_width",

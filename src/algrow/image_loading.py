@@ -532,7 +532,9 @@ class LayoutDetector:
 
     def hough_circles(self, image, hough_radii):
         self.logger.debug(f"Find circles with radii: {hough_radii}")
-        edges = canny(image, sigma=3, low_threshold=10, high_threshold=20)
+        # todo add these new args to the gui,
+        #  do this at the same time as updating the circle detection GUI so it also shows circle detection
+        edges = canny(image, sigma=self.args.canny_sigma, low_threshold=self.args.canny_low, high_threshold=self.args.canny_high)
         return hough_circle(edges, hough_radii)
 
     def find_n_circles(self, n, fig=None, allowed_overlap=0.1):
@@ -569,6 +571,8 @@ class LayoutDetector:
         circles = circles[((circles[:, 0] - circle_radius_px) > 0) & ((circles[:, 0] + circle_radius_px) < self.image.rgb.shape[1])]
         # if y-radius < 0 or y+radius > self.image.rgb.shape[0]
         circles = circles[((circles[:, 1] - circle_radius_px) > 0) & ((circles[:, 1] + circle_radius_px) < self.image.rgb.shape[0])]
+
+
         fig.plot_image(self.image.rgb, f"Circle detection")
         for c in circles:
             fig.add_circle((c[0], c[1]), c[2])
