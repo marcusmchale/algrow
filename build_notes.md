@@ -37,7 +37,7 @@ Download
 Install python packages
 ```python3.10-distutils python3.10-dev```
 Build
-```python setup.py bdist_wheel```
+```python -m build```
 
 ### Binary (PyInstaller)
 Make sure to include licenses for all dependencies if packaging a binary for distribution.
