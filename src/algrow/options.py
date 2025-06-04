@@ -253,19 +253,19 @@ def options(filepath=None):
     parser.add_argument(
         "--canny_sigma",
         help="Standard deviation of the Gaussian filter in Canny edge detection",
-        default=3,
+        default=3.0,
         type=arg_types["canny_sigma"]
     )
     parser.add_argument(
         "--canny_low",
-        help="Lower bound for edge strength, passed to skimage canny edge detection",
-        default=None,
+        help="Lower bound for linking weak edges to strong ones, passed to skimage canny edge detection",
+        default=0,
         type=arg_types["canny_low"]
     )
     parser.add_argument(
         "--canny_high",
-        help="Upper bound for edge strength, passed to skimage canny edge detection",
-        default=None,
+        help="Upper bound for detecting strong edges, passed to skimage canny edge detection",
+        default=20,
         type=arg_types["canny_high"]
     )
     parser.add_argument(
@@ -456,6 +456,7 @@ def update_arg(args, arg, val, temporary=False):
             vars(args).update({arg: val})
 
 
+
 def minimum_calibration(args):
     return all([
         args.images is not None and len(args.images) >= 1,
@@ -465,6 +466,7 @@ def minimum_calibration(args):
 
 def layout_defined(args):
     return args.fixed_layout is not None or all([
+        args.canny_low <= args.canny_high,
         args.circle_colour is not None,
         args.circle_diameter is not None and args.circle_diameter > 0,
         args.circle_variability is not None and args.circle_variability >= 0,

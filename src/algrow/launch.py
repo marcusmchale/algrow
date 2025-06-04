@@ -66,6 +66,8 @@ def launch_gui(args: argparse.Namespace):
     fonts['large'] = app.add_font(gui.FontDescription(style=gui.FontStyle.NORMAL, point_size=20))  # font id 0
     fonts['small'] = app.add_font(gui.FontDescription(style=gui.FontStyle.NORMAL, point_size=15))  # font id 0
     logger.debug("Get window")
+
     AppWindow(1920, 1080, fonts, args)
     logger.debug("Run")
     gui.Application.instance.run()
+    logger.debug("Running")

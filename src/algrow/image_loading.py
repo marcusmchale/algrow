@@ -532,8 +532,6 @@ class LayoutDetector:
 
     def hough_circles(self, image, hough_radii):
         self.logger.debug(f"Find circles with radii: {hough_radii}")
-        # todo add these new args to the gui,
-        #  do this at the same time as updating the circle detection GUI so it also shows circle detection
         edges = canny(image, sigma=self.args.canny_sigma, low_threshold=self.args.canny_low, high_threshold=self.args.canny_high)
         return hough_circle(edges, hough_radii)
 

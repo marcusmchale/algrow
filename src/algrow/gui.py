@@ -245,11 +245,37 @@ class AppWindow:
     def get_layout_panel(self):
         logger.debug("Prepare layout panel")
         layout_panel = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), self.tool_layout)
+
         layout_panel.add_label("Layout detection parameters", self.fonts['large'])
         layout_horiz = Panel(gui.Horiz(spacing=self.em, margins=gui.Margins(self.em)), layout_panel)
+
+
         layout_numbers = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
         layout_buttons = Panel(gui.Vert(spacing=self.em, margins=gui.Margins(self.em)), layout_horiz)
+        layout_numbers.add_label("Edge detection parameters", self.fonts['large'])
+        layout_numbers.add_input(
+            "canny_sigma",
+            float,
+            tooltip="Standard deviation of the Gaussian filter used to smooth the image",
+            on_changed=lambda event: update_arg(self.args, "canny_sigma", event)
+        )
+        layout_numbers.set_value("canny_sigma", self.args.canny_sigma)
+        layout_numbers.add_input(
+            "canny_low",
+            float,
+            tooltip="Lower bound for edge strength",
+            on_changed=lambda event: update_arg(self.args, "canny_low", event)
+        )
+        layout_numbers.set_value("canny_low", self.args.canny_low)
+        layout_numbers.add_input(
+            "canny_high",
+            float,
+            tooltip="Lower bound for edge strength",
+            on_changed=lambda event: update_arg(self.args, "canny_high", event)
+        )
+        layout_numbers.set_value("canny_high", self.args.canny_high)
 
+        layout_numbers.add_label("Circle and plate parameters", self.fonts['large'])
         layout_numbers.add_label(
             "Shift-click on two points to draw a line\nand copy the value into measured fields", self.fonts['small']
         )
@@ -428,6 +454,10 @@ class AppWindow:
             self.update_image_widget()
 
     def load_layout_parameters(self):
+        self.layout_panel.set_value("canny_sigma", self.args.canny_sigma)
+        self.layout_panel.set_value("canny_low", self.args.canny_low)
+        self.layout_panel.set_value("canny_high", self.args.canny_high)
+
         self.layout_panel.set_value("circle diameter", self.args.circle_diameter)
         self.layout_panel.set_value("circle variability", self.args.circle_variability)
         self.layout_panel.set_value("circle separation", self.args.circle_separation)
@@ -1285,6 +1315,7 @@ class AppWindow:
             circle_lab = tuple(np.median(circle_lab, axis=0))
             update_arg(self.args, "circle_colour", circle_lab)
             self.set_menu_enabled()
+
         else:
             update_arg(self.args, "circle_colour", None)
 
@@ -1518,6 +1549,7 @@ class AppWindow:
     def update_displayed_circle_colour(self):
         pool = self.circle_panel.button_pools['circle colour']
         lab = self.args.circle_colour
+
         pool.clear()
         if lab is not None:
             b = gui.Button('circle colour')

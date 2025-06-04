@@ -37,7 +37,15 @@ Download
 Install python packages
 ```python3.10-distutils python3.10-dev```
 Build
-```python -m build```
+```
+   git tag v0.X.X 
+   python -m build
+```
+#### push this wheel to PyPI
+```
+twine check dist/algrow-0.X.X-py3-none-any.whl
+twine upload dist/algrow-0.X.X-py3-none-any.whl
+```
 
 ### Binary (PyInstaller)
 Make sure to include licenses for all dependencies if packaging a binary for distribution.
@@ -54,7 +62,6 @@ sudo apt install libspatialindex-dev
 Then run pyinstaller in the algrow root path
 You might want to check the path of libspatialindex files
 
-
 ```
 pyinstaller --onefile --paths src/ --clean --noconfirm --log-level INFO \
 --name algrow_0.6.4.dev8_linux \
@@ -68,7 +75,7 @@ pyinstaller --onefile --paths src/ --clean --noconfirm --log-level INFO \
 --hidden-import='PIL._tkinter_finder' \
 src/run_algrow.py
 ```
-#### On macosx
+#### On macOS
 Make sure pyinstaller and AlGrow requirements are installed
 ```
 pip install pyinstaller
