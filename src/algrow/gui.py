@@ -457,7 +457,6 @@ class AppWindow:
         self.layout_panel.set_value("canny_sigma", self.args.canny_sigma)
         self.layout_panel.set_value("canny_low", self.args.canny_low)
         self.layout_panel.set_value("canny_high", self.args.canny_high)
-
         self.layout_panel.set_value("circle diameter", self.args.circle_diameter)
         self.layout_panel.set_value("circle variability", self.args.circle_variability)
         self.layout_panel.set_value("circle separation", self.args.circle_separation)
@@ -2091,6 +2090,7 @@ class AppWindow:
 
         if self.args.remove is not None:
             self.target_panel.set_value("remove", self.args.remove)
+
 
         logger.debug("Reset circle colour then load the argument")
         self.clear_circle_selection()

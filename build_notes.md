@@ -36,6 +36,11 @@ Download
 ```git clone https://github.com/marcusmchale/algrow```
 Install python packages
 ```python3.10-distutils python3.10-dev```
+Install build utility
+```pip install build```
+Install the latest twine
+```pip install twine==6.1.0```  
+
 Build
 ```
    git tag v0.X.X 
@@ -43,8 +48,8 @@ Build
 ```
 #### push this wheel to PyPI
 ```
-twine check dist/algrow-0.X.X-py3-none-any.whl
-twine upload dist/algrow-0.X.X-py3-none-any.whl
+python -m twine check dist/algrow-0.X.X-py3-none-any.whl
+python -m twine upload dist/algrow-0.X.X-py3-none-any.whl
 ```
 
 ### Binary (PyInstaller)

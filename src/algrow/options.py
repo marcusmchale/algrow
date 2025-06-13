@@ -259,13 +259,13 @@ def options(filepath=None):
     parser.add_argument(
         "--canny_low",
         help="Lower bound for linking weak edges to strong ones, passed to skimage canny edge detection",
-        default=0,
+        default=0.0,
         type=arg_types["canny_low"]
     )
     parser.add_argument(
         "--canny_high",
         help="Upper bound for detecting strong edges, passed to skimage canny edge detection",
-        default=20,
+        default=20.0,
         type=arg_types["canny_high"]
     )
     parser.add_argument(
@@ -466,6 +466,7 @@ def minimum_calibration(args):
 
 def layout_defined(args):
     return args.fixed_layout is not None or all([
+        args.canny_sigma is not None,
         args.canny_low <= args.canny_high,
         args.circle_colour is not None,
         args.circle_diameter is not None and args.circle_diameter > 0,

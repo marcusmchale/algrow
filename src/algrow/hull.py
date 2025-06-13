@@ -88,9 +88,13 @@ class HullHolder:
         #self.mesh = o3d.geometry.TriangleMesh(self.hull.as_open3d)
         # see https://github.com/mikedh/trimesh/issues/1116
         # todo keep an eye on this issue in case trimesh changes around this
+        # so from_legacy was deprecated, I have changed the below and it should work now
         #tmesh = o3d.t.geometry.TriangleMesh().from_legacy(mesh_legacy=self.mesh)
-        self.mesh = o3d.t.geometry.TriangleMesh().from_legacy(
-            mesh_legacy=o3d.geometry.TriangleMesh(self.hull.as_open3d)
+        self.mesh = o3d.t.geometry.TriangleMesh(
+            vertex_positions = o3d.core.Tensor(self.hull.vertices, dtype=o3d.core.Dtype.Float32),
+            #vertex_positions=o3d.core.Tensor(self.hull.vertices.copy(), dtype=o3d.core.Dtype.Float32),
+            triangle_indices = o3d.core.Tensor(self.hull.faces, dtype=o3d.core.Dtype.Float32)
+            #triangle_indices = o3d.core.Tensor(self.hull.faces.copy(), dtype=o3d.core.Dtype.Float32)
         )
         self.scene.add_triangles(self.mesh)
 
